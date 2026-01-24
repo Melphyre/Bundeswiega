@@ -9,7 +9,8 @@ export function calculateAverageDistance(playerId: string, rounds: Round[]): num
   const distances = rounds
     .map(r => {
       const weight = r.results[playerId];
-      return weight !== undefined ? Math.abs(weight - r.targetWeight) : null;
+      const target = (r.isFinal && r.individualTargets) ? r.individualTargets[playerId] : r.targetWeight;
+      return weight !== undefined && target !== undefined ? Math.abs(weight - target) : null;
     })
     .filter((d): d is number => d !== null);
     
@@ -18,38 +19,84 @@ export function calculateAverageDistance(playerId: string, rounds: Round[]): num
 }
 
 export function getRoundSummary(round: Round, players: Player[]): {
-  furthestPlayer: string;
+  furthestPlayers: string[];
   specialHits: { playerName: string; value: number }[];
-  duplicates: number[];
+  duplicates: { weight: number; playerNames: string[] }[];
+  exactHits: string[];
+  pointsToAward: string[];
 } {
   let maxDist = -1;
-  let furthestPlayerId = '';
+  let furthestPlayerIds: string[] = [];
   const specialHits: { playerName: string; value: number }[] = [];
-  const weightCounts: Record<number, number> = {};
+  const weightGroups: Record<number, string[]> = {};
+  const weightGroupsIds: Record<number, string[]> = {};
+  const exactHits: string[] = [];
+  const pointsToAwardSet = new Set<string>();
 
   players.forEach(p => {
     const weight = round.results[p.id];
-    const dist = Math.abs(weight - round.targetWeight);
+    if (weight === undefined) return;
+
+    const target = (round.isFinal && round.individualTargets) ? round.individualTargets[p.id] : round.targetWeight;
+    const dist = Math.abs(weight - target);
+    
+    // Furthest players logic (Always applies)
     if (dist > maxDist) {
       maxDist = dist;
-      furthestPlayerId = p.name;
+      furthestPlayerIds = [p.id];
+    } else if (dist === maxDist && dist >= 0) {
+      furthestPlayerIds.push(p.id);
     }
-    
-    if (SPECIAL_NUMBERS.includes(weight)) {
-      specialHits.push({ playerName: p.name, value: weight });
+
+    // Normal round bonuses
+    if (!round.isFinal) {
+      // Exact hits
+      if (weight === target) {
+        exactHits.push(p.name);
+        pointsToAwardSet.add(p.id);
+      }
+      
+      // Special numbers (Schnapszahl)
+      if (SPECIAL_NUMBERS.includes(weight)) {
+        specialHits.push({ playerName: p.name, value: weight });
+        pointsToAwardSet.add(p.id);
+      }
+      
+      // Grouping for duplicates
+      if (!weightGroups[weight]) {
+        weightGroups[weight] = [];
+        weightGroupsIds[weight] = [];
+      }
+      weightGroups[weight].push(p.name);
+      weightGroupsIds[weight].push(p.id);
     }
-    
-    weightCounts[weight] = (weightCounts[weight] || 0) + 1;
   });
 
-  const duplicates = Object.entries(weightCounts)
-    .filter(([_, count]) => count > 1)
-    .map(([weight, _]) => parseInt(weight));
+  // Award point for being furthest (Applies in ALL rounds)
+  furthestPlayerIds.forEach(id => pointsToAwardSet.add(id));
+
+  // Award points for duplicates (Normal rounds only)
+  if (!round.isFinal) {
+    Object.values(weightGroupsIds).forEach(ids => {
+      if (ids.length > 1) {
+        ids.forEach(id => pointsToAwardSet.add(id));
+      }
+    });
+  }
+
+  const duplicates = Object.entries(weightGroups)
+    .filter(([_, names]) => names.length > 1)
+    .map(([weight, names]) => ({
+      weight: parseInt(weight),
+      playerNames: names
+    }));
 
   return {
-    furthestPlayer: furthestPlayerId,
+    furthestPlayers: players.filter(p => furthestPlayerIds.includes(p.id)).map(p => p.name),
     specialHits,
-    duplicates
+    duplicates,
+    exactHits,
+    pointsToAward: Array.from(pointsToAwardSet)
   };
 }
 
@@ -58,10 +105,8 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
   const minW = Math.min(...previousWeights);
   const maxW = Math.max(...previousWeights);
   
-  // Requirement: maximal 100 unter dem höchsten, minimal 10 unter dem niedrigsten
-  // This defines a band: [Highest - 100, Lowest - 10]
   return {
-    min: maxW - 100,
-    max: minW - 10
+    min: Math.max(0, maxW - 100),
+    max: Math.max(0, minW - 10)
   };
 }

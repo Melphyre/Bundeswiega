@@ -1,7 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS } from './utils';
+
+// Declare html2canvas for TS
+declare const html2canvas: any;
 
 const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(false);
@@ -19,6 +22,8 @@ const App: React.FC = () => {
   const [finalTriggered, setFinalTriggered] = useState(false);
   const [nextTargetInput, setNextTargetInput] = useState('');
   const [summaryData, setSummaryData] = useState<any>(null);
+  
+  const resultAreaRef = useRef<HTMLDivElement>(null);
 
   // Prevention of page reload/navigation
   useEffect(() => {
@@ -249,10 +254,29 @@ const App: React.FC = () => {
     }
   };
 
+  const captureScreenshot = async () => {
+    if (!resultAreaRef.current) return;
+    try {
+      const canvas = await html2canvas(resultAreaRef.current, {
+        scale: 2,
+        backgroundColor: darkMode ? '#111827' : '#ffffff',
+        logging: false
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `Bundeswiega_Ergebnis_${new Date().toISOString().slice(0,10)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Screenshot failed:", err);
+      alert("Screenshot konnte nicht erstellt werden.");
+    }
+  };
+
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8">
-        <h1 className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-blue-600'}`}>
+        <h1 className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-green-600'}`}>
           1. Bundeswiega
         </h1>
         <div className="flex space-x-2">
@@ -279,7 +303,6 @@ const App: React.FC = () => {
         {gameState === GameState.START && (
           <div className="text-center animate-in fade-in duration-700 max-w-lg w-full">
             <div className="mb-16 mt-8">
-              {/* LARGE GREEN TEXT LOGO */}
               <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter leading-none select-none">
                 <span className="text-green-600 dark:text-green-400">1.</span>
                 <br />
@@ -287,17 +310,24 @@ const App: React.FC = () => {
               </h1>
             </div>
             
-            <h2 className="text-xl font-black mb-12 opacity-80 uppercase tracking-widest font-black">Das offizielle Wiege-Championat</h2>
+            <h2 className="text-xl font-black mb-12 opacity-80 uppercase tracking-widest font-black">Das ultimative Wiegen-Spiel</h2>
             
-            <div className="flex flex-col space-y-4 w-full max-w-xs mx-auto">
-              <button onClick={startGame} className="bg-green-600 hover:bg-green-700 text-white font-bold py-5 px-10 rounded-2xl shadow-xl transform active:scale-95 transition-all text-xl w-full flex items-center justify-center space-x-3">
+            <div className="flex flex-col space-y-4 w-full max-w-sm mx-auto">
+              <button onClick={startGame} className="bg-green-600 hover:bg-green-700 text-white font-bold py-6 px-10 rounded-3xl shadow-xl transform active:scale-95 transition-all text-2xl w-full flex items-center justify-center space-x-3 mb-2">
                 <i className="fas fa-play"></i>
                 <span>Spiel starten</span>
               </button>
-              <button onClick={() => setShowComingSoonModal(true)} className={`font-bold py-3 px-8 rounded-xl shadow-md transform active:scale-95 transition-all flex items-center justify-center space-x-2 border ${darkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                <i className="fas fa-bolt"></i>
-                <span>Speedwiegen</span>
-              </button>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => setShowComingSoonModal(true)} className={`font-bold py-4 px-4 rounded-2xl shadow-md transform active:scale-95 transition-all flex items-center justify-center space-x-2 border ${darkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                  <i className="fas fa-users"></i>
+                  <span>Teamspiel</span>
+                </button>
+                <button onClick={() => setShowComingSoonModal(true)} className={`font-bold py-4 px-4 rounded-2xl shadow-md transform active:scale-95 transition-all flex items-center justify-center space-x-2 border ${darkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                  <i className="fas fa-bolt"></i>
+                  <span>Speedwiegen</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -546,93 +576,102 @@ const App: React.FC = () => {
           <div className="w-full flex flex-col space-y-8 animate-in fade-in duration-1000 pb-12 text-center">
             <h2 className="text-4xl font-black text-green-600">🏆 Gesamtergebnis</h2>
             
-            <div className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                      <th className="p-4 font-bold">Platz</th>
-                      <th className="p-4 font-bold">Spieler</th>
-                      <th className="p-4 font-bold text-center">∅ Abstand*</th>
-                      <th className="p-4 font-bold text-center">Schnäppse</th>
-                      <th className="p-4 font-bold text-center bg-green-600/10">Summe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {players
-                      .map(p => {
-                        const avgDist = calculateAverageDistance(p.id, rounds);
-                        return { ...p, avgDist, total: avgDist + p.schnaepse };
-                      })
-                      .sort((a, b) => {
-                        if (a.isDisqualified && !b.isDisqualified) return 1;
-                        if (!a.isDisqualified && b.isDisqualified) return -1;
-                        return a.total - b.total;
-                      })
-                      .map((p, idx) => (
-                        <tr key={p.id} className={`${idx === 0 && !p.isDisqualified ? 'bg-yellow-500/10' : ''} ${p.isDisqualified ? 'bg-red-500/5' : ''}`}>
-                          <td className="p-4 font-bold text-lg">{p.isDisqualified ? '💀' : `${idx + 1}.`}</td>
-                          <td className={`p-4 font-bold ${p.isDisqualified ? 'line-through text-red-500 opacity-60' : ''}`}>
-                            {p.name} {idx === 0 && !p.isDisqualified && '🥇'} {idx === 1 && !p.isDisqualified && '🥈'} {idx === 2 && !p.isDisqualified && '🥉'}
-                            {p.isDisqualified && <span className="ml-2 text-[10px] font-black uppercase tracking-tighter">DISQUALIFIZIERT</span>}
+            <div ref={resultAreaRef} className={`p-4 md:p-8 rounded-3xl space-y-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+              <div className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
+                        <th className="p-4 font-bold">Platz</th>
+                        <th className="p-4 font-bold">Spieler</th>
+                        <th className="p-4 font-bold text-center">∅ Abstand*</th>
+                        <th className="p-4 font-bold text-center">Schnäppse</th>
+                        <th className="p-4 font-bold text-center bg-green-600/10">Summe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {players
+                        .map(p => {
+                          const avgDist = calculateAverageDistance(p.id, rounds);
+                          return { ...p, avgDist, total: avgDist + p.schnaepse };
+                        })
+                        .sort((a, b) => {
+                          if (a.isDisqualified && !b.isDisqualified) return 1;
+                          if (!a.isDisqualified && b.isDisqualified) return -1;
+                          return a.total - b.total;
+                        })
+                        .map((p, idx) => (
+                          <tr key={p.id} className={`${idx === 0 && !p.isDisqualified ? 'bg-yellow-500/10' : ''} ${p.isDisqualified ? 'bg-red-500/5' : ''}`}>
+                            <td className="p-4 font-bold text-lg">{p.isDisqualified ? '💀' : `${idx + 1}.`}</td>
+                            <td className={`p-4 font-bold ${p.isDisqualified ? 'line-through text-red-500 opacity-60' : ''}`}>
+                              {p.name} {idx === 0 && !p.isDisqualified && '🥇'} {idx === 1 && !p.isDisqualified && '🥈'} {idx === 2 && !p.isDisqualified && '🥉'}
+                              {p.isDisqualified && <span className="ml-2 text-[10px] font-black uppercase tracking-tighter">DISQUALIFIZIERT</span>}
+                            </td>
+                            <td className="p-4 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(2)}g`}</td>
+                            <td className="p-4 text-center font-semibold">{p.schnaepse}</td>
+                            <td className="p-4 text-center font-black text-green-600 dark:text-green-400 bg-green-600/5">{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[10px] opacity-40 p-2 text-right italic">*Abstand der letzten Runde wird nicht eingerechnet.</p>
+              </div>
+
+              {/* FULL RESULTS TABLE BELOW LEADERBOARD */}
+              <div className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <h3 className="p-4 font-bold border-b border-gray-200 dark:border-gray-700 text-left">Detaillierte Rundenergebnisse</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
+                        <th className="p-4 font-bold">Runde</th>
+                        {players.map(p => <th key={p.id} className="p-4 font-bold text-center">{p.name}</th>)}
+                        <th className="p-4 font-bold text-center">Ziel</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rounds.map((r, rIdx) => (
+                        <tr key={rIdx} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="p-4 font-semibold opacity-50">#{rIdx + 1}{r.isFinal ? ' (F)' : ''}</td>
+                          {players.map(p => {
+                            const val = r.results[p.id];
+                            const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
+                            const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
+                            const isSchnaps = val !== undefined && SPECIAL_NUMBERS.includes(val);
+                            return (
+                              <td key={p.id} className="p-4 text-center">
+                                {val !== undefined ? (
+                                  <div>
+                                    <span className={isSchnaps ? 'font-black text-yellow-600 dark:text-yellow-400' : 'font-semibold'}>{val}g</span>
+                                    {dist !== null && dist !== 0 && <span className="text-[10px] ml-1 opacity-60">(+{dist}g)</span>}
+                                    {dist === 0 && <span className="text-[10px] ml-1 text-green-600 font-bold">(!)</span>}
+                                  </div>
+                                ) : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="p-4 text-center font-bold opacity-60">
+                             {r.isFinal ? 'Indiv.' : `${r.targetWeight}g`}
                           </td>
-                          <td className="p-4 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(2)}g`}</td>
-                          <td className="p-4 text-center font-semibold">{p.schnaepse}</td>
-                          <td className="p-4 text-center font-black text-green-600 dark:text-green-400 bg-green-600/5">{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[10px] opacity-40 p-2 text-right italic">*Abstand der letzten Runde wird nicht eingerechnet.</p>
-            </div>
-
-            {/* FULL RESULTS TABLE BELOW LEADERBOARD */}
-            <div className={`rounded-3xl shadow-xl overflow-hidden border mt-12 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <h3 className="p-4 font-bold border-b border-gray-200 dark:border-gray-700 text-left">Detaillierte Rundenergebnisse</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                      <th className="p-4 font-bold">Runde</th>
-                      {players.map(p => <th key={p.id} className="p-4 font-bold text-center">{p.name}</th>)}
-                      <th className="p-4 font-bold text-center">Ziel</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rounds.map((r, rIdx) => (
-                      <tr key={rIdx} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="p-4 font-semibold opacity-50">#{rIdx + 1}{r.isFinal ? ' (F)' : ''}</td>
-                        {players.map(p => {
-                          const val = r.results[p.id];
-                          const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
-                          const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
-                          const isSchnaps = val !== undefined && SPECIAL_NUMBERS.includes(val);
-                          return (
-                            <td key={p.id} className="p-4 text-center">
-                              {val !== undefined ? (
-                                <div>
-                                  <span className={isSchnaps ? 'font-black text-yellow-600 dark:text-yellow-400' : 'font-semibold'}>{val}g</span>
-                                  {dist !== null && dist !== 0 && <span className="text-[10px] ml-1 opacity-60">(+{dist}g)</span>}
-                                  {dist === 0 && <span className="text-[10px] ml-1 text-green-600 font-bold">(!)</span>}
-                                </div>
-                              ) : '—'}
-                            </td>
-                          );
-                        })}
-                        <td className="p-4 text-center font-bold opacity-60">
-                           {r.isFinal ? 'Indiv.' : `${r.targetWeight}g`}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-            <button onClick={() => setGameState(GameState.START)} className="w-full bg-green-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl">
-              <i className="fas fa-home mr-2"></i> Zurück zum Hauptmenü
-            </button>
+            <div className="flex flex-col space-y-4 pt-4">
+              <button onClick={captureScreenshot} className="w-full bg-blue-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-blue-700 transition-all text-xl flex items-center justify-center space-x-3">
+                <i className="fas fa-camera"></i>
+                <span>Screenshot speichern</span>
+              </button>
+              
+              <button onClick={() => setGameState(GameState.START)} className="w-full bg-gray-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-gray-700 transition-all text-xl">
+                <i className="fas fa-home mr-2"></i> Zurück zum Hauptmenü
+              </button>
+            </div>
           </div>
         )}
       </main>

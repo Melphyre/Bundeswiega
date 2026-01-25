@@ -4,6 +4,7 @@ export interface Player {
   name: string;
   startWeight: number;
   schnaepse: number;
+  isDisqualified?: boolean;
 }
 
 export interface Round {

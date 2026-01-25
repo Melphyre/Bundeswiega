@@ -6,10 +6,12 @@ export const SPECIAL_NUMBERS = [444, 333, 222, 111, 99, 88, 77, 66, 55, 44, 33];
 export function calculateAverageDistance(playerId: string, rounds: Round[]): number {
   if (rounds.length === 0) return 0;
   
+  // Exclude final rounds from the average distance calculation as per user request
   const distances = rounds
+    .filter(r => !r.isFinal)
     .map(r => {
       const weight = r.results[playerId];
-      const target = (r.isFinal && r.individualTargets) ? r.individualTargets[playerId] : r.targetWeight;
+      const target = r.targetWeight;
       return weight !== undefined && target !== undefined ? Math.abs(weight - target) : null;
     })
     .filter((d): d is number => d !== null);
@@ -49,7 +51,7 @@ export function getRoundSummary(round: Round, players: Player[]): {
       furthestPlayerIds.push(p.id);
     }
 
-    // Exact hits (Now applies to ALL rounds including final)
+    // Exact hits
     if (weight === target) {
       exactHits.push(p.name);
       pointsToAwardSet.add(p.id);

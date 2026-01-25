@@ -18,6 +18,23 @@ const App: React.FC = () => {
   const [nextTargetInput, setNextTargetInput] = useState('');
   const [summaryData, setSummaryData] = useState<any>(null);
 
+  // Prevention of page reload/navigation
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Browsers show a generic message. e.returnValue is required for legacy support.
+      e.preventDefault();
+      e.returnValue = ''; 
+    };
+
+    if (gameState !== GameState.START) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [gameState]);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
@@ -182,17 +199,16 @@ const App: React.FC = () => {
     }
   };
 
-  const isFinalPhase = gameState === GameState.FINAL_ROUND_TARGETS || gameState === GameState.FINAL_ROUND_RESULTS;
-
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8">
-        <h1 className={`text-3xl font-bold tracking-tight ${darkMode ? 'text-white' : 'text-blue-600'}`}>
+        <h1 className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-blue-600'}`}>
           1. Bundeswiega
         </h1>
         <button 
           onClick={() => setDarkMode(!darkMode)}
           className={`p-3 rounded-full shadow-md hover:shadow-lg transition-all border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200'}`}
+          aria-label="Theme umschalten"
         >
           {darkMode ? <i className="fas fa-sun text-yellow-400 text-xl"></i> : <i className="fas fa-moon text-indigo-600 text-xl"></i>}
         </button>
@@ -223,7 +239,7 @@ const App: React.FC = () => {
         )}
 
         {gameState === GameState.PLAYER_COUNT && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-md border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-6 text-center">Wie viele Spieler?</h2>
             <select value={playerCount} onChange={(e) => setPlayerCount(parseInt(e.target.value))} className={`w-full p-4 border-2 rounded-xl mb-6 text-lg focus:outline-none focus:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
               {Array.from({ length: 9 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} Spieler</option>)}
@@ -239,7 +255,7 @@ const App: React.FC = () => {
               {players.map((p, i) => (
                 <div key={p.id}>
                   <label className="text-sm font-semibold opacity-60 mb-1 block">Spieler {i + 1}</label>
-                  <input type="text" placeholder={`Name ${i + 1}`} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} onChange={(e) => {
+                  <input type="text" placeholder={`Name ${i + 1}`} value={p.name} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} onChange={(e) => {
                     const newPlayers = [...players];
                     newPlayers[i].name = e.target.value;
                     setPlayers(newPlayers);
@@ -273,7 +289,26 @@ const App: React.FC = () => {
 
         {gameState === GameState.ROUND_TARGET && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-md border animate-in zoom-in duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-bold mb-2 text-center">Runde {rounds.length + 1}</h2>
+            <h2 className="text-2xl font-bold mb-4 text-center">Runde {rounds.length + 1}</h2>
+            
+            {/* Display current player weights */}
+            <div className="mb-6">
+              <p className="text-xs font-bold uppercase opacity-50 mb-3 text-center tracking-widest">Aktuelle Gewichte</p>
+              <div className="grid grid-cols-2 gap-2">
+                {players.map(p => {
+                  const currentW = rounds.length === 0 
+                    ? p.startWeight 
+                    : rounds[rounds.length - 1].results[p.id];
+                  return (
+                    <div key={p.id} className={`p-3 rounded-xl border flex flex-col items-center justify-center ${darkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-100'}`}>
+                      <span className="text-[10px] font-bold opacity-60 uppercase truncate w-full text-center mb-1">{p.name}</span>
+                      <span className="text-lg font-black">{currentW}g</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="text-center mt-4">
               {(() => {
                   const prevResults = rounds.length === 0 
@@ -510,17 +545,19 @@ const App: React.FC = () => {
                 </div>
               </div>
               
+              {/* exactHits applies in both normal AND final rounds */}
+              {summaryData.exactHits.length > 0 && (
+                  <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-green-900/20 border-green-900/40' : 'bg-green-50 border-green-100'}`}>
+                    <i className={`fas fa-bullseye text-2xl mr-4 ${darkMode ? 'text-green-400' : 'text-green-500'}`}></i>
+                    <div>
+                        <p className="text-xs font-bold opacity-60 uppercase tracking-wider">Volltreffer! (+1 Schnaps)</p>
+                        <p className={`text-lg font-black ${darkMode ? 'text-green-300' : 'text-green-600'}`}>{summaryData.exactHits.join(', ')}</p>
+                    </div>
+                  </div>
+              )}
+
               {!summaryData.isFinal && (
                   <>
-                    {summaryData.exactHits.length > 0 && (
-                        <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-green-900/20 border-green-900/40' : 'bg-green-50 border-green-100'}`}>
-                        <i className={`fas fa-bullseye text-2xl mr-4 ${darkMode ? 'text-green-400' : 'text-green-500'}`}></i>
-                        <div>
-                            <p className="text-xs font-bold opacity-60 uppercase tracking-wider">Volltreffer! (+1 Schnaps)</p>
-                            <p className={`text-lg font-black ${darkMode ? 'text-green-300' : 'text-green-600'}`}>{summaryData.exactHits.join(', ')}</p>
-                        </div>
-                        </div>
-                    )}
                     {summaryData.duplicates.length > 0 && (
                         <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-blue-900/20 border-blue-900/40' : 'bg-blue-50 border-blue-100'}`}>
                         <p className="text-xs font-bold opacity-60 mb-2 uppercase tracking-wider">Gleiches Gewicht! (+1 Schnaps)</p>

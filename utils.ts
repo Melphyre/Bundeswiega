@@ -24,6 +24,7 @@ export function getRoundSummary(round: Round, players: Player[]): {
   duplicates: { weight: number; playerNames: string[] }[];
   exactHits: string[];
   pointsToAward: string[];
+  isFinal: boolean;
 } {
   let maxDist = -1;
   let furthestPlayerIds: string[] = [];
@@ -48,14 +49,14 @@ export function getRoundSummary(round: Round, players: Player[]): {
       furthestPlayerIds.push(p.id);
     }
 
-    // Normal round bonuses
+    // Exact hits (Now applies to ALL rounds including final)
+    if (weight === target) {
+      exactHits.push(p.name);
+      pointsToAwardSet.add(p.id);
+    }
+
+    // Normal round bonuses only
     if (!round.isFinal) {
-      // Exact hits
-      if (weight === target) {
-        exactHits.push(p.name);
-        pointsToAwardSet.add(p.id);
-      }
-      
       // Special numbers (Schnapszahl)
       if (SPECIAL_NUMBERS.includes(weight)) {
         specialHits.push({ playerName: p.name, value: weight });
@@ -96,7 +97,8 @@ export function getRoundSummary(round: Round, players: Player[]): {
     specialHits,
     duplicates,
     exactHits,
-    pointsToAward: Array.from(pointsToAwardSet)
+    pointsToAward: Array.from(pointsToAwardSet),
+    isFinal: !!round.isFinal
   };
 }
 

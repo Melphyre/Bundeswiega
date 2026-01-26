@@ -7,9 +7,11 @@ import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMB
 declare const html2canvas: any;
 
 const App: React.FC = () => {
-  const [darkMode, setDarkMode] = useState(false);
+  // Start the app in Dark Mode by default
+  const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
   const [playerCount, setPlayerCount] = useState(2);
+  const [isShortMode, setIsShortMode] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [currentRoundResults, setCurrentRoundResults] = useState<Record<string, string>>({});
@@ -20,6 +22,7 @@ const App: React.FC = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [disqualifiedNotice, setDisqualifiedNotice] = useState<{name: string, diff: number} | null>(null);
   const [finalTriggered, setFinalTriggered] = useState(false);
+  const [triggeringPlayerInfo, setTriggeringPlayerInfo] = useState<{name: string, weight: number, threshold: number} | null>(null);
   const [nextTargetInput, setNextTargetInput] = useState('');
   const [summaryData, setSummaryData] = useState<any>(null);
   
@@ -28,6 +31,7 @@ const App: React.FC = () => {
   // Prevention of page reload/navigation
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Show confirmation if game is active
       if (gameState !== GameState.START && gameState !== GameState.RESULT_SCREEN) {
         e.preventDefault();
         e.returnValue = 'Daten gehen verloren. Möchtest du wirklich schließen?';
@@ -57,6 +61,7 @@ const App: React.FC = () => {
     setPlayers([]);
     setFinalTriggered(false);
     setSummaryData(null);
+    setIsShortMode(false);
   };
 
   const resetGame = () => {
@@ -69,7 +74,7 @@ const App: React.FC = () => {
   const handlePlayerCountConfirm = () => {
     const initialPlayers = Array.from({ length: playerCount }, (_, i) => ({
       id: `p${i}`,
-      name: `Spieler ${i + 1}`,
+      name: '', // Start empty as requested
       startWeight: 0,
       schnaepse: 0,
       isDisqualified: false
@@ -79,7 +84,8 @@ const App: React.FC = () => {
   };
 
   const handlePlayerNamesConfirm = (names: string[]) => {
-    const updatedPlayers = players.map((p, i) => ({ ...p, name: names[i] || p.name }));
+    // Fill default names if still empty
+    const updatedPlayers = players.map((p, i) => ({ ...p, name: names[i].trim() || `Spieler ${i + 1}` }));
     setPlayers(updatedPlayers);
     setGameState(GameState.START_WEIGHTS);
   };
@@ -152,8 +158,22 @@ const App: React.FC = () => {
       return { ...p, schnaepse, isDisqualified };
     });
 
-    const trigger = updatedPlayers.some(p => !p.isDisqualified && (currentRound.results[p.id] as number) < 75);
-    setFinalTriggered(trigger);
+    // Final Round Trigger Logic
+    const minStartWeight = Math.min(...players.map(p => p.startWeight));
+    const triggerThreshold = minStartWeight - (isShortMode ? 278 : 445);
+    
+    const triggeringPlayer = activePlayers.find(p => (currentRound.results[p.id] as number) < triggerThreshold);
+    
+    if (triggeringPlayer) {
+      setTriggeringPlayerInfo({
+        name: triggeringPlayer.name,
+        weight: currentRound.results[triggeringPlayer.id],
+        threshold: triggerThreshold
+      });
+      setFinalTriggered(true);
+    } else {
+      setFinalTriggered(false);
+    }
 
     setPlayers(updatedPlayers);
     setSummaryData(summary);
@@ -338,6 +358,26 @@ const App: React.FC = () => {
             <select value={playerCount} onChange={(e) => setPlayerCount(parseInt(e.target.value))} className={`w-full p-4 border-2 rounded-xl mb-6 text-lg focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
               {Array.from({ length: 9 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} Spieler</option>)}
             </select>
+            
+            <div className="flex items-center space-x-3 mb-8 ml-1">
+                <div className="relative inline-block w-10 h-6 transition duration-200 ease-in">
+                  <input 
+                    type="checkbox" 
+                    id="shortModeToggle" 
+                    checked={isShortMode}
+                    onChange={() => setIsShortMode(!isShortMode)}
+                    className="opacity-0 w-0 h-0"
+                  />
+                  <label 
+                    htmlFor="shortModeToggle" 
+                    className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors duration-200 ${isShortMode ? 'bg-green-600' : 'bg-gray-400'}`}
+                  >
+                    <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ${isShortMode ? 'translate-x-4' : 'translate-x-0'}`}></span>
+                  </label>
+                </div>
+                <label htmlFor="shortModeToggle" className="text-sm font-bold opacity-80 cursor-pointer">0,33 L Modus</label>
+            </div>
+
             <button onClick={handlePlayerCountConfirm} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors">Weiter</button>
           </div>
         )}
@@ -349,11 +389,18 @@ const App: React.FC = () => {
               {players.map((p, i) => (
                 <div key={p.id}>
                   <label className="text-sm font-semibold opacity-60 mb-1 block">Spieler {i + 1}</label>
-                  <input type="text" placeholder={`Name ${i + 1}`} value={p.name} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} onChange={(e) => {
-                    const newPlayers = [...players];
-                    newPlayers[i].name = e.target.value;
-                    setPlayers(newPlayers);
-                  }} />
+                  <input 
+                    type="text" 
+                    placeholder="" 
+                    value={p.name} 
+                    autoFocus={i === 0}
+                    className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} 
+                    onChange={(e) => {
+                      const newPlayers = [...players];
+                      newPlayers[i].name = e.target.value;
+                      setPlayers(newPlayers);
+                    }} 
+                  />
                 </div>
               ))}
             </div>
@@ -486,7 +533,9 @@ const App: React.FC = () => {
                                   {isSchnaps && <div className="text-[8px] font-black uppercase text-yellow-600 dark:text-yellow-400">Schnapszahl!</div>}
                                 </>
                               ) : (
-                                <div className="text-xs opacity-30 italic">ausgeschieden</div>
+                                <div className="text-xs opacity-30 italic">
+                                    {p.isDisqualified ? '❌' : '—'}
+                                </div>
                               )}
                             </td>
                           );
@@ -765,15 +814,17 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {showFinalIntro && (
+      {showFinalIntro && triggeringPlayerInfo && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border animate-in zoom-in duration-500 text-center ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
              <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-red-500/50">
                 <i className="fas fa-flag-checkered text-3xl text-white"></i>
              </div>
              <h3 className="text-2xl font-black mb-4 uppercase">Letzte Runde!</h3>
-             <p className="opacity-80 mb-8">Ein Spieler hat die 75g-Marke unterschritten. Das Finale beginnt!</p>
-             <button onClick={startLastRound} className="w-full bg-red-600 text-white font-bold py-4 rounded-xl shadow-lg">Finale starten</button>
+             <p className="opacity-90 mb-8 leading-relaxed">
+               Die letzte Runde beginnt, weil <span className="font-black text-green-500">{triggeringPlayerInfo.name}</span> mit <span className="font-black text-green-500">{triggeringPlayerInfo.weight}g</span> das Limit von <span className="font-black text-red-500">{triggeringPlayerInfo.threshold}g</span> unterschritten hat!
+             </p>
+             <button onClick={startLastRound} className="w-full bg-red-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-red-700 transition-colors">Finale starten</button>
           </div>
         </div>
       )}

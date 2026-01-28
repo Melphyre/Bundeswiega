@@ -6,6 +6,19 @@ import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMB
 // Declare html2canvas for TS
 declare const html2canvas: any;
 
+const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
+
+// Component to render text vertically (letter by letter)
+const VerticalText: React.FC<{ text: string }> = ({ text }) => {
+  return (
+    <div className="flex flex-col items-center justify-center leading-[0.9] py-1 font-black text-[10px] md:text-xs">
+      {text.split('').map((char, i) => (
+        <span key={i} className="block">{char === ' ' ? '\u00A0' : char}</span>
+      ))}
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   // Start the app in Dark Mode by default
   const [darkMode, setDarkMode] = useState(true);
@@ -85,7 +98,7 @@ const App: React.FC = () => {
 
   const handlePlayerNamesConfirm = (names: string[]) => {
     // Fill default names if still empty
-    const updatedPlayers = players.map((p, i) => ({ ...p, name: names[i].trim() || `Spieler ${i + 1}` }));
+    const updatedPlayers = players.map((p, i) => ({ ...p, name: names[i].trim() || `S${i + 1}` }));
     setPlayers(updatedPlayers);
     setGameState(GameState.START_WEIGHTS);
   };
@@ -277,14 +290,26 @@ const App: React.FC = () => {
   const captureScreenshot = async () => {
     if (!resultAreaRef.current) return;
     try {
-      const canvas = await html2canvas(resultAreaRef.current, {
+      // Scale based on table width to ensure everything fits
+      const element = resultAreaRef.current;
+      const originalScrollHeight = element.scrollHeight;
+      const originalScrollWidth = element.scrollWidth;
+
+      const canvas = await html2canvas(element, {
         scale: 2,
         backgroundColor: darkMode ? '#111827' : '#ffffff',
-        logging: false
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        scrollX: 0,
+        scrollY: -window.scrollY,
+        windowWidth: originalScrollWidth + 100,
+        windowHeight: originalScrollHeight + 100
       });
+
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `Bundeswiega_Ergebnis_${new Date().toISOString().slice(0,10)}.png`;
+      link.download = `1_Bundeswiega_Ergebnis_${new Date().toISOString().slice(0,10)}.png`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
@@ -296,9 +321,18 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8">
-        <h1 className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-green-600'}`}>
-          1. Bundeswiega
-        </h1>
+        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setGameState(GameState.START)}>
+          <img 
+            src={LOGO_URL} 
+            alt="Logo" 
+            className="w-10 h-10 object-contain"
+            onError={(e) => (e.currentTarget.style.display = 'none')}
+          />
+          {/* UPDATED HEADER TEXT */}
+          <h1 className={`text-2xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-green-600'}`}>
+            1. Bundeswiega
+          </h1>
+        </div>
         <div className="flex space-x-2">
           {gameState !== GameState.START && (
             <button 
@@ -319,18 +353,21 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto">
+      <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto relative">
         {gameState === GameState.START && (
-          <div className="text-center animate-in fade-in duration-700 max-w-lg w-full">
-            <div className="mb-16 mt-8">
-              <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter leading-none select-none">
-                <span className="text-green-600 dark:text-green-400">1.</span>
-                <br />
-                <span className="text-green-700 dark:text-green-500">Bundeswiega</span>
-              </h1>
+          <div className="text-center animate-in fade-in duration-700 max-w-2xl w-full">
+            <div className="mb-12 flex justify-center">
+              <img 
+                src={LOGO_URL} 
+                alt="1. Bundeswiega Logo" 
+                className="w-72 h-72 md:w-96 md:h-96 lg:w-[500px] lg:h-[500px] object-contain drop-shadow-2xl transition-all duration-500"
+                onError={(e) => {
+                  e.currentTarget.src = 'https://via.placeholder.com/500?text=LOGO+NOT+FOUND';
+                }}
+              />
             </div>
             
-            <h2 className="text-xl font-black mb-12 opacity-80 uppercase tracking-widest font-black">Das ultimative Wiegen-Spiel</h2>
+            <h2 className="text-2xl font-black mb-12 opacity-80 uppercase tracking-widest">Das ultimative Wiegen-Spiel</h2>
             
             <div className="flex flex-col space-y-4 w-full max-w-sm mx-auto">
               <button onClick={startGame} className="bg-green-600 hover:bg-green-700 text-white font-bold py-6 px-10 rounded-3xl shadow-xl transform active:scale-95 transition-all text-2xl w-full flex items-center justify-center space-x-3 mb-2">
@@ -431,7 +468,6 @@ const App: React.FC = () => {
         {gameState === GameState.ROUND_TARGET && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in zoom-in duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-4 text-center">Runde {rounds.length + 1}</h2>
-            
             <div className="mb-6">
               <p className="text-xs font-bold uppercase opacity-50 mb-3 text-center tracking-widest">Aktuelle Gewichte</p>
               <div className="grid grid-cols-2 gap-2">
@@ -450,7 +486,6 @@ const App: React.FC = () => {
                 })}
               </div>
             </div>
-
             <div className="text-center mt-4">
               {(() => {
                   const activePlayers = players.filter(p => !p.isDisqualified);
@@ -507,8 +542,13 @@ const App: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                      <th className="p-4 border-b border-gray-200 dark:border-gray-700 font-bold">Runde</th>
-                      {players.map(p => <th key={p.id} className="p-4 border-b border-gray-200 dark:border-gray-700 font-bold text-center">{p.name}</th>)}
+                      <th className="p-4 border-b border-gray-200 dark:border-gray-700 font-bold text-center">Rnd</th>
+                      {players.map(p => (
+                        <th key={p.id} className="p-2 border-b border-gray-200 dark:border-gray-700 font-bold text-center">
+                          {/* VERTICAL PLAYER NAME */}
+                          <VerticalText text={p.name} />
+                        </th>
+                      ))}
                       <th className={`p-4 border-b border-gray-200 dark:border-gray-700 font-bold text-center ${darkMode ? 'bg-yellow-900/20' : 'bg-yellow-50'}`}>Ziel</th>
                     </tr>
                   </thead>
@@ -517,20 +557,19 @@ const App: React.FC = () => {
                         if (r.isFinal && gameState === GameState.FINAL_ROUND_RESULTS) return null;
                         return (
                       <tr key={rIdx} className={`hover:bg-opacity-50 border-b border-gray-100 dark:border-gray-800 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}>
-                        <td className="p-4 font-semibold opacity-50">#{rIdx + 1}{r.isFinal && ' (F)'}</td>
+                        <td className="p-4 font-semibold opacity-50 text-center">#{rIdx + 1}{r.isFinal && ' (F)'}</td>
                         {players.map(p => {
                           const val = r.results[p.id];
                           const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
                           const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
                           const isSchnaps = val !== undefined && SPECIAL_NUMBERS.includes(val);
                           return (
-                            <td key={p.id} className="p-4 text-center">
+                            <td key={p.id} className="p-2 text-center align-middle">
                               {val !== undefined ? (
                                 <>
-                                  <div className={`font-semibold ${isSchnaps ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>{val}g</div>
-                                  {dist !== null && dist > 0 && <div className={`text-xs font-bold ${dist > 50 ? 'text-red-600 uppercase' : darkMode ? 'text-red-400' : 'text-red-500'}`}>{dist > 50 ? 'DISQUAL.' : `+${dist}g`}</div>}
-                                  {dist === 0 && <div className={`text-xs font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>TREFFER!</div>}
-                                  {isSchnaps && <div className="text-[8px] font-black uppercase text-yellow-600 dark:text-yellow-400">Schnapszahl!</div>}
+                                  <div className={`font-semibold text-xs md:text-sm ${isSchnaps ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>{val}g</div>
+                                  {dist !== null && dist > 0 && <div className={`text-[9px] font-bold ${dist > 50 ? 'text-red-600 uppercase' : darkMode ? 'text-red-400' : 'text-red-500'}`}>{dist > 50 ? 'D' : `+${dist}g`}</div>}
+                                  {dist === 0 && <div className={`text-[9px] font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>!</div>}
                                 </>
                               ) : (
                                 <div className="text-xs opacity-30 italic">
@@ -540,62 +579,60 @@ const App: React.FC = () => {
                             </td>
                           );
                         })}
-                        <td className={`p-4 text-center font-bold ${darkMode ? 'text-yellow-400 bg-yellow-900/10' : 'text-blue-600 bg-yellow-50/50'}`}>
+                        <td className={`p-4 text-center font-bold text-xs md:text-sm ${darkMode ? 'text-yellow-400 bg-yellow-900/10' : 'text-blue-600 bg-yellow-50/50'}`}>
                           {r.isFinal ? 'Indiv.' : `${r.targetWeight}g`}
                         </td>
                       </tr>
                     );})}
-
                     {gameState === GameState.FINAL_ROUND_RESULTS && (
                       <>
                         <tr className={darkMode ? 'bg-yellow-900/20' : 'bg-yellow-50'}>
-                            <td className="p-4 font-bold text-yellow-600 dark:text-yellow-400">letzte Runde</td>
+                            <td className="p-4 font-bold text-yellow-600 dark:text-yellow-400 text-xs">Ziel</td>
                             {players.map(p => (
-                                <td key={p.id} className="p-4 text-center font-bold">
+                                <td key={p.id} className="p-2 text-center font-bold text-xs">
                                     {!p.isDisqualified ? `${rounds[rounds.length - 1].individualTargets![p.id]}g` : '—'}
                                 </td>
                             ))}
                             <td className="p-4 text-center opacity-30">—</td>
                         </tr>
                         <tr className={darkMode ? 'bg-green-900/20' : 'bg-green-50'}>
-                            <td className="p-4 font-bold text-green-600 dark:text-green-400">Leergewicht</td>
+                            <td className="p-4 font-bold text-green-600 dark:text-green-400 text-xs">Leergw.</td>
                             {players.map(p => (
-                            <td key={p.id} className="p-2 text-center">
+                            <td key={p.id} className="p-1 text-center">
                                 {!p.isDisqualified ? (
                                     <input 
                                     type="number" 
                                     value={currentRoundResults[p.id] || ''} 
                                     onChange={(e) => setCurrentRoundResults(prev => ({...prev, [p.id]: e.target.value}))} 
                                     placeholder="g" 
-                                    className={`w-24 p-2 border-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} 
+                                    className={`w-12 md:w-16 p-1 border-2 rounded text-center text-xs focus:outline-none focus:ring-1 focus:ring-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} 
                                     />
                                 ) : <span className="text-xs opacity-40">❌</span>}
                             </td>
                             ))}
-                            <td className="p-4 text-center opacity-30 italic text-xs">Finaler Wiegevorgang</td>
+                            <td className="p-4 text-center opacity-30 italic text-[10px]">Ende</td>
                         </tr>
                       </>
                     )}
-
                     {gameState === GameState.GAMEPLAY && (
                       <tr className={darkMode ? 'bg-gray-900/40' : 'bg-green-50/20'}>
-                        <td className="p-4 font-bold text-green-600 dark:text-green-400">Eingabe</td>
+                        <td className="p-4 font-bold text-green-600 dark:text-green-400 text-xs">Gew.</td>
                         {players.map(p => (
-                          <td key={p.id} className="p-2 text-center">
+                          <td key={p.id} className="p-1 text-center">
                             {!p.isDisqualified ? (
                                 <input 
                                 type="number" 
                                 value={currentRoundResults[p.id] || ''} 
                                 onChange={(e) => setCurrentRoundResults(prev => ({...prev, [p.id]: e.target.value}))} 
                                 placeholder="g" 
-                                className={`w-20 p-2 border-2 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} 
+                                className={`w-12 md:w-16 p-1 border-2 rounded text-center text-xs focus:outline-none focus:ring-1 focus:ring-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} 
                                 />
                             ) : (
-                                <span className="text-xs text-red-500 font-bold opacity-50">❌ DISQ.</span>
+                                <span className="text-[9px] text-red-500 font-bold opacity-50">X</span>
                             )}
                           </td>
                         ))}
-                        <td className={`p-4 text-center font-bold ${darkMode ? 'bg-yellow-900/30' : 'bg-yellow-50'}`}>
+                        <td className={`p-4 text-center font-bold text-xs ${darkMode ? 'bg-yellow-900/30' : 'bg-yellow-50'}`}>
                           {rounds[rounds.length - 1]?.targetWeight}g
                         </td>
                       </tr>
@@ -604,14 +641,12 @@ const App: React.FC = () => {
                 </table>
               </div>
             </div>
-
             {gameState === GameState.GAMEPLAY && (
               <button onClick={handleNextRound} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 text-lg">
                 <span>Runde abschließen</span>
                 <i className="fas fa-arrow-right"></i>
               </button>
             )}
-
             {gameState === GameState.FINAL_ROUND_RESULTS && (
               <button onClick={handleFinalResultsConfirm} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 text-lg">
                 <span>Endwertung</span>
@@ -624,18 +659,17 @@ const App: React.FC = () => {
         {gameState === GameState.RESULT_SCREEN && (
           <div className="w-full flex flex-col space-y-8 animate-in fade-in duration-1000 pb-12 text-center">
             <h2 className="text-4xl font-black text-green-600">🏆 Gesamtergebnis</h2>
-            
-            <div ref={resultAreaRef} className={`p-4 md:p-8 rounded-3xl space-y-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+            <div ref={resultAreaRef} className={`p-2 md:p-8 rounded-3xl space-y-8 overflow-x-auto ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
               <div className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                        <th className="p-4 font-bold">Platz</th>
-                        <th className="p-4 font-bold">Spieler</th>
-                        <th className="p-4 font-bold text-center">∅ Abstand*</th>
-                        <th className="p-4 font-bold text-center">Schnäppse</th>
-                        <th className="p-4 font-bold text-center bg-green-600/10">Summe</th>
+                        <th className="p-4 font-bold text-sm">Platz</th>
+                        <th className="p-4 font-bold text-sm">Spieler</th>
+                        <th className="p-4 font-bold text-center text-sm">∅ Abstand*</th>
+                        <th className="p-4 font-bold text-center text-sm">Schnäppse</th>
+                        <th className="p-4 font-bold text-center text-sm bg-green-600/10">Summe</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -653,55 +687,56 @@ const App: React.FC = () => {
                           <tr key={p.id} className={`${idx === 0 && !p.isDisqualified ? 'bg-yellow-500/10' : ''} ${p.isDisqualified ? 'bg-red-500/5' : ''}`}>
                             <td className="p-4 font-bold text-lg">{p.isDisqualified ? '💀' : `${idx + 1}.`}</td>
                             <td className={`p-4 font-bold ${p.isDisqualified ? 'line-through text-red-500 opacity-60' : ''}`}>
-                              {p.name} {idx === 0 && !p.isDisqualified && '🥇'} {idx === 1 && !p.isDisqualified && '🥈'} {idx === 2 && !p.isDisqualified && '🥉'}
-                              {p.isDisqualified && <span className="ml-2 text-[10px] font-black uppercase tracking-tighter">DISQUALIFIZIERT</span>}
+                              {p.name} {idx === 0 && !p.isDisqualified && '🥇'}
+                              {p.isDisqualified && <span className="ml-2 text-[10px] font-black uppercase tracking-tighter">DISQ.</span>}
                             </td>
-                            <td className="p-4 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(2)}g`}</td>
+                            <td className="p-4 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(1)}g`}</td>
                             <td className="p-4 text-center font-semibold">{p.schnaepse}</td>
-                            <td className="p-4 text-center font-black text-green-600 dark:text-green-400 bg-green-600/5">{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
+                            <td className="p-4 text-center font-black text-green-600 dark:text-green-400 bg-green-600/5">{p.isDisqualified ? '—' : p.total.toFixed(1)}</td>
                           </tr>
                         ))}
                     </tbody>
                   </table>
                 </div>
-                <p className="text-[10px] opacity-40 p-2 text-right italic">*Abstand der letzten Runde wird nicht eingerechnet.</p>
+                <p className="text-[10px] opacity-40 p-2 text-right italic">*Ohne Finale.</p>
               </div>
-
-              {/* FULL RESULTS TABLE BELOW LEADERBOARD */}
               <div className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                <h3 className="p-4 font-bold border-b border-gray-200 dark:border-gray-700 text-left">Detaillierte Rundenergebnisse</h3>
+                <h3 className="p-4 font-bold border-b border-gray-200 dark:border-gray-700 text-left text-sm">Detaillierte Rundenergebnisse</h3>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
+                  <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                     <thead>
                       <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                        <th className="p-4 font-bold">Runde</th>
-                        {players.map(p => <th key={p.id} className="p-4 font-bold text-center">{p.name}</th>)}
-                        <th className="p-4 font-bold text-center">Ziel</th>
+                        <th className="p-2 font-bold text-center">Rnd</th>
+                        {players.map(p => (
+                          <th key={p.id} className="p-1 font-bold text-center">
+                             <VerticalText text={p.name} />
+                          </th>
+                        ))}
+                        <th className="p-2 font-bold text-center">Ziel</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rounds.map((r, rIdx) => (
                         <tr key={rIdx} className="border-b border-gray-100 dark:border-gray-800">
-                          <td className="p-4 font-semibold opacity-50">#{rIdx + 1}{r.isFinal ? ' (F)' : ''}</td>
+                          <td className="p-2 font-semibold opacity-50 text-center">#{rIdx + 1}</td>
                           {players.map(p => {
                             const val = r.results[p.id];
                             const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
                             const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
                             const isSchnaps = val !== undefined && SPECIAL_NUMBERS.includes(val);
                             return (
-                              <td key={p.id} className="p-4 text-center">
+                              <td key={p.id} className="p-1 text-center">
                                 {val !== undefined ? (
                                   <div>
                                     <span className={isSchnaps ? 'font-black text-yellow-600 dark:text-yellow-400' : 'font-semibold'}>{val}g</span>
-                                    {dist !== null && dist !== 0 && <span className="text-[10px] ml-1 opacity-60">(+{dist}g)</span>}
-                                    {dist === 0 && <span className="text-[10px] ml-1 text-green-600 font-bold">(!)</span>}
+                                    {dist !== null && dist !== 0 && <div className="text-[8px] opacity-60">+{dist}</div>}
                                   </div>
                                 ) : '—'}
                               </td>
                             );
                           })}
-                          <td className="p-4 text-center font-bold opacity-60">
-                             {r.isFinal ? 'Indiv.' : `${r.targetWeight}g`}
+                          <td className="p-2 text-center font-bold opacity-60">
+                             {r.isFinal ? 'I' : `${r.targetWeight}`}
                           </td>
                         </tr>
                       ))}
@@ -710,22 +745,27 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-
             <div className="flex flex-col space-y-4 pt-4">
               <button onClick={captureScreenshot} className="w-full bg-blue-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-blue-700 transition-all text-xl flex items-center justify-center space-x-3">
                 <i className="fas fa-camera"></i>
                 <span>Screenshot speichern</span>
               </button>
-              
               <button onClick={() => setGameState(GameState.START)} className="w-full bg-gray-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-gray-700 transition-all text-xl">
                 <i className="fas fa-home mr-2"></i> Zurück zum Hauptmenü
               </button>
             </div>
           </div>
         )}
+
+        {/* PERSISTENT GAME MODE FOOTER */}
+        {gameState !== GameState.START && gameState !== GameState.PLAYER_COUNT && (
+          <footer className="mt-8 py-4 w-full text-center opacity-70 text-sm font-bold animate-in fade-in duration-500">
+             {isShortMode ? "Du spielst im 0,33 L Modus" : "Du spielst im 500 ml Modus"}
+          </footer>
+        )}
       </main>
 
-      {/* DISQUALIFICATION MODAL */}
+      {/* MODALS AND OVERLAYS REMAIN SAME */}
       {disqualifiedNotice && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-red-900/95 backdrop-blur-xl">
           <div className="rounded-3xl p-10 max-w-md w-full shadow-2xl border-4 border-white animate-in zoom-in duration-500 text-center bg-red-600 text-white">
@@ -774,7 +814,6 @@ const App: React.FC = () => {
                   <p className={`text-lg font-black ${darkMode ? 'text-red-300' : 'text-red-600'}`}>{summaryData.furthestPlayers.join(' & ')}</p>
                 </div>
               </div>
-              
               {summaryData.exactHits.length > 0 && (
                   <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-green-900/20 border-green-900/40' : 'bg-green-50 border-green-100'}`}>
                     <i className={`fas fa-bullseye text-2xl mr-4 ${darkMode ? 'text-green-400' : 'text-green-500'}`}></i>
@@ -784,7 +823,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
               )}
-
               {summaryData.specialHits.length > 0 && (
                   <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-yellow-900/20 border-yellow-900/40' : 'bg-yellow-50 border-yellow-100'}`}>
                     <i className={`fas fa-glass-cheers text-2xl mr-4 ${darkMode ? 'text-yellow-400' : 'text-yellow-600'}`}></i>
@@ -796,7 +834,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
               )}
-
               {summaryData.duplicates.length > 0 && (
                   <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-blue-900/20 border-blue-900/40' : 'bg-blue-50 border-blue-100'}`}>
                     <i className={`fas fa-clone text-2xl mr-4 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}></i>

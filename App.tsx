@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange } from './utils';
@@ -138,7 +137,6 @@ const App: React.FC = () => {
   };
 
   const handleTargetWeightConfirm = (customTarget?: number) => {
-    // CRITICAL FIX: Explicitly check if customTarget is a number to avoid MouseEvent objects
     const target = (typeof customTarget === 'number') ? customTarget : parseInt(nextTargetInput);
     
     const activePlayers = players.filter(p => !p.isDisqualified);
@@ -731,8 +729,8 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className={`mt-auto pt-8 pb-4 text-center text-[10px] font-black uppercase tracking-[0.2em] transition-opacity duration-500 ${showModeFooter ? 'opacity-30' : 'opacity-0'}`}>
-        Modus: {isShortMode ? '0,33 L' : '0,5 L'}
+      <footer className={`mt-auto pt-8 pb-4 text-center text-[10px] font-black uppercase tracking-[0.1em] transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'}`}>
+        {isShortMode ? 'Du spielst im 0,33 L Modus' : 'Du spielst im 500 ml Modus'}
       </footer>
 
       {/* --- MODALS --- */}
@@ -770,7 +768,7 @@ const App: React.FC = () => {
 
       {showAutoTargetModal && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border-4 border-amber-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border-4 border-amber-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
             <div className="w-16 h-16 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-magic text-2xl text-white"></i></div>
             <h3 className="text-2xl font-black mb-4 uppercase text-amber-500">Auto-Ziel-Modus</h3>
             <p className="opacity-80 mb-8 leading-relaxed text-sm">

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange } from './utils';
@@ -6,6 +7,7 @@ import { calculateAverageDistance, getRoundSummary, getTargetRange } from './uti
 declare const html2canvas: any;
 
 const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
+const INSTAGRAM_URL = "https://www.instagram.com/bundeswiega/";
 
 const PLAYER_COLORS = [
   '#10b981', '#6366f1', '#f43f5e', '#f59e0b', '#06b6d4', 
@@ -39,6 +41,8 @@ const App: React.FC = () => {
   const [showModeInfo, setShowModeInfo] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showAutoTargetModal, setShowAutoTargetModal] = useState<{ diff: number, target: number } | null>(null);
+  const [startWeightError, setStartWeightError] = useState<string | null>(null);
   const [disqualifiedNotice, setDisqualifiedNotice] = useState<Array<{name: string, diff: number}> | null>(null);
   const [finalTriggered, setFinalTriggered] = useState(false);
   const [triggeringPlayerInfo, setTriggeringPlayerInfo] = useState<{name: string, weight: number, threshold: number} | null>(null);
@@ -116,16 +120,27 @@ const App: React.FC = () => {
   };
 
   const onWeightsSubmit = () => {
+    const limit = isShortMode ? 333 : 500;
     const numericWeights = tempWeights.map(w => parseInt(w));
-    if (numericWeights.some(w => isNaN(w) || w <= 0)) {
-        alert("Bitte für alle Spieler ein gültiges Startgewicht (g) eingeben.");
-        return;
+    
+    for (let i = 0; i < numericWeights.length; i++) {
+        const w = numericWeights[i];
+        if (isNaN(w) || w <= 0) {
+            alert("Bitte für alle Spieler ein gültiges Startgewicht (g) eingeben.");
+            return;
+        }
+        if (w < limit) {
+            setStartWeightError(`Das eingegebene Startgewicht bei ${players[i].name} ist zu klein.`);
+            return;
+        }
     }
     handleStartWeightsConfirm(numericWeights);
   };
 
-  const handleTargetWeightConfirm = () => {
-    const target = parseInt(nextTargetInput);
+  const handleTargetWeightConfirm = (customTarget?: number) => {
+    // CRITICAL FIX: Explicitly check if customTarget is a number to avoid MouseEvent objects
+    const target = (typeof customTarget === 'number') ? customTarget : parseInt(nextTargetInput);
+    
     const activePlayers = players.filter(p => !p.isDisqualified);
     const prevResults = rounds.length === 0 
       ? activePlayers.map(p => p.startWeight) 
@@ -133,9 +148,11 @@ const App: React.FC = () => {
     
     const range = getTargetRange(prevResults);
     
-    if (isNaN(target) || target < range.min || target > range.max) {
-        alert(`Bitte ein Gewicht zwischen ${Math.round(range.min)}g und ${Math.round(range.max)}g eingeben.`);
-        return;
+    if (typeof customTarget !== 'number') {
+        if (isNaN(target) || target < range.min || target > range.max) {
+            alert(`Bitte ein Gewicht zwischen ${Math.round(range.min)}g und ${Math.round(range.max)}g eingeben.`);
+            return;
+        }
     }
 
     const newRound: Round = {
@@ -169,7 +186,8 @@ const App: React.FC = () => {
     const updatedPlayers = players.map(p => {
       if (p.isDisqualified) return p;
       const weight = currentRound.results[p.id];
-      const dist = Math.abs(weight - currentRound.targetWeight);
+      const target = currentRound.targetWeight;
+      const dist = Math.abs(weight - target);
       let isDisqualified = p.isDisqualified;
       if (dist > 50) {
         isDisqualified = true;
@@ -215,7 +233,7 @@ const App: React.FC = () => {
     const activePlayers = players.filter(p => !p.isDisqualified);
     const allFilled = activePlayers.every(p => currentRoundTargets[p.id] && !isNaN(parseInt(currentRoundTargets[p.id])));
     if (!allFilled) {
-      alert("Bitte alle individuellen Zielgewichte eintragen.");
+      alert("Bitte alle individuellen Leergewichte eintragen.");
       return;
     }
     const finalRound: Round = {
@@ -270,7 +288,9 @@ const App: React.FC = () => {
   };
 
   const proceedFromSummary = () => {
+    const hadDisqualifications = disqualifiedNotice !== null;
     setShowSummary(false);
+    
     if (players.every(p => p.isDisqualified)) {
         setGameState(GameState.RESULT_SCREEN);
         return;
@@ -280,7 +300,21 @@ const App: React.FC = () => {
     } else if (finalTriggered) {
       setShowFinalIntro(true);
     } else {
-      setGameState(GameState.ROUND_TARGET);
+        // Check for 90g rule - only if NO ONE was disqualified in THIS round
+        if (!hadDisqualifications) {
+            const lastRound = rounds[rounds.length - 1];
+            const activePlayerIds = players.filter(p => !p.isDisqualified).map(p => p.id);
+            const lastWeights = activePlayerIds.map(id => lastRound.results[id]);
+            const minW = Math.min(...lastWeights);
+            const maxW = Math.max(...lastWeights);
+            const diff = maxW - minW;
+
+            if (diff >= 90) {
+                setShowAutoTargetModal({ diff, target: minW - 10 });
+                return;
+            }
+        }
+        setGameState(GameState.ROUND_TARGET);
     }
   };
 
@@ -323,10 +357,28 @@ const App: React.FC = () => {
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error("Screenshot failed:", err);
+      console.error("Screenshot capture failed:", err);
       alert("Screenshot konnte nicht gespeichert werden.");
     }
   };
+
+  // Helper for dynamic graph max
+  const getGraphConfig = () => {
+    let maxDist = 0;
+    rounds.forEach(r => {
+        players.forEach(p => {
+            const res = r.results[p.id];
+            const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
+            if (res !== undefined && target !== undefined) {
+                maxDist = Math.max(maxDist, Math.abs(res - target));
+            }
+        });
+    });
+    const graphMax = Math.max(10, Math.min(50, Math.ceil(maxDist / 10) * 10));
+    return { graphMax };
+  };
+
+  const { graphMax } = getGraphConfig();
 
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
@@ -351,7 +403,9 @@ const App: React.FC = () => {
         {gameState === GameState.START && (
           <div className="text-center animate-in fade-in duration-700 max-w-2xl w-full">
             <div className="mb-12 flex justify-center">
-              <img src={LOGO_URL} alt="1. Bundeswiega Logo" className="w-64 h-64 md:w-80 md:h-80 lg:w-[400px] lg:h-[400px] object-contain drop-shadow-2xl" />
+              <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="block transition-transform hover:scale-105 active:scale-95">
+                <img src={LOGO_URL} alt="1. Bundeswiega Logo" className="w-64 h-64 md:w-80 md:h-80 lg:w-[400px] lg:h-[400px] object-contain drop-shadow-2xl" />
+              </a>
             </div>
             <h2 className="text-2xl font-black mb-12 opacity-80 uppercase tracking-widest text-center">Das ultimative Wiegen-Spiel</h2>
             <div className="flex flex-col space-y-4 w-full max-w-sm mx-auto">
@@ -377,7 +431,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- PLAYER COUNT --- */}
         {gameState === GameState.PLAYER_COUNT && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-6 text-center">Wie viele Spieler?</h2>
@@ -402,7 +455,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- PLAYER NAMES --- */}
         {gameState === GameState.PLAYER_NAMES && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-6 text-center">Namen eingeben</h2>
@@ -422,21 +474,27 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- START WEIGHTS --- */}
         {gameState === GameState.START_WEIGHTS && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-2 text-center">Startgewichte</h2>
-            <p className="text-sm opacity-60 mb-6 text-center italic">Wiege die vollen Gläser inkl. Gefäß.</p>
+            <p className="text-sm opacity-60 mb-6 text-center italic">Wiege dein Gefäß und trage das Startgewicht der Spieler ein</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               {players.map((p, i) => (
                 <div key={p.id}>
                   <label className="text-xs font-bold mb-1 block uppercase opacity-70 tracking-tighter text-left">{p.name}</label>
                   <div className="relative">
-                    <input type="number" placeholder="z.B. 650" value={tempWeights[i]} autoFocus={i === 0} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} onChange={(e) => {
+                    <input 
+                      type="number" 
+                      placeholder="Startgewicht" 
+                      value={tempWeights[i]} 
+                      autoFocus={i === 0} 
+                      className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500/50' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400/50'}`} 
+                      onChange={(e) => {
                         const nextWeights = [...tempWeights];
                         nextWeights[i] = e.target.value;
                         setTempWeights(nextWeights);
-                      }} />
+                      }} 
+                    />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 opacity-30 text-xs font-bold">g</span>
                   </div>
                 </div>
@@ -446,7 +504,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- ROUND TARGET --- */}
         {gameState === GameState.ROUND_TARGET && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in zoom-in duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-black mb-4 text-center uppercase tracking-tighter">Runde {rounds.length + 1}</h2>
@@ -476,7 +533,7 @@ const App: React.FC = () => {
                       </>
                   );
               })()}
-              <button onClick={handleTargetWeightConfirm} className="w-full bg-green-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase">Bestätigen</button>
+              <button onClick={() => handleTargetWeightConfirm()} className="w-full bg-green-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase">Bestätigen</button>
             </div>
           </div>
         )}
@@ -500,13 +557,14 @@ const App: React.FC = () => {
                   <tbody>
                     {rounds.map((r, rIdx) => {
                         if (r.isFinal && gameState === GameState.FINAL_ROUND_RESULTS) return null;
+                        const targetValue = (r.isFinal && r.individualTargets) ? 'IND' : (r.targetWeight && typeof r.targetWeight === 'number' ? `${r.targetWeight}g` : '—');
                         return (
                       <tr key={rIdx} className={`hover:bg-opacity-50 border-b border-gray-800 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}>
                         <td className="p-4 font-semibold opacity-50 text-center text-xs">#{rIdx + 1}</td>
                         {players.map(p => {
                           const val = r.results[p.id];
                           const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
-                          const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
+                          const dist = val !== undefined && typeof target === 'number' ? Math.abs(val - target) : null;
                           return (
                             <td key={p.id} className="p-2 text-center align-middle">
                               {val !== undefined ? (
@@ -522,7 +580,7 @@ const App: React.FC = () => {
                           );
                         })}
                         <td className={`p-4 text-center font-bold text-xs md:text-sm ${darkMode ? 'text-yellow-400 bg-yellow-900/10' : 'text-blue-600 bg-yellow-50/50'}`}>
-                          {r.isFinal ? 'IND' : `${r.targetWeight}g`}
+                          {targetValue}
                         </td>
                       </tr>
                     );})}
@@ -541,15 +599,13 @@ const App: React.FC = () => {
                     ))}
                 </div>
                 {gameState === GameState.GAMEPLAY && <button onClick={handleNextRound} className="w-full bg-green-600 text-white font-bold py-4 rounded-2xl shadow-xl transition-all hover:bg-green-700 uppercase tracking-widest">Runde auswerten</button>}
-                {/* Gold button for Leergewichte input confirm */}
                 {gameState === GameState.FINAL_ROUND_RESULTS && <button onClick={handleFinalResultsConfirm} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest">Endstand berechnen</button>}
             </div>
           </div>
         )}
 
-        {/* --- FINAL ROUND TARGETS --- */}
         {gameState === GameState.FINAL_ROUND_TARGETS && (
-            <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`p-8 rounded-3xl shadow-2xl w-full max-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                 <h2 className="text-2xl font-black mb-4 text-center uppercase text-amber-500 tracking-tighter">FINALE: Individuelle Ziele</h2>
                 <p className="text-xs opacity-70 mb-8 text-center uppercase tracking-widest italic">Gib dein geschätztes Leergewicht an</p>
                 <div className="grid grid-cols-2 gap-4 mb-8">
@@ -560,17 +616,14 @@ const App: React.FC = () => {
                         </div>
                     ))}
                 </div>
-                {/* Gold button for targets confirm */}
-                <button onClick={handleFinalTargetsConfirm} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-4 rounded-xl shadow-lg transition-all uppercase tracking-widest">Finale starten</button>
+                <button onClick={handleFinalTargetsConfirm} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-4 rounded-xl shadow-lg hover:scale-105 transition-all uppercase tracking-widest">Finale starten</button>
             </div>
         )}
 
-        {/* --- RESULT SCREEN --- */}
         {gameState === GameState.RESULT_SCREEN && (
-          <div className="w-full flex flex-col space-y-4 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-10">
-            <h2 className="text-3xl font-black text-green-600 text-center uppercase tracking-tighter">🏆 Gesamtergebnis</h2>
+          <div className="w-full flex flex-col space-y-4 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-10 text-center">
+            <h2 className="text-3xl font-black text-green-600 uppercase tracking-tighter mx-auto">🏆 Gesamtergebnis</h2>
             
-            {/* RANKING EXPORT AREA */}
             <div id="ranking-export" ref={rankingAreaRef} className={`p-4 md:p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
               <div className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
                 <table className="w-full text-left border-collapse text-xs sm:text-sm">
@@ -610,7 +663,6 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* FULL TABLE EXPORT AREA */}
             <div id="full-table-export" ref={roundsAreaRef} className={`p-4 md:p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
                 <h3 className="text-[10px] font-black text-center opacity-40 uppercase tracking-[0.2em] mb-3">Vollständige Spieltabelle</h3>
                 <div className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
@@ -627,13 +679,15 @@ const App: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {rounds.map((r, rIdx) => (
+                        {rounds.map((r, rIdx) => {
+                          const targetValue = (r.isFinal && r.individualTargets) ? 'IND' : (r.targetWeight && typeof r.targetWeight === 'number' ? `${r.targetWeight}g` : '—');
+                          return (
                           <tr key={rIdx} className={`border-b ${darkMode ? 'border-gray-800/30' : 'border-gray-50'}`}>
                             <td className="p-2 font-semibold opacity-30 text-center text-[8px]">#{rIdx + 1}</td>
                             {players.map(p => {
                               const val = r.results[p.id];
                               const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
-                              const dist = val !== undefined && target !== undefined ? Math.abs(val - target) : null;
+                              const dist = val !== undefined && typeof target === 'number' ? Math.abs(val - target) : null;
                               return (
                                 <td key={p.id} className="p-1 text-center align-middle">
                                   {val !== undefined ? (
@@ -646,9 +700,9 @@ const App: React.FC = () => {
                                 </td>
                               );
                             })}
-                            <td className="p-2 text-center font-black text-yellow-500 text-[8px] sm:text-[10px]">{r.isFinal ? 'IND' : `${r.targetWeight}g`}</td>
+                            <td className="p-2 text-center font-black text-yellow-500 text-[8px] sm:text-[10px]">{targetValue}</td>
                           </tr>
-                        ))}
+                        );})}
                       </tbody>
                     </table>
                 </div>
@@ -676,106 +730,58 @@ const App: React.FC = () => {
 
       {/* --- MODALS --- */}
 
-      {showRules && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] shadow-2xl border animate-in zoom-in duration-300 flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter text-green-600">Spielregeln</h3>
-            <div className="overflow-y-auto flex-1 pr-2 space-y-6 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-gray-500 text-left">
-              <section>
-                <h4 className="font-black text-lg mb-2 uppercase border-b border-green-500 inline-block pb-1 italic">Regeln einer Runde “Wiegen”</h4>
-                <p><strong>Spieleranzahl:</strong> mehr als 2<br/><strong>Alter:</strong> 18 Jahre +</p>
-              </section>
-              <section>
-                <h4 className="font-black text-lg mb-1 uppercase">Ziel des Spiels:</h4>
-                <p>Der gemeinsame Spaß steht im Fokus. Alle Mitspielenden trinken innerhalb einer Runde “Wiegen” mindestens ein Bier und ggf. Schnäpse.</p>
-              </section>
-              <section>
-                <h4 className="font-black text-lg mb-1 uppercase">Punktespiel:</h4>
-                <p>Beim Punktespiel wird jeder getrunkene Schnaps beim jeweiligen Spieler (w/m/d) als Minuspunkt gewertet. Anhand der gesammelten Minuspunkte wird ein Ranking erstellt.</p>
-              </section>
-              <section>
-                <h4 className="font-black text-lg mb-1 uppercase">Spielaufbau und Material:</h4>
-                <p>Mindestens eine Küchenwaage (Präferenz: Elektronisch & geeicht, in Schritten von 1g) wird vor dem Wiegemeister (w/m/d) platziert.</p>
-                <p className="mt-2">Ein zu teilender Schnaps (Präferenz: Pfefferminzlikör, schön billig).</p>
-                <p className="mt-2">Pro mitspielende Person ein Bier 0,5l. Wichtig ist, dass alle Spielenden das gleiche Gefäß mit gleicher Flüssigkeitsmenge nutzen.</p>
-              </section>
-              <section>
-                <h4 className="font-black text-lg mb-2 uppercase border-b border-gray-500 inline-block pb-1">Spielvorgang:</h4>
-                <p>Der Wiegemeister (w/m/d) stellt das Startgewicht aller Getränke der Spielenden fest und verkündet dieses offen.</p>
-                <h5 className="font-bold mt-4 mb-1 uppercase text-green-500">Erste Runde</h5>
-                <p><strong>a) Ansagephase:</strong> Der Wiegemeister (m/m/d) verkündet das erste Zielgewicht (mind. 1g unter dem niedrigsten Startgewicht, max. 100g unter dem höchsten).</p>
-                <p className="mt-4"><strong>b) Trinkphase:</strong> Alle trinken eine beliebige Menge ohne abzusetzen. Ziel: Möglichst nahe dem Zielgewicht kommen.</p>
-                <p className="mt-4"><strong>c) Rundenendphase:</strong> Nach dem Wiegen werden Schnäpse verteilt für:</p>
-                <ul className="list-disc list-inside space-y-1 ml-2 mt-2">
-                  <li>Höchste Differenz zum Zielgewicht.</li>
-                  <li>Schnapszahlen (z.B. 222, 444).</li>
-                  <li>Identische Gewichte (Wiege-Zwillinge).</li>
-                  <li>Exakte Treffer des Zielgewichts.</li>
-                </ul>
-              </section>
-              <section>
-                <h4 className="font-black text-lg mb-1 uppercase">Finale</h4>
-                <p>Die letzte Runde wird eingeleitet, wenn das Zielgewicht die Grenze des niedrigsten Startgewichts abzüglich 500g unterschreiten würde. Alle trinken aus und schätzen ihr <strong>Leergewicht</strong>.</p>
-              </section>
-              <section className="bg-red-500/10 p-4 rounded-xl border border-red-500/30">
-                <h4 className="font-black text-red-500 mb-1 uppercase">Zusatzregeln:</h4>
-                <p className="text-xs">Bier nie leertrinken außer im Finale (Disqualifikation). Bei Differenzen über 50g droht ebenfalls der Ausschluss.</p>
-              </section>
-            </div>
-            <button onClick={() => setShowRules(false)} className="w-full mt-6 bg-green-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors uppercase">OK</button>
+      {startWeightError && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
+          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border-4 border-red-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-exclamation-triangle text-2xl text-white"></i></div>
+            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Ungültig</h3>
+            <p className="opacity-80 mb-8 leading-relaxed text-sm">
+                {startWeightError}
+            </p>
+            <button onClick={() => setStartWeightError(null)} className="w-full bg-red-500 text-white font-black py-4 rounded-xl shadow-lg hover:bg-red-600 transition-colors uppercase">OK</button>
           </div>
         </div>
       )}
 
-      {showStats && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-2xl">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border animate-in zoom-in duration-300 flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter text-indigo-500">Genauigkeits-Verlauf</h3>
-            
-            <div id="stats-export" ref={statsAreaRef} className={`p-4 rounded-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
-                <div className="relative w-full aspect-video bg-black/10 rounded-2xl p-4 border border-white/5">
-                    <svg className="w-full h-full overflow-visible" viewBox="0 0 400 200" preserveAspectRatio="none">
-                        {[0, 25, 50, 75, 100].map(v => (
-                            <line key={v} x1="0" y1={200 - (v * 2)} x2="400" y2={200 - (v * 2)} stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" />
-                        ))}
-                        {players.map((p, pIdx) => {
-                            const activeRounds = rounds.filter(r => r.results[p.id] !== undefined);
-                            if (activeRounds.length < 1) return null;
-                            const points = activeRounds.map((r, rIdx) => {
-                                const target = r.isFinal ? (r.individualTargets ? r.individualTargets[p.id] : 0) : r.targetWeight;
-                                const dist = Math.abs(r.results[p.id] - target);
-                                const x = (rIdx / (rounds.length - 1 || 1)) * 400;
-                                const y = 200 - Math.min(200, dist * 2);
-                                return `${x},${y}`;
-                            }).join(' ');
-                            return <polyline key={p.id} points={points} fill="none" stroke={PLAYER_COLORS[pIdx % PLAYER_COLORS.length]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />;
-                        })}
-                    </svg>
-                    <div className="absolute left-1 top-4 bottom-4 flex flex-col justify-between text-[8px] font-bold opacity-30"><span>100g</span><span>50g</span><span>0g</span></div>
+      {disqualifiedNotice && (
+        <div className="fixed inset-0 z-[310] flex items-center justify-center p-4 bg-red-600/95 backdrop-blur-md">
+          <div className="rounded-3xl p-10 max-w-sm w-full shadow-2xl border-4 border-white animate-in zoom-in duration-500 text-center bg-white text-red-600">
+            <div className="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl"><i className="fas fa-user-xmark text-4xl text-white"></i></div>
+            <h3 className="text-3xl font-black mb-6 uppercase tracking-tighter">AUSGESCHIEDEN</h3>
+            <div className="space-y-4 mb-8">
+              {disqualifiedNotice.map((p, i) => (
+                <div key={i} className="border-b border-red-100 pb-2 last:border-0">
+                  <p className="text-xl font-black uppercase text-gray-900">{p.name}</p>
+                  <p className="text-xs font-bold opacity-70">Abstand von {p.diff.toFixed(2)}g ist zu groß (> 50g)!</p>
                 </div>
-                <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[100px] pr-2">
-                    {players.map((p, idx) => (
-                        <div key={p.id} className="flex items-center space-x-2">
-                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></div>
-                            <span className="text-xs font-bold truncate opacity-80">{p.name}</span>
-                        </div>
-                    ))}
-                </div>
+              ))}
             </div>
+            <button onClick={() => setDisqualifiedNotice(null)} className="w-full bg-red-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-red-700 transition-colors uppercase">OK</button>
+          </div>
+        </div>
+      )}
 
-            <div className="grid grid-cols-2 gap-3 mt-10">
-                <button onClick={() => captureSingleScreenshot(statsAreaRef, `Bundeswiega_Statistik_${Date.now()}.png`, "Grafik-Verlauf", "stats-export")} className="bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-blue-700 transition-colors uppercase flex items-center justify-center space-x-2">
-                    <i className="fas fa-camera"></i><span>Screenshot</span>
-                </button>
-                <button onClick={() => setShowStats(false)} className="bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg uppercase">OK</button>
-            </div>
+      {showAutoTargetModal && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
+          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border-4 border-amber-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className="w-16 h-16 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-magic text-2xl text-white"></i></div>
+            <h3 className="text-2xl font-black mb-4 uppercase text-amber-500">Auto-Ziel-Modus</h3>
+            <p className="opacity-80 mb-8 leading-relaxed text-sm">
+                Die Differenz zwischen den Spielern ist mit <span className="font-bold">{showAutoTargetModal.diff}g</span> sehr groß (≥ 90g).<br/><br/>
+                Das neue Zielgewicht wird automatisch auf <span className="font-bold">{showAutoTargetModal.target}g</span> gesetzt!
+            </p>
+            <button onClick={() => {
+                const target = showAutoTargetModal.target;
+                setShowAutoTargetModal(null);
+                handleTargetWeightConfirm(target);
+            }} className="w-full bg-amber-500 text-white font-black py-4 rounded-xl shadow-lg hover:bg-amber-600 transition-colors uppercase">Alles klar!</button>
           </div>
         </div>
       )}
 
       {showSummary && summaryData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border animate-in slide-in-from-bottom duration-300 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
+          <div className={`rounded-3xl p-8 max-lg w-full shadow-2xl border animate-in slide-in-from-bottom duration-300 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
             <h3 className="text-3xl font-black mb-8 text-center text-green-500 uppercase tracking-tighter">Rundenauswertung</h3>
             <div className="space-y-4">
               <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-red-900/20 border-red-900/40' : 'bg-red-50 border-red-200'}`}>
@@ -823,25 +829,102 @@ const App: React.FC = () => {
                   </div>
               )}
             </div>
-            <button onClick={proceedFromSummary} className="w-full mt-10 bg-green-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase tracking-widest">Nächste Runde</button>
+            <button onClick={proceedFromSummary} className="w-full mt-10 bg-green-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase tracking-widest">Weiter</button>
           </div>
         </div>
       )}
 
-      {disqualifiedNotice && (
-        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-red-600/95 backdrop-blur-md">
-          <div className="rounded-3xl p-10 max-w-sm w-full shadow-2xl border-4 border-white animate-in zoom-in duration-500 text-center bg-white text-red-600">
-            <div className="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl"><i className="fas fa-user-xmark text-4xl text-white"></i></div>
-            <h3 className="text-3xl font-black mb-6 uppercase tracking-tighter">DISQUALIFIZIERT</h3>
-            <div className="space-y-4 mb-8">
-              {disqualifiedNotice.map((p, i) => (
-                <div key={i} className="border-b border-red-100 pb-2 last:border-0">
-                  <p className="text-xl font-black uppercase text-gray-900">{p.name}</p>
-                  <p className="text-xs font-bold opacity-70">Um {p.diff.toFixed(2)}g daneben!</p>
-                </div>
-              ))}
+      {showRules && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] shadow-2xl border animate-in zoom-in duration-300 flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter text-green-600">Spielregeln</h3>
+            <div className="overflow-y-auto flex-1 pr-2 space-y-6 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-gray-500 text-left text-xs sm:text-sm">
+              <section>
+                <h4 className="font-black text-lg mb-2 uppercase border-b border-green-500 inline-block pb-1 italic">Regeln einer Runde “Wiegen”</h4>
+                <p><strong>Spieleranzahl:</strong> mehr als 2<br/><strong>Alter:</strong> 18 Jahre +</p>
+              </section>
+              <section>
+                <h4 className="font-black text-lg mb-1 uppercase">Ziel des Spiels:</h4>
+                <p>Der gemeinsame Spaß steht im Fokus. Alle Mitspielenden trinken innerhalb einer Runde “Wiegen” mindestens ein Bier und ggf. Schnäpse.</p>
+              </section>
+              <section>
+                <h4 className="font-black text-lg mb-1 uppercase">Punktespiel:</h4>
+                <p>Beim Punktespiel wird jeder getrunkene Schnaps beim jeweiligen Spieler (w/m/d) als Minuspunkt gewertet. Anhand der gesammelten Minuspunkte wird ein Ranking erstellt.</p>
+              </section>
+              <section>
+                <h4 className="font-black text-lg mb-1 uppercase">Spielaufbau und Material:</h4>
+                <p>Mindestens eine Küchenwaage wird vor dem Wiegemeister platziert.</p>
+                <p className="mt-2">Pro mitspielende Person ein Bier. Wichtig ist, dass alle Spielenden das gleiche Gefäß mit gleicher Flüssigkeitsmenge nutzen.</p>
+              </section>
+              <section>
+                <h4 className="font-black text-lg mb-2 uppercase border-b border-gray-500 inline-block pb-1">Spielvorgang:</h4>
+                <p>Der Wiegemeister stellt das Startgewicht aller Getränke fest.</p>
+                <h5 className="font-bold mt-4 mb-1 uppercase text-green-500">Rundenablauf</h5>
+                <p><strong>Ansage:</strong> Wiegemeister verkündet Zielgewicht.</p>
+                <p className="mt-2"><strong>Trinken:</strong> Beliebige Menge ohne abzusetzen.</p>
+                <p className="mt-2"><strong>Auswertung:</strong> Schnäpse für Abstände, Zwillinge oder Volltreffer.</p>
+              </section>
+              <section className="bg-red-500/10 p-4 rounded-xl border border-red-500/30">
+                <h4 className="font-black text-red-500 mb-1 uppercase text-sm">Disqualifikation:</h4>
+                <p className="text-xs">Wer mehr als 50g vom Ziel entfernt ist, scheidet aus!</p>
+              </section>
             </div>
-            <button onClick={() => setDisqualifiedNotice(null)} className="w-full bg-red-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-red-700 transition-colors uppercase">OK</button>
+            <button onClick={() => setShowRules(false)} className="w-full mt-6 bg-green-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors uppercase">OK</button>
+          </div>
+        </div>
+      )}
+
+      {showStats && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-2xl">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border animate-in zoom-in duration-300 flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter text-indigo-500">Genauigkeits-Verlauf</h3>
+            
+            <div id="stats-export" ref={statsAreaRef} className={`p-4 rounded-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
+                <div className="relative w-full aspect-video bg-black/10 rounded-2xl p-4 border border-white/5 pb-10">
+                    <svg className="w-full h-full overflow-visible" viewBox="0 0 400 200" preserveAspectRatio="none">
+                        {[0, 0.25, 0.5, 0.75, 1].map(p => (
+                            <line key={p} x1="0" y1={200 - (p * 200)} x2="400" y2={200 - (p * 200)} stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" />
+                        ))}
+                        {players.map((p, pIdx) => {
+                            const activeRounds = rounds.filter(r => r.results[p.id] !== undefined);
+                            if (activeRounds.length < 1) return null;
+                            const factor = 200 / graphMax;
+                            const points = activeRounds.map((r, rIdx) => {
+                                const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
+                                if (typeof target !== 'number') return null;
+                                const dist = Math.abs(r.results[p.id] - target);
+                                const x = (rIdx / (rounds.length - 1 || 1)) * 400;
+                                const y = 200 - Math.min(200, dist * factor);
+                                return `${x},${y}`;
+                            }).filter(p => p !== null).join(' ');
+                            return <polyline key={p.id} points={points} fill="none" stroke={PLAYER_COLORS[pIdx % PLAYER_COLORS.length]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />;
+                        })}
+                    </svg>
+                    <div className="absolute left-1 top-4 bottom-10 flex flex-col justify-between text-[8px] font-bold opacity-30">
+                      <span>{graphMax}g</span><span>{graphMax/2}g</span><span>0g</span>
+                    </div>
+                    <div className="absolute left-0 right-0 bottom-2 flex justify-between px-2 text-[8px] font-bold opacity-40">
+                      {rounds.map((_, i) => (
+                        <span key={i} style={{ left: `${(i / (rounds.length - 1 || 1)) * 100}%` }}>R{i+1}</span>
+                      ))}
+                    </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[100px] pr-2">
+                    {players.map((p, idx) => (
+                        <div key={p.id} className="flex items-center space-x-2">
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></div>
+                            <span className="text-xs font-bold truncate opacity-80">{p.name}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mt-10">
+                <button onClick={() => captureSingleScreenshot(statsAreaRef, `Bundeswiega_Statistik_${Date.now()}.png`, "Grafik-Verlauf", "stats-export")} className="bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-blue-700 transition-colors uppercase flex items-center justify-center space-x-2">
+                    <i className="fas fa-camera"></i><span>Screenshot</span>
+                </button>
+                <button onClick={() => setShowStats(false)} className="bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg uppercase">OK</button>
+            </div>
           </div>
         </div>
       )}
@@ -872,8 +955,8 @@ const App: React.FC = () => {
 
       {/* FINAL INTRO WITH DETAILED TRIGGER MESSAGE */}
       {showFinalIntro && triggeringPlayerInfo && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-red-950/90 backdrop-blur-xl">
-          <div className="rounded-3xl p-10 max-w-md w-full shadow-2xl border-2 border-amber-500 animate-in zoom-in duration-500 text-center bg-gray-900 text-white">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+          <div className="rounded-3xl p-10 max-w-md w-full shadow-2xl border-4 border-amber-500 animate-in zoom-in duration-500 text-center bg-gray-900 text-white">
              <div className="w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl animate-pulse">
                 <i className="fas fa-flag-checkered text-4xl text-white"></i>
              </div>
@@ -883,10 +966,16 @@ const App: React.FC = () => {
                 <p className="text-sm md:text-base leading-relaxed">
                    Das Finale wurde eingeleitet, da <strong>{triggeringPlayerInfo.name}</strong> das kritische Limit unterschritten hat!
                 </p>
-                <p className="mt-4 text-xs opacity-80">
-                   Aktuelles Gewicht: <span className="text-amber-500 font-bold">{triggeringPlayerInfo.weight}g</span><br/>
-                   Limit: <span className="text-red-400 font-bold">{triggeringPlayerInfo.threshold}g</span>
-                </p>
+                <div className="mt-4 flex justify-between items-end border-t border-white/5 pt-4">
+                    <div>
+                        <p className="text-[10px] font-bold opacity-40 uppercase">Gewicht</p>
+                        <p className="text-xl font-black text-amber-500">{triggeringPlayerInfo.weight}g</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[10px] font-bold opacity-40 uppercase">Limit</p>
+                        <p className="text-xl font-black text-red-400">{triggeringPlayerInfo.threshold}g</p>
+                    </div>
+                </div>
              </div>
              <button onClick={startLastRound} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-5 rounded-2xl shadow-xl hover:scale-105 transition-all text-2xl uppercase tracking-tighter italic">
                 Start Finale

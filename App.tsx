@@ -8,8 +8,12 @@ declare const html2canvas: any;
 const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
 const INSTAGRAM_URL = "https://www.instagram.com/bundeswiega/";
 
+// Updated Brand Color to #238183
+const BRAND_COLOR = "#238183";
+const BRAND_COLOR_HOVER = "#1b6668";
+
 const PLAYER_COLORS = [
-  '#10b981', '#6366f1', '#f43f5e', '#f59e0b', '#06b6d4', 
+  BRAND_COLOR, '#6366f1', '#f43f5e', '#f59e0b', '#06b6d4', 
   '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'
 ];
 
@@ -342,7 +346,7 @@ const App: React.FC = () => {
                   branding.style.alignItems = 'center';
                   branding.innerHTML = `
                       <img src="${LOGO_URL}" style="width: 64px; height: 64px; margin-bottom: 12px; object-fit: contain;" />
-                      <h2 style="font-weight: 900; font-size: 24px; color: #16a34a; margin-bottom: 4px; letter-spacing: -0.05em;">1. BUNDESWIEGA</h2>
+                      <h2 style="font-weight: 900; font-size: 24px; color: ${BRAND_COLOR}; margin-bottom: 4px; letter-spacing: -0.05em;">1. BUNDESWIEGA</h2>
                       <h3 style="font-size: 16px; font-weight: 800; opacity: 0.8; margin-bottom: 4px; text-transform: uppercase;">${title}</h3>
                       <p style="font-size: 10px; opacity: 0.5; font-weight: bold; letter-spacing: 0.1em;">ERGEBNIS VOM ${new Date().toLocaleDateString('de-DE')}</p>
                   `;
@@ -386,7 +390,7 @@ const App: React.FC = () => {
       <header className="flex justify-between items-center mb-8">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => gameState === GameState.START ? null : setShowResetConfirm(true)}>
           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
-          <h1 className={`text-2xl font-black tracking-tighter hidden sm:block ${darkMode ? 'text-white' : 'text-green-600'}`}>1. Bundeswiega</h1>
+          <h1 className={`text-2xl font-black tracking-tighter hidden sm:block`} style={{ color: darkMode ? '#ffffff' : BRAND_COLOR }}>1. Bundeswiega</h1>
         </div>
         <div className="flex space-x-2">
           <button onClick={() => setDarkMode(!darkMode)} className={`p-3 rounded-full shadow-md border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
@@ -410,7 +414,13 @@ const App: React.FC = () => {
             </div>
             <h2 className="text-2xl font-black mb-12 opacity-80 uppercase tracking-widest text-center">Das ultimative Wiegen-Spiel</h2>
             <div className="flex flex-col space-y-4 w-full max-w-sm mx-auto">
-              <button onClick={startGame} className="bg-green-600 hover:bg-green-700 text-white font-bold py-6 px-10 rounded-3xl shadow-xl transform active:scale-95 transition-all text-2xl w-full flex items-center justify-center space-x-3">
+              <button 
+                onClick={startGame} 
+                className="text-white font-bold py-6 px-10 rounded-3xl shadow-xl transform active:scale-95 transition-all text-2xl w-full flex items-center justify-center space-x-3"
+                style={{ backgroundColor: BRAND_COLOR }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+              >
                 <i className="fas fa-play"></i>
                 <span>Spiel starten</span>
               </button>
@@ -424,7 +434,13 @@ const App: React.FC = () => {
                     <i className="fas fa-bolt mr-2"></i>Speed
                   </button>
                 </div>
-                <button onClick={() => setShowRules(true)} className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 text-lg">
+                <button 
+                  onClick={() => setShowRules(true)} 
+                  className="w-full text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 text-lg"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+                >
                   <i className="fas fa-book"></i><span>Regeln</span>
                 </button>
               </div>
@@ -435,14 +451,14 @@ const App: React.FC = () => {
         {gameState === GameState.PLAYER_COUNT && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-6 text-center">Wie viele Spieler?</h2>
-            <select value={playerCount} onChange={(e) => setPlayerCount(parseInt(e.target.value))} className={`w-full p-4 border-2 rounded-xl mb-6 text-lg focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+            <select value={playerCount} onChange={(e) => setPlayerCount(parseInt(e.target.value))} className={`w-full p-4 border-2 rounded-xl mb-6 text-lg focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: BRAND_COLOR }}>
               {Array.from({ length: 9 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} Spieler</option>)}
             </select>
             <div className="flex items-center justify-between mb-8 ml-1 pr-1">
                 <div className="flex items-center space-x-3">
                   <div className="relative inline-block w-10 h-6 transition duration-200 ease-in">
                     <input type="checkbox" id="shortModeToggle" checked={isShortMode} onChange={() => setIsShortMode(!isShortMode)} className="opacity-0 w-0 h-0" />
-                    <label htmlFor="shortModeToggle" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors duration-200 ${isShortMode ? 'bg-green-600' : 'bg-gray-400'}`}>
+                    <label htmlFor="shortModeToggle" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors duration-200 ${isShortMode ? '' : 'bg-gray-400'}`} style={{ backgroundColor: isShortMode ? BRAND_COLOR : undefined }}>
                       <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ${isShortMode ? 'translate-x-4' : 'translate-x-0'}`}></span>
                     </label>
                   </div>
@@ -452,7 +468,13 @@ const App: React.FC = () => {
                   </button>
                 </div>
             </div>
-            <button onClick={handlePlayerCountConfirm} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors">Weiter</button>
+            <button 
+              onClick={handlePlayerCountConfirm} 
+              className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >Weiter</button>
           </div>
         )}
 
@@ -463,7 +485,7 @@ const App: React.FC = () => {
               {players.map((p, i) => (
                 <div key={p.id}>
                   <label className="text-sm font-semibold opacity-60 mb-1 block uppercase text-[10px] tracking-widest text-left">Spieler {i + 1}</label>
-                  <input type="text" placeholder={`Spieler ${i+1}`} value={p.name} autoFocus={i === 0} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} onChange={(e) => {
+                  <input type="text" placeholder={`Spieler ${i+1}`} value={p.name} autoFocus={i === 0} className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`} style={{ borderColor: players[i].name ? BRAND_COLOR : '' }} onChange={(e) => {
                       const newPlayers = [...players];
                       newPlayers[i].name = e.target.value;
                       setPlayers(newPlayers);
@@ -471,7 +493,13 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={() => handlePlayerNamesConfirm(players.map(p => p.name))} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors">Startgewichte festlegen</button>
+            <button 
+              onClick={() => handlePlayerNamesConfirm(players.map(p => p.name))} 
+              className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >Startgewichte festlegen</button>
           </div>
         )}
 
@@ -489,7 +517,8 @@ const App: React.FC = () => {
                       placeholder="Startgewicht" 
                       value={tempWeights[i]} 
                       autoFocus={i === 0} 
-                      className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500/50' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400/50'}`} 
+                      className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500/50' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400/50'}`} 
+                      style={{ borderColor: tempWeights[i] ? BRAND_COLOR : '' }}
                       onChange={(e) => {
                         const nextWeights = [...tempWeights];
                         nextWeights[i] = e.target.value;
@@ -501,7 +530,13 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={onWeightsSubmit} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors uppercase tracking-widest">Spiel starten</button>
+            <button 
+              onClick={onWeightsSubmit} 
+              className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors uppercase tracking-widest"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >Spiel starten</button>
           </div>
         )}
 
@@ -529,12 +564,18 @@ const App: React.FC = () => {
                   const range = getTargetRange(prevResults);
                   return (
                       <>
-                      <p className="text-sm opacity-70 mb-6 text-center">Neues Zielgewicht festlegen: <br/><span className="font-bold text-green-600 dark:text-green-400">{Math.round(range.min)}g - {Math.round(range.max)}g</span></p>
-                      <input type="number" autoFocus value={nextTargetInput} onChange={(e) => setNextTargetInput(e.target.value)} placeholder="Ziel (g)" onKeyDown={(e) => e.key === 'Enter' && handleTargetWeightConfirm()} className={`w-full p-4 border-2 rounded-xl mb-6 text-3xl text-center font-black focus:outline-none focus:border-green-500 transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} />
+                      <p className="text-sm opacity-70 mb-6 text-center">Neues Zielgewicht festlegen: <br/><span className="font-bold" style={{ color: BRAND_COLOR }}>{Math.round(range.min)}g - {Math.round(range.max)}g</span></p>
+                      <input type="number" autoFocus value={nextTargetInput} onChange={(e) => setNextTargetInput(e.target.value)} placeholder="Ziel (g)" onKeyDown={(e) => e.key === 'Enter' && handleTargetWeightConfirm()} className={`w-full p-4 border-2 rounded-xl mb-6 text-3xl text-center font-black focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: nextTargetInput ? BRAND_COLOR : '' }} />
                       </>
                   );
               })()}
-              <button onClick={() => handleTargetWeightConfirm()} className="w-full bg-green-600 text-white font-bold py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase">Bestätigen</button>
+              <button 
+                onClick={() => handleTargetWeightConfirm()} 
+                className="w-full text-white font-bold py-5 rounded-2xl shadow-xl transition-all text-xl uppercase"
+                style={{ backgroundColor: BRAND_COLOR }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+              >Bestätigen</button>
             </div>
           </div>
         )}
@@ -572,7 +613,7 @@ const App: React.FC = () => {
                                 <>
                                   <div className={`font-semibold text-xs md:text-sm`}>{val}g</div>
                                   {dist !== null && dist > 0 && <div className={`text-[9px] font-bold ${dist > 50 ? 'text-red-600 uppercase' : darkMode ? 'text-red-400' : 'text-red-500'}`}>{dist > 50 ? 'D' : `+${dist}g`}</div>}
-                                  {dist === 0 && <div className={`text-[9px] font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>🎯</div>}
+                                  {dist === 0 && <div className={`text-[9px] font-bold`} style={{ color: BRAND_COLOR }}>🎯</div>}
                                 </>
                               ) : (
                                 <div className="text-xs opacity-30 italic">{p.isDisqualified ? '❌' : '—'}</div>
@@ -595,11 +636,17 @@ const App: React.FC = () => {
                     {players.filter(p => !p.isDisqualified).map(p => (
                         <div key={p.id}>
                             <label className="text-[10px] font-bold opacity-60 mb-1 block uppercase tracking-tighter text-left">{p.name}</label>
-                            <input type="number" placeholder="g" value={currentRoundResults[p.id] || ''} onChange={(e) => setCurrentRoundResults({...currentRoundResults, [p.id]: e.target.value})} className={`w-full p-2 border-2 rounded-lg focus:outline-none focus:border-green-500 transition-colors text-sm font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} />
+                            <input type="number" placeholder="g" value={currentRoundResults[p.id] || ''} onChange={(e) => setCurrentRoundResults({...currentRoundResults, [p.id]: e.target.value})} className={`w-full p-2 border-2 rounded-lg focus:outline-none transition-colors text-sm font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: currentRoundResults[p.id] ? BRAND_COLOR : '' }} />
                         </div>
                     ))}
                 </div>
-                {gameState === GameState.GAMEPLAY && <button onClick={handleNextRound} className="w-full bg-green-600 text-white font-bold py-4 rounded-2xl shadow-xl transition-all hover:bg-green-700 uppercase tracking-widest">Runde auswerten</button>}
+                {gameState === GameState.GAMEPLAY && <button 
+                  onClick={handleNextRound} 
+                  className="w-full text-white font-bold py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+                >Runde auswerten</button>}
                 {gameState === GameState.FINAL_ROUND_RESULTS && <button onClick={handleFinalResultsConfirm} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest">Endstand berechnen</button>}
             </div>
           </div>
@@ -613,7 +660,7 @@ const App: React.FC = () => {
                     {players.filter(p => !p.isDisqualified).map(p => (
                         <div key={p.id}>
                             <label className="text-[10px] font-bold opacity-60 mb-1 block uppercase text-left">{p.name}</label>
-                            <input type="number" placeholder="Leergewicht (g)" value={currentRoundTargets[p.id] || ''} onChange={(e) => setCurrentRoundTargets({...currentRoundTargets, [p.id]: e.target.value})} className={`w-full p-3 border-2 rounded-xl focus:outline-none focus:border-green-500 transition-colors font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} />
+                            <input type="number" placeholder="Leergewicht (g)" value={currentRoundTargets[p.id] || ''} onChange={(e) => setCurrentRoundTargets({...currentRoundTargets, [p.id]: e.target.value})} className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: currentRoundTargets[p.id] ? BRAND_COLOR : '' }} />
                         </div>
                     ))}
                 </div>
@@ -623,7 +670,7 @@ const App: React.FC = () => {
 
         {gameState === GameState.RESULT_SCREEN && (
           <div className="w-full flex flex-col space-y-4 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-10 text-center">
-            <h2 className="text-3xl font-black text-green-600 uppercase tracking-tighter mx-auto">🏆 Gesamtergebnis</h2>
+            <h2 className="text-3xl font-black uppercase tracking-tighter mx-auto" style={{ color: BRAND_COLOR }}>🏆 Gesamtergebnis</h2>
             
             <div id="ranking-export" ref={rankingAreaRef} className={`p-4 md:p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
               <div className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
@@ -634,7 +681,7 @@ const App: React.FC = () => {
                         <th className="p-3 font-bold">SPIELER</th>
                         <th className="p-3 font-bold text-center">∅ ABST.</th>
                         <th className="p-3 font-bold text-center">S.</th>
-                        <th className="p-3 font-bold text-center bg-green-600/10">TOTAL</th>
+                        <th className="p-3 font-bold text-center" style={{ backgroundColor: BRAND_COLOR + '1A' }}>TOTAL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -655,7 +702,7 @@ const App: React.FC = () => {
                               <td className={`p-3 font-black ${p.isDisqualified ? 'line-through text-red-500 opacity-60' : ''}`}>{p.name}</td>
                               <td className="p-3 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(2)}g`}</td>
                               <td className="p-3 text-center font-bold">{p.schnaepse}</td>
-                              <td className="p-3 text-center font-black text-green-500 bg-green-600/5">{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
+                              <td className="p-3 text-center font-black" style={{ color: BRAND_COLOR, backgroundColor: BRAND_COLOR + '0D' }}>{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
                             </tr>
                           );
                         })}
@@ -710,11 +757,23 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-col space-y-3 pt-6 px-3">
-              <button onClick={() => setShowStats(true)} className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-indigo-700 transition-all text-xl flex items-center justify-center space-x-3">
+              <button 
+                onClick={() => setShowStats(true)} 
+                className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl flex items-center justify-center space-x-3"
+                style={{ backgroundColor: BRAND_COLOR }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+              >
                 <i className="fas fa-chart-line"></i><span>Statistik</span>
               </button>
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => captureSingleScreenshot(rankingAreaRef, `Bundeswiega_Ranking_${Date.now()}.png`, "Endergebnis", "ranking-export")} className="bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-blue-700 transition-all text-xs flex flex-col items-center justify-center space-y-1">
+                <button 
+                  onClick={() => captureSingleScreenshot(rankingAreaRef, `Bundeswiega_Ranking_${Date.now()}.png`, "Endergebnis", "ranking-export")} 
+                  className="text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xs flex flex-col items-center justify-center space-y-1"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+                >
                   <i className="fas fa-camera text-lg"></i><span>Screenshot Ranking</span>
                 </button>
                 <button onClick={() => captureSingleScreenshot(roundsAreaRef, `Bundeswiega_Tabelle_${Date.now()}.png`, "Vollständige Tabelle", "full-table-export")} className="bg-slate-700 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-slate-800 transition-all text-xs flex flex-col items-center justify-center space-y-1">
@@ -737,7 +796,7 @@ const App: React.FC = () => {
 
       {startWeightError && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border-4 border-red-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border-4 border-red-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
             <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-exclamation-triangle text-2xl text-white"></i></div>
             <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Ungültig</h3>
             <p className="opacity-80 mb-8 leading-relaxed text-sm">
@@ -787,7 +846,7 @@ const App: React.FC = () => {
       {showSummary && summaryData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
           <div className={`rounded-3xl p-8 max-lg w-full shadow-2xl border animate-in slide-in-from-bottom duration-300 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-8 text-center text-green-500 uppercase tracking-tighter">Rundenauswertung</h3>
+            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenauswertung</h3>
             <div className="space-y-4">
               <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-red-900/20 border-red-900/40' : 'bg-red-50 border-red-200'}`}>
                 <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mr-4">
@@ -801,11 +860,11 @@ const App: React.FC = () => {
               {summaryData.exactHits.length > 0 && (
                   <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-emerald-900/20 border-emerald-900/40' : 'bg-emerald-50 border-emerald-200'}`}>
                     <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mr-4">
-                        <i className="fas fa-bullseye text-xl text-emerald-500"></i>
+                        <i className="fas fa-bullseye text-xl" style={{ color: BRAND_COLOR }}></i>
                     </div>
                     <div className="flex-1">
                         <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest text-left">Volltreffer! (+1 Schnaps)</p>
-                        <p className="text-lg font-black text-emerald-500 text-left">{summaryData.exactHits.join(', ')}</p>
+                        <p className="text-lg font-black text-left" style={{ color: BRAND_COLOR }}>{summaryData.exactHits.join(', ')}</p>
                     </div>
                   </div>
               )}
@@ -834,7 +893,13 @@ const App: React.FC = () => {
                   </div>
               )}
             </div>
-            <button onClick={proceedFromSummary} className="w-full mt-10 bg-green-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-green-700 transition-all text-xl uppercase tracking-widest">Weiter</button>
+            <button 
+              onClick={proceedFromSummary} 
+              className="w-full mt-10 text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase tracking-widest"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >Weiter</button>
           </div>
         </div>
       )}
@@ -842,10 +907,10 @@ const App: React.FC = () => {
       {showRules && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl">
           <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] shadow-2xl border animate-in zoom-in duration-300 flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter text-green-600">Spielregeln</h3>
+            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Spielregeln</h3>
             <div className="overflow-y-auto flex-1 pr-2 space-y-6 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-gray-500 text-left text-xs sm:text-sm">
               <section>
-                <h4 className="font-black text-lg mb-2 uppercase border-b border-green-500 inline-block pb-1 italic">Regeln einer Runde “Wiegen”</h4>
+                <h4 className="font-black text-lg mb-2 uppercase border-b inline-block pb-1 italic" style={{ borderColor: BRAND_COLOR }}>Regeln einer Runde “Wiegen”</h4>
                 <p><strong>Spieleranzahl:</strong> mehr als 2<br/><strong>Alter:</strong> 18 Jahre +</p>
               </section>
               <section>
@@ -864,7 +929,7 @@ const App: React.FC = () => {
               <section>
                 <h4 className="font-black text-lg mb-2 uppercase border-b border-gray-500 inline-block pb-1">Spielvorgang:</h4>
                 <p>Der Wiegemeister stellt das Startgewicht aller Getränke fest.</p>
-                <h5 className="font-bold mt-4 mb-1 uppercase text-green-500">Rundenablauf</h5>
+                <h5 className="font-bold mt-4 mb-1 uppercase" style={{ color: BRAND_COLOR }}>Rundenablauf</h5>
                 <p><strong>Ansage:</strong> Wiegemeister verkündet Zielgewicht.</p>
                 <p className="mt-2"><strong>Trinken:</strong> Beliebige Menge ohne abzusetzen.</p>
                 <p className="mt-2"><strong>Auswertung:</strong> Schnäpse für Abstände, Zwillinge oder Volltreffer.</p>
@@ -874,7 +939,13 @@ const App: React.FC = () => {
                 <p className="text-xs">Wer mehr als 50g vom Ziel entfernt ist, scheidet aus!</p>
               </section>
             </div>
-            <button onClick={() => setShowRules(false)} className="w-full mt-6 bg-green-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-green-700 transition-colors uppercase">OK</button>
+            <button 
+              onClick={() => setShowRules(false)} 
+              className="w-full mt-6 text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >OK</button>
           </div>
         </div>
       )}
@@ -925,10 +996,22 @@ const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mt-10">
-                <button onClick={() => captureSingleScreenshot(statsAreaRef, `Bundeswiega_Statistik_${Date.now()}.png`, "Grafik-Verlauf", "stats-export")} className="bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg hover:bg-blue-700 transition-colors uppercase flex items-center justify-center space-x-2">
+                <button 
+                  onClick={() => captureSingleScreenshot(statsAreaRef, `Bundeswiega_Statistik_${Date.now()}.png`, "Grafik-Verlauf", "stats-export")} 
+                  className="text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase flex items-center justify-center space-x-2"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+                >
                     <i className="fas fa-camera"></i><span>Screenshot</span>
                 </button>
-                <button onClick={() => setShowStats(false)} className="bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg uppercase">OK</button>
+                <button 
+                  onClick={() => setShowStats(false)} 
+                  className="text-white font-black py-4 rounded-xl shadow-lg uppercase transition-all"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+                >OK</button>
             </div>
           </div>
         </div>
@@ -953,7 +1036,13 @@ const App: React.FC = () => {
           <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h3 className="text-xl font-bold mb-4 uppercase">Gefäß-Größe</h3>
             <p className="opacity-80 mb-8 leading-relaxed text-sm">Wähle 0,5 L oder 0,33 L.</p>
-            <button onClick={() => setShowModeInfo(false)} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg uppercase">OK</button>
+            <button 
+              onClick={() => setShowModeInfo(false)} 
+              className="w-full text-white font-bold py-4 rounded-xl shadow-lg uppercase"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >OK</button>
           </div>
         </div>
       )}
@@ -994,7 +1083,13 @@ const App: React.FC = () => {
           <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h3 className="text-xl font-bold mb-4 uppercase tracking-widest opacity-60">In Arbeit</h3>
             <p className="opacity-70 mb-8 leading-relaxed">Dieser Modus kommt bald!</p>
-            <button onClick={() => setShowComingSoonModal(false)} className="w-full bg-green-600 text-white font-bold py-3 rounded-xl shadow-lg uppercase">OK</button>
+            <button 
+              onClick={() => setShowComingSoonModal(false)} 
+              className="w-full text-white font-bold py-3 rounded-xl shadow-lg uppercase"
+              style={{ backgroundColor: BRAND_COLOR }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR_HOVER}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = BRAND_COLOR}
+            >OK</button>
           </div>
         </div>
       )}

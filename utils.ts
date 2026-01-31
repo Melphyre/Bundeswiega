@@ -1,7 +1,6 @@
-
 import { Round, Player } from './types';
 
-export const SPECIAL_NUMBERS = [444, 333, 222, 111, 99, 88, 77, 66, 55, 44, 33];
+export const SPECIAL_NUMBERS = [555, 444, 333, 222, 111, 99, 88, 77, 66, 55, 44, 33, 22, 11];
 
 export function calculateAverageDistance(playerId: string, rounds: Round[]): number {
   if (rounds.length === 0) return 0;

@@ -380,6 +380,9 @@ const App: React.FC = () => {
 
   const { graphMax } = getGraphConfig();
 
+  // Mode helper for footer
+  const showModeFooter = gameState !== GameState.START && gameState !== GameState.PLAYER_COUNT;
+
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8">
@@ -727,6 +730,10 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      <footer className={`mt-auto pt-8 pb-4 text-center text-[10px] font-black uppercase tracking-[0.2em] transition-opacity duration-500 ${showModeFooter ? 'opacity-30' : 'opacity-0'}`}>
+        Modus: {isShortMode ? '0,33 L' : '0,5 L'}
+      </footer>
 
       {/* --- MODALS --- */}
 

@@ -1,3 +1,4 @@
+
 import { Round, Player } from './types';
 
 export const SPECIAL_NUMBERS = [555, 444, 333, 222, 111, 99, 88, 77, 66, 55, 44, 33, 22, 11];
@@ -5,7 +6,6 @@ export const SPECIAL_NUMBERS = [555, 444, 333, 222, 111, 99, 88, 77, 66, 55, 44,
 export function calculateAverageDistance(playerId: string, rounds: Round[]): number {
   if (rounds.length === 0) return 0;
   
-  // Exclude final rounds from the average distance calculation as per user request
   const distances = rounds
     .filter(r => !r.isFinal)
     .map(r => {
@@ -42,7 +42,6 @@ export function getRoundSummary(round: Round, players: Player[]): {
     const target = (round.isFinal && round.individualTargets) ? round.individualTargets[p.id] : round.targetWeight;
     const dist = Math.abs(weight - target);
     
-    // Furthest players logic (Always applies)
     if (dist > maxDist) {
       maxDist = dist;
       furthestPlayerIds = [p.id];
@@ -50,34 +49,28 @@ export function getRoundSummary(round: Round, players: Player[]): {
       furthestPlayerIds.push(p.id);
     }
 
-    // Exact hits
     if (weight === target) {
       exactHits.push(p.name);
       pointsToAwardSet.add(p.id);
     }
 
-    // Normal round bonuses only
-    if (!round.isFinal) {
-      // Special numbers (Schnapszahl)
-      if (SPECIAL_NUMBERS.includes(weight)) {
-        specialHits.push({ playerName: p.name, value: weight });
-        pointsToAwardSet.add(p.id);
-      }
-      
-      // Grouping for duplicates
-      if (!weightGroups[weight]) {
-        weightGroups[weight] = [];
-        weightGroupsIds[weight] = [];
-      }
-      weightGroups[weight].push(p.name);
-      weightGroupsIds[weight].push(p.id);
+    // Schnapszahlen nur in regulären Runden
+    if (!round.isFinal && SPECIAL_NUMBERS.includes(weight)) {
+      specialHits.push({ playerName: p.name, value: weight });
+      pointsToAwardSet.add(p.id);
     }
+    
+    if (!weightGroups[weight]) {
+      weightGroups[weight] = [];
+      weightGroupsIds[weight] = [];
+    }
+    weightGroups[weight].push(p.name);
+    weightGroupsIds[weight].push(p.id);
   });
 
-  // Award point for being furthest (Applies in ALL rounds)
   furthestPlayerIds.forEach(id => pointsToAwardSet.add(id));
 
-  // Award points for duplicates (Normal rounds only)
+  // Wiegezwillinge nur in regulären Runden
   if (!round.isFinal) {
     Object.values(weightGroupsIds).forEach(ids => {
       if (ids.length > 1) {
@@ -86,12 +79,14 @@ export function getRoundSummary(round: Round, players: Player[]): {
     });
   }
 
-  const duplicates = Object.entries(weightGroups)
-    .filter(([_, names]) => names.length > 1)
-    .map(([weight, names]) => ({
-      weight: parseInt(weight),
-      playerNames: names
-    }));
+  const duplicates = !round.isFinal 
+    ? Object.entries(weightGroups)
+        .filter(([_, names]) => names.length > 1)
+        .map(([weight, names]) => ({
+          weight: parseInt(weight),
+          playerNames: names
+        }))
+    : [];
 
   return {
     furthestPlayers: players.filter(p => furthestPlayerIds.includes(p.id)).map(p => p.name),
@@ -108,8 +103,9 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
   const minW = Math.min(...previousWeights);
   const maxW = Math.max(...previousWeights);
   
+  // Rule: Target must be >= maxW - 100 AND Target <= minW - 1
   return {
     min: Math.max(0, maxW - 100),
-    max: Math.max(0, minW - 10)
+    max: Math.max(0, minW - 1)
   };
 }

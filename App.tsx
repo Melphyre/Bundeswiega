@@ -845,7 +845,7 @@ const App: React.FC = () => {
                       <p className="font-bold mb-1">a) Ansagephase</p>
                       <p className="opacity-90">Der Wiegemeister (m/m/d) verkündet das erste Zielgewicht. Das Zielgewicht muss mindestens 1g unter dem niedrigsten Startgewicht liegen und maximal 100g unter dem höchsten Startgewicht liegen.</p>
                       <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (633g), Lisa (646g), Marvin (639g). Zielgewicht: 546g bis 632g.</p>
-                      <p className="opacity-90 mt-2">Liegen die Gewichte so weit auseinander, dass dies rechnerisch nicht möglich ist, so muss das Zielgewicht 1g unter dem niedrigsten Getränkegewicht angesagt werden.</p>
+                      <p className="opacity-90 mt-2">Liegen die Gewichte so weit aufeinander, dass dies rechnerisch nicht möglich ist, so muss das Zielgewicht 1g unter dem niedrigsten Getränkegewicht angesagt werden.</p>
                       <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (543g), Lisa (598g), Marvin (491g). Neues Zielgewicht: 490g.</p>
                     </div>
                     
@@ -877,6 +877,19 @@ const App: React.FC = () => {
                 </section>
               </div>
               <button onClick={() => setShowRules(false)} className="w-full mt-6 text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
+            </div>
+          </div>
+      )}
+
+      {showModeInfo && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in">
+            <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-xl shadow-lg"><i className="fas fa-info"></i></div>
+              <h3 className="text-xl font-black mb-4 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Gefäßgröße</h3>
+              <p className="text-sm opacity-90 mb-8 text-center leading-relaxed">
+                Standardmäßig spielt man mit einem Gefäß der Größe 500 ml. Wird dieser Regler aktiviert, so spielt ihr mit einem Gefäß der Größe 0,33 L. Alle Spieler müssen sich auf eine gemeinsame Größe einigen.
+              </p>
+              <button onClick={() => setShowModeInfo(false)} className="w-full text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
             </div>
           </div>
       )}

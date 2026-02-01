@@ -815,52 +815,65 @@ const App: React.FC = () => {
               <div className="overflow-y-auto flex-1 pr-2 space-y-6 text-sm text-left scrollbar-thin scrollbar-thumb-gray-500 text-gray-900 dark:text-white leading-relaxed">
                 <section>
                   <p><strong>Spieleranzahl:</strong> mehr als 2</p>
-                  <p><strong>Alter:</strong> 18 Jahre +</p>
+                  <p className="mt-2"><strong>Alter:</strong> 18 Jahre +</p>
                 </section>
+                
                 <section>
                   <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Ziel des Spiels:</h4>
                   <p className="opacity-90">Der gemeinsame Spaß steht im Fokus. Alle Mitspielenden trinken innerhalb einer Runde “Wiegen” mindestens ein Bier und ggf. Schnäpse.</p>
                 </section>
+                
                 <section>
                   <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Punktespiel:</h4>
                   <p className="opacity-90">Beim Punktespiel wird jeder getrunkene Schnaps beim jeweiligen Spieler (w/m/d) als Minuspunkt gewertet. Anhand der gesammelten Minuspunkte wird ein Ranking erstellt.</p>
                 </section>
+                
                 <section>
                   <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Spielaufbau und Material:</h4>
                   <p className="opacity-90">Mindestens eine Küchenwaage (Präferenz: Elektronisch & geeicht, in Schritten von 1g) wird vor dem Wiegemeister (w/m/d) platziert. Bei mehr als 8 Spielenden empfiehlt sich eine zweite Waage.</p>
-                  <p className="opacity-90">Ein zu teilender Schnaps (Präferenz: Pfefferminzlikör, schön billig, nicht Berliner Luft).</p>
-                  <p className="opacity-90">Pro mitspielende Person ein Bier 0,5l (Präferenz: Dosenbier, kein Radler; Flaschenbier ist auch möglich). Wichtig ist, dass alle Spielenden das gleiche Gefäß mit gleicher Flüssigkeitsmenge nutzen.</p>
+                  <p className="opacity-90 mt-2">Ein zu teilender Schnaps (Präferenz: Pfefferminzlikör, schön billig, nicht Berliner Luft).</p>
+                  <p className="opacity-90 mt-2">Pro mitspielende Person ein Bier 0,5l (Präferenz: Dosenbier, kein Radler; Flaschenbier ist auch möglich). Wichtig ist, dass alle Spielenden das gleiche Gefäß mit gleicher Flüssigkeitsmenge nutzen.</p>
                 </section>
+                
                 <section>
                   <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Spielvorgang:</h4>
                   <p className="opacity-90 italic">Der Wiegemeister (w/m/d) stellt das Startgewicht aller Getränke der Spielenden fest und verkündet dieses offen.</p>
+                  
                   <div className="mt-4 space-y-4">
-                    <h5 className="font-bold underline">Erste Runde</h5>
-                    <p><strong>a) Ansagephase</strong></p>
-                    <p className="opacity-90">Der Wiegemeister (m/m/d) verkündet das erste Zielgewicht. Das Zielgewicht muss mindestens 1g unter dem niedrigsten Startgewicht liegen und maximal 100g unter dem höchsten Startgewicht liegen.</p>
-                    <p className="opacity-70 text-xs bg-black/5 p-2 rounded">Beispiel: Kevin (633g), Lisa (646g), Marvin (639g). Zielgewicht: 546g bis 632g.</p>
-                    <p className="opacity-90">Liegen die Gewichte so weit auseinander, dass dies rechnerisch nicht möglich ist, so muss das Zielgewicht 1g unter dem niedrigsten Getränkegewicht angesagt werden.</p>
-                    <p className="opacity-70 text-xs bg-black/5 p-2 rounded">Beispiel: Kevin (543g), Lisa (598g), Marvin (491g). Neues Zielgewicht: 490g.</p>
-                    <p><strong>b) Trinkphase:</strong></p>
-                    <p className="opacity-90">Alle Mitspielenden setzen ihr Getränk an und trinken eine beliebige Menge daraus, ohne abzusetzen. Ziel ist es, möglichst nahe dem Zielgewicht zu kommen, dieses jedoch nicht exakt zu erreichen. Danach wiegt der Wiegemeister offen.</p>
-                    <p><strong>c) Rundenendphase</strong></p>
-                    <ul className="list-disc pl-5 opacity-90 space-y-1">
-                      <li>Der Spieler mit der höchsten Differenz zum Zielgewicht (+1 Schnaps)</li>
-                      <li>Alle Spieler mit einer Schnapszahl (z.B. 222, 444) (+1 Schnaps)</li>
-                      <li>Alle Spieler mit identischem Gewicht (+1 Schnaps)</li>
-                      <li>Alle Spieler, die das Zielgewicht exakt getroffen haben (+1 Schnaps)</li>
-                    </ul>
+                    <h5 className="font-bold underline uppercase text-xs tracking-widest opacity-70">Erste Runde</h5>
+                    <div>
+                      <p className="font-bold mb-1">a) Ansagephase</p>
+                      <p className="opacity-90">Der Wiegemeister (m/m/d) verkündet das erste Zielgewicht. Das Zielgewicht muss mindestens 1g unter dem niedrigsten Startgewicht liegen und maximal 100g unter dem höchsten Startgewicht liegen.</p>
+                      <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (633g), Lisa (646g), Marvin (639g). Zielgewicht: 546g bis 632g.</p>
+                      <p className="opacity-90 mt-2">Liegen die Gewichte so weit auseinander, dass dies rechnerisch nicht möglich ist, so muss das Zielgewicht 1g unter dem niedrigsten Getränkegewicht angesagt werden.</p>
+                      <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (543g), Lisa (598g), Marvin (491g). Neues Zielgewicht: 490g.</p>
+                    </div>
+                    
+                    <div>
+                      <p className="font-bold mb-1">b) Trinkphase:</p>
+                      <p className="opacity-90">Alle Mitspielenden setzen ihr Getränk an und trinken eine beliebige Menge daraus, ohne abzusetzen. Ziel ist es, möglichst nahe dem Zielgewicht zu kommen, dieses jedoch nicht exakt zu erreichen. Danach wiegt der Wiegemeister offen.</p>
+                    </div>
+                    
+                    <div>
+                      <p className="font-bold mb-1">c) Rundenendphase</p>
+                      <ul className="list-disc pl-5 opacity-90 space-y-1">
+                        <li>Der Spieler mit der höchsten Differenz zum Zielgewicht (+1 Schnaps)</li>
+                        <li>Alle Spieler mit einer Schnapszahl (z.B. 222, 444) (+1 Schnaps)</li>
+                        <li>Alle Spieler mit identischem Gewicht (+1 Schnaps)</li>
+                        <li>Alle Spieler, die das Zielgewicht exakt getroffen haben (+1 Schnaps)</li>
+                      </ul>
+                    </div>
                   </div>
                 </section>
+                
                 <section>
-                  <h5 className="font-bold underline mb-2">Die nächste Runde</h5>
-                  <p className="opacity-90 mb-4">Die neue Runde beginnt mit der Ansagephase durch die Person links im Uhrzeigersinn neben dem Wiegemeister. Danach folgen Trink- und Endphase.</p>
+                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Die nächste Runde</h4>
+                  <p className="opacity-90">Die neue Runde beginnt mit der Ansagephase durch die Person links im Uhrzeigersinn neben dem Wiegemeister. Danach folgen Trink- und Endphase.</p>
+                </section>
+                
+                <section>
                   <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Letzte Runde</h4>
                   <p className="opacity-90">Eingeleitet, wenn das minimal anzusagende Zielgewicht die Grenze des niedrigsten Startgewichts abzüglich 500g unterschreiten würde. Alle trinken aus und schätzen das Leergewicht. Danach endet das Spiel.</p>
-                </section>
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Zusätzliche Regeln:</h4>
-                  <p className="opacity-90">Man darf sein Bier nie leertrinken, ausser in der letzten Runde (sonst Disqualifikation). Bei Turnieren: Ausschluss bei >100g Differenz möglich.</p>
                 </section>
               </div>
               <button onClick={() => setShowRules(false)} className="w-full mt-6 text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
@@ -929,7 +942,6 @@ const App: React.FC = () => {
                                 return `${(rIdx / (rounds.length - 1 || 1)) * 400},${200 - Math.min(200, dist * (200 / graphMax))}`;
                             }).join(' ');
                             
-                            // Falls nur ein Punkt da ist, zeichne einen Kreis statt einer Linie
                             if (activeRounds.length === 1) {
                                 const target = activeRounds[0].isFinal ? activeRounds[0].individualTargets?.[p.id] : activeRounds[0].targetWeight;
                                 const dist = Math.abs(activeRounds[0].results[p.id] - target!);
@@ -942,7 +954,6 @@ const App: React.FC = () => {
                 </div>
             </div>
 
-            {/* Legende unter der Grafik */}
             <div className="flex flex-wrap justify-center gap-4 mt-6 bg-black/10 dark:bg-white/5 p-4 rounded-2xl">
               {players.map((p, idx) => (
                 <div key={p.id} className="flex items-center space-x-2">

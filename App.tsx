@@ -55,13 +55,24 @@ const App: React.FC = () => {
   const [summaryData, setSummaryData] = useState<any>(null);
   const [tempWeights, setTempWeights] = useState<string[]>([]);
   
+  // Speedwiegen States
+  const [speedPlayerName, setSpeedPlayerName] = useState('');
+  const [speedLevels, setSpeedLevels] = useState<string>('');
+  const [speedTargets, setSpeedTargets] = useState<Record<number, string>>({});
+  const [speedResults, setSpeedResults] = useState<Record<number, string>>({});
+  const [speedCountdown, setSpeedCountdown] = useState<string | number>(3);
+  const [speedStartTime, setSpeedStartTime] = useState<number | null>(null);
+  const [speedEndTime, setSpeedEndTime] = useState<number | null>(null);
+  const [speedCurrentTime, setSpeedCurrentTime] = useState<number>(0);
+  
   const rankingAreaRef = useRef<HTMLDivElement>(null);
   const roundsAreaRef = useRef<HTMLDivElement>(null);
   const statsAreaRef = useRef<HTMLDivElement>(null);
+  const speedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (gameState !== GameState.START && gameState !== GameState.RESULT_SCREEN) {
+      if (gameState !== GameState.START && gameState !== GameState.RESULT_SCREEN && gameState !== GameState.SPEED_RESULT) {
         e.preventDefault();
         e.returnValue = 'Daten gehen verloren.';
         return e.returnValue;
@@ -75,6 +86,18 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', darkMode);
     document.body.className = darkMode ? 'bg-gray-900 text-white transition-colors duration-300' : 'bg-white text-gray-900 transition-colors duration-300';
   }, [darkMode]);
+
+  // Speedwiegen Timer Effect
+  useEffect(() => {
+    if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime) {
+      speedTimerRef.current = window.setInterval(() => {
+        setSpeedCurrentTime(Date.now() - speedStartTime);
+      }, 10);
+    } else {
+      if (speedTimerRef.current) clearInterval(speedTimerRef.current);
+    }
+    return () => { if (speedTimerRef.current) clearInterval(speedTimerRef.current); };
+  }, [gameState, speedStartTime]);
 
   const captureElement = async (ref: React.RefObject<HTMLDivElement>, filename: string) => {
     if (!ref.current) return;
@@ -104,6 +127,17 @@ const App: React.FC = () => {
     setSummaryData(null);
     setIsShortMode(false);
     setTempWeights([]);
+  };
+
+  const startSpeedwiegen = () => {
+    setGameState(GameState.SPEED_SETUP);
+    setSpeedPlayerName('');
+    setSpeedLevels('');
+    setSpeedTargets({});
+    setSpeedResults({});
+    setSpeedStartTime(null);
+    setSpeedEndTime(null);
+    setSpeedCurrentTime(0);
   };
 
   const resetToStart = () => {
@@ -354,29 +388,96 @@ const App: React.FC = () => {
     setGameState(GameState.FINAL_ROUND_TARGETS);
   };
 
+  // Speedwiegen Handlers
+  const handleSpeedSetupConfirm = () => {
+    const n = parseInt(speedLevels);
+    if (!speedPlayerName.trim()) { alert("Bitte einen Spielernamen eingeben."); return; }
+    if (isNaN(n) || n <= 0) { alert("Bitte eine gültige Stufenanzahl eingeben."); return; }
+    setGameState(GameState.SPEED_CONFIG);
+  };
+
+  const handleSpeedConfigConfirm = () => {
+    const n = parseInt(speedLevels);
+    const targets = [];
+    for (let i = 1; i <= n; i++) {
+      const val = parseInt(speedTargets[i]);
+      if (isNaN(val)) { alert("Bitte alle Felder ausfüllen."); return; }
+      targets.push(val);
+    }
+    // Check descending order
+    for (let i = 1; i < targets.length; i++) {
+      if (targets[i] >= targets[i-1]) {
+        alert("Die Zielgewichte müssen von oben nach unten absteigend sein.");
+        return;
+      }
+    }
+    
+    // Start countdown
+    setGameState(GameState.SPEED_COUNTDOWN);
+    setSpeedCountdown(3);
+    const interval = setInterval(() => {
+      setSpeedCountdown(prev => {
+        if (prev === 3) return 2;
+        if (prev === 2) return 1;
+        if (prev === 1) return "LOS!";
+        clearInterval(interval);
+        setTimeout(() => {
+          setGameState(GameState.SPEED_GAMEPLAY);
+          setSpeedStartTime(Date.now());
+        }, 1000);
+        return prev;
+      });
+    }, 1000);
+  };
+
+  const handleSpeedGameplayConfirm = () => {
+    const n = parseInt(speedLevels);
+    for (let i = 1; i <= n; i++) {
+      if (isNaN(parseInt(speedResults[i]))) { alert("Bitte alle erreichten Gewichte eintragen."); return; }
+    }
+    setSpeedEndTime(Date.now());
+    setGameState(GameState.SPEED_RESULT);
+  };
+
   const downloadCSV = () => {
-    const ranking = players.map(p => {
-      const avgDist = calculateAverageDistance(p.id, rounds);
-      return { ...p, avgDist, total: avgDist + p.schnaepse };
-    }).sort((a, b) => {
-      if (a.isDisqualified && !b.isDisqualified) return 1;
-      if (!a.isDisqualified && b.isDisqualified) return -1;
-      return a.total - b.total;
-    });
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "RANGLISTE\nPlatz;Spieler;Durchschnittlicher Abstand;Schnaepse;Gesamtpunktzahl;Status\n";
-    ranking.forEach((p, idx) => {
-      csvContent += `${idx + 1};${p.name};${p.avgDist.toFixed(2)};${p.schnaepse};${p.total.toFixed(2)};${p.isDisqualified ? 'Disqualifiziert' : 'Aktiv'}\n`;
-    });
-    csvContent += "\n\nRUNDENVERLAUF\nRunde;Zielgewicht;";
-    players.forEach(p => { csvContent += `${p.name};`; });
-    csvContent += "\n";
-    rounds.forEach((r, rIdx) => {
-      const target = r.isFinal ? "Leerwiegen" : `${r.targetWeight}g`;
-      csvContent += `${rIdx + 1};${target};`;
-      players.forEach(p => { csvContent += `${r.results[p.id] || "—"};`; });
+    if (gameState === GameState.SPEED_RESULT) {
+      csvContent += `SPEEDWIEGEN ERGEBNIS - ${speedPlayerName}\n`;
+      csvContent += `Zeit (s);Gesamtabweichung (g);Total (Sekunden + Gramm)\n`;
+      const timeSec = ((speedEndTime! - speedStartTime!) / 1000).toFixed(2);
+      const n = parseInt(speedLevels);
+      let totalDist = 0;
+      for (let i = 1; i <= n; i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
+      csvContent += `${timeSec};${totalDist};${(parseFloat(timeSec) + totalDist).toFixed(2)}\n\n`;
+      csvContent += `DETAILS\nStufe;Zielgewicht (g);Erreichtes Gewicht (g);Abweichung (g)\n`;
+      for (let i = 1; i <= n; i++) {
+        const t = parseInt(speedTargets[i]);
+        const r = parseInt(speedResults[i]);
+        csvContent += `${i};${t};${r};${Math.abs(t-r)}\n`;
+      }
+    } else {
+      const ranking = players.map(p => {
+        const avgDist = calculateAverageDistance(p.id, rounds);
+        return { ...p, avgDist, total: avgDist + p.schnaepse };
+      }).sort((a, b) => {
+        if (a.isDisqualified && !b.isDisqualified) return 1;
+        if (!a.isDisqualified && b.isDisqualified) return -1;
+        return a.total - b.total;
+      });
+      csvContent += "RANGLISTE\nPlatz;Spieler;Durchschnittlicher Abstand;Schnaepse;Gesamtpunktzahl;Status\n";
+      ranking.forEach((p, idx) => {
+        csvContent += `${idx + 1};${p.name};${p.avgDist.toFixed(2)};${p.schnaepse};${p.total.toFixed(2)};${p.isDisqualified ? 'Disqualifiziert' : 'Aktiv'}\n`;
+      });
+      csvContent += "\n\nRUNDENVERLAUF\nRunde;Zielgewicht;";
+      players.forEach(p => { csvContent += `${p.name};`; });
       csvContent += "\n";
-    });
+      rounds.forEach((r, rIdx) => {
+        const target = r.isFinal ? "Leerwiegen" : `${r.targetWeight}g`;
+        csvContent += `${rIdx + 1};${target};`;
+        players.forEach(p => { csvContent += `${r.results[p.id] || "—"};`; });
+        csvContent += "\n";
+      });
+    }
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -388,17 +489,22 @@ const App: React.FC = () => {
 
   const graphMax = useMemo(() => {
     let maxDist = 0;
-    rounds.forEach(r => {
-        players.forEach(p => {
-            const res = r.results[p.id];
-            const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
-            if (res !== undefined && target !== undefined) maxDist = Math.max(maxDist, Math.abs(res - target));
-        });
-    });
+    if (gameState === GameState.SPEED_RESULT) {
+      const n = parseInt(speedLevels);
+      for (let i = 1; i <= n; i++) maxDist = Math.max(maxDist, Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i])));
+    } else {
+      rounds.forEach(r => {
+          players.forEach(p => {
+              const res = r.results[p.id];
+              const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
+              if (res !== undefined && target !== undefined) maxDist = Math.max(maxDist, Math.abs(res - target));
+          });
+      });
+    }
     return Math.max(10, Math.ceil(maxDist / 10) * 10);
-  }, [rounds, players]);
+  }, [rounds, players, gameState, speedTargets, speedResults, speedLevels]);
 
-  const showModeFooter = gameState !== GameState.START && gameState !== GameState.PLAYER_COUNT;
+  const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.SPEED_SETUP, GameState.SPEED_CONFIG, GameState.SPEED_COUNTDOWN, GameState.SPEED_GAMEPLAY, GameState.SPEED_RESULT].includes(gameState);
 
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
@@ -437,7 +543,7 @@ const App: React.FC = () => {
                 <button onClick={() => setShowComingSoon(true)} className="text-white font-bold py-4 rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center" style={{ backgroundColor: DARK_GRAY }}>
                   <i className="fas fa-users mr-2"></i>Teamwiegen
                 </button>
-                <button onClick={() => setShowComingSoon(true)} className="text-white font-bold py-4 rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center" style={{ backgroundColor: DARK_GRAY }}>
+                <button onClick={startSpeedwiegen} className="text-white font-bold py-4 rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center" style={{ backgroundColor: DARK_GRAY }}>
                   <i className="fas fa-bolt mr-2"></i>Speedwiegen
                 </button>
               </div>
@@ -448,6 +554,199 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* SPEEDWIEGEN SETUP */}
+        {gameState === GameState.SPEED_SETUP && (
+          <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <h2 className="text-2xl font-black mb-6 text-center uppercase tracking-tighter">Speedwiegen Setup</h2>
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="text-xs font-bold uppercase opacity-60 mb-1 block">Spielername</label>
+                <input type="text" value={speedPlayerName} onChange={(e) => setSpeedPlayerName(e.target.value)} placeholder="Dein Name" className={`w-full p-4 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: speedPlayerName ? BRAND_COLOR : '' }} />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase opacity-60 mb-1 block">Anzahl der Stufen</label>
+                <input type="number" value={speedLevels} onChange={(e) => setSpeedLevels(e.target.value)} placeholder="z.B. 10 Stufen" className={`w-full p-4 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: speedLevels ? BRAND_COLOR : '' }} />
+              </div>
+            </div>
+            <button onClick={handleSpeedSetupConfirm} className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Konfigurieren</button>
+          </div>
+        )}
+
+        {/* SPEEDWIEGEN CONFIG */}
+        {gameState === GameState.SPEED_CONFIG && (
+          <div className="w-full animate-in fade-in duration-500 flex flex-col space-y-6">
+            <h2 className="text-2xl font-black text-center uppercase tracking-tighter">Speedwiegen: {speedPlayerName}</h2>
+            <div className={`p-6 rounded-3xl border shadow-lg overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-700/30">
+                      <th className="p-3 font-bold opacity-50 text-xs">STUFE</th>
+                      <th className="p-3 font-bold text-xs">ZIELGEWICHT (g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
+                      <tr key={i} className="border-b border-gray-700/10">
+                        <td className="p-3 font-black text-sm opacity-60">#{i + 1}</td>
+                        <td className="p-2">
+                          <input 
+                            type="number" 
+                            value={speedTargets[i + 1] || ''} 
+                            onChange={(e) => setSpeedTargets({ ...speedTargets, [i + 1]: e.target.value })}
+                            placeholder="g"
+                            className={`w-full p-2 border-2 rounded-lg text-sm font-bold focus:outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                            style={{ borderColor: speedTargets[i + 1] ? BRAND_COLOR : '' }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Los geht's</button>
+          </div>
+        )}
+
+        {/* SPEEDWIEGEN COUNTDOWN */}
+        {gameState === GameState.SPEED_COUNTDOWN && (
+          <div className="flex items-center justify-center h-full w-full">
+            <span className="text-9xl font-black italic animate-bounce" style={{ color: BRAND_COLOR }}>{speedCountdown}</span>
+          </div>
+        )}
+
+        {/* SPEEDWIEGEN GAMEPLAY */}
+        {gameState === GameState.SPEED_GAMEPLAY && (
+          <div className="w-full animate-in fade-in duration-500 flex flex-col space-y-6">
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase opacity-50 tracking-widest mb-1">Zeit läuft...</span>
+              <span className="text-4xl font-black tabular-nums italic" style={{ color: BRAND_COLOR }}>
+                {(speedCurrentTime / 1000).toFixed(2)}s
+              </span>
+            </div>
+            <h2 className="text-xl font-black text-center uppercase tracking-tighter opacity-80">Spieler: {speedPlayerName}</h2>
+            <div className={`p-6 rounded-3xl border shadow-lg overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-700/30">
+                      <th className="p-3 font-bold opacity-50 text-[10px]">STUFE</th>
+                      <th className="p-3 font-bold text-[10px]">ZIEL (g)</th>
+                      <th className="p-3 font-bold text-[10px]">ERREICHT (g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
+                      <tr key={i} className="border-b border-gray-700/10">
+                        <td className="p-3 font-black text-xs opacity-50">#{i + 1}</td>
+                        <td className="p-3 font-black text-sm">{speedTargets[i + 1]}g</td>
+                        <td className="p-2">
+                          <input 
+                            type="number" 
+                            value={speedResults[i + 1] || ''} 
+                            onChange={(e) => setSpeedResults({ ...speedResults, [i + 1]: e.target.value })}
+                            placeholder="Gewicht"
+                            className={`w-full p-2 border-2 rounded-lg text-sm font-bold focus:outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                            style={{ borderColor: speedResults[i + 1] ? BRAND_COLOR : '' }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <button onClick={handleSpeedGameplayConfirm} className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Fertig</button>
+          </div>
+        )}
+
+        {/* SPEEDWIEGEN RESULT */}
+        {gameState === GameState.SPEED_RESULT && (
+          <div className="w-full flex flex-col space-y-8 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-20 text-center text-gray-900 dark:text-white">
+            <h2 className="text-3xl font-black uppercase tracking-tighter mx-auto mb-2" style={{ color: BRAND_COLOR }}>🏎️ Speedwiegen Ergebnis</h2>
+            
+            <div ref={rankingAreaRef} className={`p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-bold uppercase opacity-50">Spieler</span>
+                  <span className="text-lg font-black">{speedPlayerName}</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-bold uppercase opacity-50">Zeit</span>
+                  <span className="text-lg font-black italic" style={{ color: BRAND_COLOR }}>{((speedEndTime! - speedStartTime!) / 1000).toFixed(2)}s</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-bold uppercase opacity-50">Abweichung</span>
+                  <span className="text-lg font-black">{(() => {
+                    let totalDist = 0;
+                    for (let i = 1; i <= parseInt(speedLevels); i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
+                    return `${totalDist}g`;
+                  })()}</span>
+                </div>
+                <div className="flex flex-col items-center bg-yellow-500/10 p-2 rounded-xl border border-yellow-500/20">
+                  <span className="text-[10px] font-bold uppercase opacity-50">Total</span>
+                  <span className="text-xl font-black" style={{ color: GOLD_COLOR }}>{(() => {
+                    const timeSec = (speedEndTime! - speedStartTime!) / 1000;
+                    let totalDist = 0;
+                    for (let i = 1; i <= parseInt(speedLevels); i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
+                    return (timeSec + totalDist).toFixed(2);
+                  })()}</span>
+                </div>
+              </div>
+
+              <div id="speed-table-capture" className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
+                      <th className="p-3 font-bold opacity-50">Stufe</th>
+                      <th className="p-3 font-bold">Ziel (g)</th>
+                      <th className="p-3 font-bold">Erreicht (g)</th>
+                      <th className="p-3 font-bold text-center">Diff (g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
+                      const t = parseInt(speedTargets[i + 1]);
+                      const r = parseInt(speedResults[i + 1]);
+                      return (
+                        <tr key={i} className={`border-b ${darkMode ? 'border-gray-700/30' : 'border-gray-50'}`}>
+                          <td className="p-3 opacity-50">#{i + 1}</td>
+                          <td className="p-3 font-bold">{t}g</td>
+                          <td className="p-3 font-bold">{r}g</td>
+                          <td className="p-3 font-black text-center" style={{ color: t === r ? BRAND_COLOR : (Math.abs(t - r) > 20 ? '#ef4444' : 'inherit') }}>
+                            {t === r ? '🎯' : `${Math.abs(t - r)}g`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex flex-col space-y-3 pt-4 px-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => setShowStats(true)} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
+                  <i className="fas fa-chart-line"></i><span>Statistik</span>
+                </button>
+                <button onClick={downloadCSV} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: '#059669' }}>
+                  <i className="fas fa-file-csv"></i><span>CSV erstellen</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => captureElement(rankingAreaRef, 'Bundeswiega_SpeedResult')} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
+                  <i className="fas fa-camera"></i><span className="text-xs">Screenshot Ranking</span>
+                </button>
+                <button onClick={() => setShowResetConfirm(true)} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
+                  <i className="fas fa-arrow-left"></i><span className="text-xs">Hauptmenü</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DEFAULT GAMEPLAY COMPONENTS */}
         {gameState === GameState.PLAYER_COUNT && (
           <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <h2 className="text-2xl font-bold mb-6 text-center">Wie viele Spieler?</h2>
@@ -946,7 +1245,34 @@ const App: React.FC = () => {
                             <text x="-8" y={200 - (p * 200)} dominantBaseline="middle" textAnchor="end" className="fill-current opacity-30 text-[8px] font-bold">{Math.round(graphMax * p)}g</text>
                           </g>
                         ))}
-                        {players.map((p, pIdx) => {
+                        {gameState === GameState.SPEED_RESULT ? (
+                          // Statistik für Speedwiegen
+                          (() => {
+                            const n = parseInt(speedLevels);
+                            const points = Array.from({ length: n }).map((_, i) => {
+                              const t = parseInt(speedTargets[i + 1]);
+                              const r = parseInt(speedResults[i + 1]);
+                              const dist = Math.abs(t - r);
+                              return `${(i / (n - 1 || 1)) * 400},${200 - Math.min(200, dist * (200 / graphMax))}`;
+                            }).join(' ');
+                            
+                            return (
+                              <>
+                                <polyline points={points} fill="none" stroke={BRAND_COLOR} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                                {Array.from({ length: n }).map((_, i) => {
+                                  const t = parseInt(speedTargets[i + 1]);
+                                  const r = parseInt(speedResults[i + 1]);
+                                  const dist = Math.abs(t - r);
+                                  return (
+                                    <circle key={i} cx={(i / (n - 1 || 1)) * 400} cy={200 - Math.min(200, dist * (200 / graphMax))} r="4" fill={BRAND_COLOR} />
+                                  );
+                                })}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          // Statistik für normales Wiegen
+                          players.map((p, pIdx) => {
                             const activeRounds = rounds.filter(r => r.results[p.id] !== undefined);
                             if (activeRounds.length < 1) return null;
                             const points = activeRounds.map((r, rIdx) => {
@@ -962,18 +1288,26 @@ const App: React.FC = () => {
                             }
                             
                             return <polyline key={p.id} points={points} fill="none" stroke={PLAYER_COLORS[pIdx % PLAYER_COLORS.length]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />;
-                        })}
+                        })
+                        )}
                     </svg>
                 </div>
             </div>
 
             <div className="flex flex-wrap justify-center gap-4 mt-6 bg-black/10 dark:bg-white/5 p-4 rounded-2xl">
-              {players.map((p, idx) => (
-                <div key={p.id} className="flex items-center space-x-2">
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></span>
-                  <span className="text-[10px] font-bold uppercase tracking-tight opacity-80 text-gray-900 dark:text-white">{p.name}</span>
+              {gameState === GameState.SPEED_RESULT ? (
+                <div className="flex items-center space-x-2">
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: BRAND_COLOR }}></span>
+                  <span className="text-[10px] font-bold uppercase tracking-tight opacity-80 text-gray-900 dark:text-white">{speedPlayerName}</span>
                 </div>
-              ))}
+              ) : (
+                players.map((p, idx) => (
+                  <div key={p.id} className="flex items-center space-x-2">
+                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></span>
+                    <span className="text-[10px] font-bold uppercase tracking-tight opacity-80 text-gray-900 dark:text-white">{p.name}</span>
+                  </div>
+                ))
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4 mt-8">

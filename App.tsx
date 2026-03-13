@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round, Team } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS } from './utils';
-import { audioService } from './services/audioService';
 
 /**
  * 1. BUNDESWIEGA - Das ultimative Wiegen-Spiel
@@ -151,17 +150,6 @@ const App: React.FC = () => {
   }, [darkMode]);
 
   useEffect(() => {
-    const handleGlobalClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('button')) {
-        audioService.playCanOpen();
-      }
-    };
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
-  }, []);
-
-  useEffect(() => {
     let interval: any;
     if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime) {
       interval = setInterval(() => {
@@ -190,7 +178,6 @@ const App: React.FC = () => {
   };
 
   const startGame = () => {
-    audioService.announce("Spiele das Original Wiegen");
     setGameState(GameState.PLAYER_COUNT);
     setRounds([]);
     setPlayers([]);
@@ -200,7 +187,6 @@ const App: React.FC = () => {
   };
 
   const startTeamwiegen = () => {
-    audioService.announce("Teamwiegen");
     setGameState(GameState.TEAM_SETUP);
     setTeamCount(2);
     setTeamSizes({ 1: 2, 2: 2 });
@@ -211,7 +197,6 @@ const App: React.FC = () => {
   };
 
   const startSpeedwiegen = () => {
-    audioService.announce("Speedwiegen");
     setGameState(GameState.SPEED_SETUP);
     setSpeedPlayerName('');
     setSpeedLevels('3');

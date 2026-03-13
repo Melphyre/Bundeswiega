@@ -24,7 +24,7 @@ export function getRoundSummary(round: Round, players: Player[]): {
   specialHits: { playerName: string; value: number }[];
   duplicates: { weight: number; playerNames: string[] }[];
   exactHits: string[];
-  pointsToAward: string[];
+  pointsToAward: string[]; // This will now contain duplicate IDs if multiple points are awarded
   isFinal: boolean;
 } {
   let maxDist = -1;
@@ -33,14 +33,16 @@ export function getRoundSummary(round: Round, players: Player[]): {
   const weightGroups: Record<number, string[]> = {};
   const weightGroupsIds: Record<number, string[]> = {};
   const exactHits: string[] = [];
-  const pointsToAwardSet = new Set<string>();
+  const pointsToAward: string[] = [];
 
-  players.forEach(p => {
+  const activePlayers = players.filter(p => !p.isDisqualified);
+
+  activePlayers.forEach(p => {
     const weight = round.results[p.id];
     if (weight === undefined) return;
 
     const target = (round.isFinal && round.individualTargets) ? round.individualTargets[p.id] : round.targetWeight;
-    const dist = Math.abs(weight - target);
+    const dist = Math.abs(weight - target!);
     
     if (dist > maxDist) {
       maxDist = dist;
@@ -51,13 +53,13 @@ export function getRoundSummary(round: Round, players: Player[]): {
 
     if (weight === target) {
       exactHits.push(p.name);
-      pointsToAwardSet.add(p.id);
+      pointsToAward.push(p.id);
     }
 
-    // Schnapszahlen nur in regulären Runden
+    // Special Numbers (Schnapszahlen)
     if (!round.isFinal && SPECIAL_NUMBERS.includes(weight)) {
       specialHits.push({ playerName: p.name, value: weight });
-      pointsToAwardSet.add(p.id);
+      pointsToAward.push(p.id);
     }
     
     if (!weightGroups[weight]) {
@@ -68,15 +70,20 @@ export function getRoundSummary(round: Round, players: Player[]): {
     weightGroupsIds[weight].push(p.id);
   });
 
-  furthestPlayerIds.forEach(id => pointsToAwardSet.add(id));
-
-  // Wiegezwillinge nur in regulären Runden
   if (!round.isFinal) {
+    if (maxDist <= 50) {
+      furthestPlayerIds.forEach(id => pointsToAward.push(id));
+    }
+
+    // Weight Twins (Wiegezwillinge)
     Object.values(weightGroupsIds).forEach(ids => {
       if (ids.length > 1) {
-        ids.forEach(id => pointsToAwardSet.add(id));
+        ids.forEach(id => pointsToAward.push(id));
       }
     });
+  } else {
+    // In final round, only furthest distance and exact hits are called out
+    furthestPlayerIds.forEach(id => pointsToAward.push(id));
   }
 
   const duplicates = !round.isFinal 
@@ -93,7 +100,7 @@ export function getRoundSummary(round: Round, players: Player[]): {
     specialHits,
     duplicates,
     exactHits,
-    pointsToAward: Array.from(pointsToAwardSet),
+    pointsToAward,
     isFinal: !!round.isFinal
   };
 }
@@ -103,9 +110,9 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
   const minW = Math.min(...previousWeights);
   const maxW = Math.max(...previousWeights);
   
-  // Rule: Target must be >= maxW - 100 AND Target <= minW - 1
+  // Rule: Target must be >= maxW - 100 and <= minW - 10
   return {
     min: Math.max(0, maxW - 100),
-    max: Math.max(0, minW - 1)
+    max: Math.max(0, minW - 10)
   };
 }

@@ -1,7 +1,7 @@
-
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { GameState, Player, Round } from './types';
-import { calculateAverageDistance, getRoundSummary, getTargetRange } from './utils';
+import React, { useState, useEffect, useRef } from 'react';
+import { GameState, Player, Round, Team } from './types';
+import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS } from './utils';
+import { audioService } from './services/audioService';
 
 /**
  * 1. BUNDESWIEGA - Das ultimative Wiegen-Spiel
@@ -29,12 +29,85 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
+  const GameTable = ({ showInputs = false, players, rounds, darkMode, currentRoundResults, setCurrentRoundResults }: { 
+    showInputs?: boolean, 
+    players: Player[], 
+    rounds: Round[], 
+    darkMode: boolean, 
+    currentRoundResults: Record<string, string>,
+    setCurrentRoundResults: (val: Record<string, string>) => void
+  }) => {
+    return (
+      <div className={`p-2 md:p-4 rounded-3xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border shadow-sm overflow-x-auto w-full mb-6`}>
+        <table className={`w-full text-[10px] md:text-xs text-left border-collapse min-w-[320px] ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+          <thead>
+            <tr className={`border-b ${darkMode ? 'border-white/20' : 'border-gray-700/20'} font-black`}>
+              <th className="py-2 px-1">RND</th>
+              {players.map(p => (
+                <th key={p.id} className="text-center p-1">
+                  <VerticalText text={p.name} />
+                </th>
+              ))}
+              <th className="py-2 text-right px-1">ZIEL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rounds.map((r, i) => (
+              <tr key={i} className={`border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}>
+                <td className="py-2 px-1 opacity-70 font-bold">#{i+1}</td>
+                {players.map(p => {
+                  const v = r.results[p.id];
+                  const tg = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
+                  const dist = v !== undefined && tg !== undefined ? Math.abs(v - tg) : null;
+                  return (
+                    <td key={p.id} className="text-center py-2">
+                      <div className="font-bold">{v !== undefined ? `${v}g` : '-'}</div>
+                      {dist !== null && (
+                        <div className={`text-[8px] md:text-[10px] ${dist === 0 ? 'text-emerald-500 font-black' : dist > 50 ? 'text-red-500 font-black' : (darkMode ? 'text-white/40' : 'text-black/40')}`}>
+                          {dist === 0 ? '🎯' : `+${dist}`}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="py-2 text-right font-black px-1">{r.isFinal ? 'FIN' : `${r.targetWeight}g`}</td>
+              </tr>
+            ))}
+            {showInputs && (
+              <tr className={`${darkMode ? 'bg-brand/20' : 'bg-brand/5'}`}>
+                <td className="py-3 font-bold text-brand italic px-1">Akt.</td>
+                {players.map(p => (
+                  <td key={p.id} className="text-center p-1">
+                    {!p.isDisqualified ? (
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={currentRoundResults[p.id] || ''} 
+                        onChange={e => setCurrentRoundResults({...currentRoundResults, [p.id]: e.target.value})}
+                        className={`w-12 md:w-16 p-1 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
+                        placeholder="g"
+                      />
+                    ) : (
+                      <div className="text-center opacity-30">💀</div>
+                    )}
+                  </td>
+                ))}
+                <td className="py-3 text-right font-black opacity-30 px-1">---</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
 const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
   const [playerCount, setPlayerCount] = useState(2);
   const [isShortMode, setIsShortMode] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [currentRoundResults, setCurrentRoundResults] = useState<Record<string, string>>({});
   const [currentRoundTargets, setCurrentRoundTargets] = useState<Record<string, string>>({});
@@ -44,8 +117,7 @@ const App: React.FC = () => {
   const [showModeInfo, setShowModeInfo] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showStats, setShowStats] = useState(false);
-  const [showComingSoon, setShowComingSoon] = useState(false);
-  const [showAutoTargetModal, setShowAutoTargetModal] = useState<{ diff: number, target: number, reason: string } | null>(null);
+  const [showAutoTargetModal, setShowAutoTargetModal] = useState<{ target: number, reason: string } | null>(null);
   const [startWeightError, setStartWeightError] = useState<string | null>(null);
   const [targetWeightError, setTargetWeightError] = useState<{ message: string, correction: number } | null>(null);
   const [disqualifiedNotice, setDisqualifiedNotice] = useState<Array<{name: string, diff: number, reason: string}> | null>(null);
@@ -57,46 +129,46 @@ const App: React.FC = () => {
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
-  const [speedLevels, setSpeedLevels] = useState<string>('');
+  const [speedLevels, setSpeedLevels] = useState<string>('3');
   const [speedTargets, setSpeedTargets] = useState<Record<number, string>>({});
   const [speedResults, setSpeedResults] = useState<Record<number, string>>({});
   const [speedCountdown, setSpeedCountdown] = useState<string | number>(3);
   const [speedStartTime, setSpeedStartTime] = useState<number | null>(null);
   const [speedEndTime, setSpeedEndTime] = useState<number | null>(null);
   const [speedCurrentTime, setSpeedCurrentTime] = useState<number>(0);
+
+  // Teamwiegen States
+  const [teamCount, setTeamCount] = useState(2);
+  const [teamSizes, setTeamSizes] = useState<Record<number, number>>({ 1: 2, 2: 2 });
+  const [activeTeamIndex, setActiveTeamIndex] = useState(0);
   
   const rankingAreaRef = useRef<HTMLDivElement>(null);
   const roundsAreaRef = useRef<HTMLDivElement>(null);
   const statsAreaRef = useRef<HTMLDivElement>(null);
-  const speedTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (gameState !== GameState.START && gameState !== GameState.RESULT_SCREEN && gameState !== GameState.SPEED_RESULT) {
-        e.preventDefault();
-        e.returnValue = 'Daten gehen verloren.';
-        return e.returnValue;
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [gameState]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    document.body.className = darkMode ? 'bg-gray-900 text-white transition-colors duration-300' : 'bg-white text-gray-900 transition-colors duration-300';
   }, [darkMode]);
 
-  // Speedwiegen Timer Effect
   useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) {
+        audioService.playCanOpen();
+      }
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
+
+  useEffect(() => {
+    let interval: any;
     if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime) {
-      speedTimerRef.current = window.setInterval(() => {
+      interval = setInterval(() => {
         setSpeedCurrentTime(Date.now() - speedStartTime);
-      }, 10);
-    } else {
-      if (speedTimerRef.current) clearInterval(speedTimerRef.current);
+      }, 50);
     }
-    return () => { if (speedTimerRef.current) clearInterval(speedTimerRef.current); };
+    return () => clearInterval(interval);
   }, [gameState, speedStartTime]);
 
   const captureElement = async (ref: React.RefObject<HTMLDivElement>, filename: string) => {
@@ -113,26 +185,36 @@ const App: React.FC = () => {
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error("Capture failed", err);
       alert("Screenshot konnte nicht erstellt werden.");
     }
   };
 
   const startGame = () => {
+    audioService.announce("Spiele das Original Wiegen");
     setGameState(GameState.PLAYER_COUNT);
     setRounds([]);
     setPlayers([]);
+    setTeams([]);
     setFinalTriggered(false);
-    setTriggeringPlayers([]);
-    setSummaryData(null);
     setIsShortMode(false);
-    setTempWeights([]);
+  };
+
+  const startTeamwiegen = () => {
+    audioService.announce("Teamwiegen");
+    setGameState(GameState.TEAM_SETUP);
+    setTeamCount(2);
+    setTeamSizes({ 1: 2, 2: 2 });
+    setRounds([]);
+    setPlayers([]);
+    setTeams([]);
+    setIsShortMode(false);
   };
 
   const startSpeedwiegen = () => {
+    audioService.announce("Speedwiegen");
     setGameState(GameState.SPEED_SETUP);
     setSpeedPlayerName('');
-    setSpeedLevels('');
+    setSpeedLevels('3');
     setSpeedTargets({});
     setSpeedResults({});
     setSpeedStartTime(null);
@@ -144,6 +226,7 @@ const App: React.FC = () => {
     setGameState(GameState.START);
     setRounds([]);
     setPlayers([]);
+    setTeams([]);
     setShowResetConfirm(false);
   };
 
@@ -159,31 +242,27 @@ const App: React.FC = () => {
     setGameState(GameState.PLAYER_NAMES);
   };
 
-  const handlePlayerNamesConfirm = (names: string[]) => {
-    const updatedPlayers = players.map((p, i) => ({ ...p, name: names[i].trim() || `Spieler ${i + 1}` }));
-    setPlayers(updatedPlayers);
-    setTempWeights(new Array(updatedPlayers.length).fill(''));
+  const handlePlayerNamesConfirm = () => {
+    if (players.some(p => !p.name.trim())) {
+      alert("Bitte alle Namen ausfüllen.");
+      return;
+    }
+    setTempWeights(new Array(players.length).fill(''));
     setGameState(GameState.START_WEIGHTS);
   };
 
   const onWeightsSubmit = () => {
-    const limit = isShortMode ? 333 : 500;
+    const limit = isShortMode ? 330 : 500;
     const numericWeights = tempWeights.map(w => parseInt(w));
-    
     for (let i = 0; i < numericWeights.length; i++) {
-        const w = numericWeights[i];
-        if (isNaN(w) || w <= 0) {
-            alert("Bitte für alle Spieler ein gültiges Startgewicht (g) eingeben.");
-            return;
-        }
-        if (w < limit) {
-            setStartWeightError(`Das eingegebene Startgewicht bei "${players[i].name}" ist mit ${w}g zu niedrig (Minimum: ${limit}g).`);
+        if (isNaN(numericWeights[i]) || numericWeights[i] < limit) {
+            setStartWeightError(`Das eingegebene Startgewicht bei "${players[i].name}" ist mit ${numericWeights[i] || 0}g zu niedrig (Minimum: ${limit}g).`);
             return;
         }
     }
     const updatedPlayers = players.map((p, i) => ({ ...p, startWeight: numericWeights[i] }));
     setPlayers(updatedPlayers);
-    setGameState(GameState.ROUND_TARGET);
+    setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
   };
 
   const handleTargetWeightConfirm = (customTarget?: number) => {
@@ -201,15 +280,15 @@ const App: React.FC = () => {
             let correction = target;
             const currentMin = Math.min(...prevResults);
             const currentMax = Math.max(...prevResults);
-
-            if (target >= currentMin) {
-                reason = `Das Zielgewicht von ${target}g ist zu hoch. Es muss mindestens 1g unter dem aktuell niedrigsten Füllstand (${currentMin}g) liegen.`;
-                correction = currentMin - 1;
+            
+            if (target > currentMin - 10) {
+                reason = `Das Zielgewicht von ${target}g ist zu hoch. Es muss mindestens 10g unter dem aktuell niedrigsten Füllstand (${currentMin}g) liegen.`;
+                correction = currentMin - 10;
             } else if (target < currentMax - 100) {
                 reason = `Das Zielgewicht von ${target}g ist zu niedrig. Es darf maximal 100g unter dem aktuell höchsten Füllstand (${currentMax}g) liegen.`;
                 correction = currentMax - 100;
             } else {
-                reason = "Das Zielgewicht liegt außerhalb des gültigen Bereichs.";
+                reason = "Zielgewicht ungültig.";
                 correction = Math.round(range.max);
             }
             setTargetWeightError({ message: reason, correction });
@@ -220,13 +299,12 @@ const App: React.FC = () => {
     setRounds([...rounds, { targetWeight: target, results: {} }]);
     setCurrentRoundResults({});
     setNextTargetInput('');
-    setGameState(GameState.GAMEPLAY);
+    setGameState(teams.length > 0 ? GameState.TEAM_GAMEPLAY : GameState.GAMEPLAY);
   };
 
   const handleNextRound = () => {
     const activePlayers = players.filter(p => !p.isDisqualified);
-    const allFilled = activePlayers.every(p => currentRoundResults[p.id] && !isNaN(parseInt(currentRoundResults[p.id])));
-    if (!allFilled) {
+    if (!activePlayers.every(p => currentRoundResults[p.id] && !isNaN(parseInt(currentRoundResults[p.id])))) {
       alert("Bitte alle Gewichte eintragen.");
       return;
     }
@@ -236,59 +314,61 @@ const App: React.FC = () => {
     activePlayers.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
 
     const summary = getRoundSummary(currentRound, players);
-    const newlyDisqualified: Array<{name: string, diff: number, reason: string}> = [];
-
+    const newlyDisqualified: any[] = [];
     const updatedPlayers = players.map(p => {
       if (p.isDisqualified) return p;
       const weight = currentRound.results[p.id];
       const dist = Math.abs(weight - currentRound.targetWeight);
-      let isDisqualified = p.isDisqualified;
-      if (dist > 50) {
-        isDisqualified = true;
-        newlyDisqualified.push({ 
-          name: p.name, 
-          diff: dist, 
-          reason: `Die Abweichung zum Zielgewicht (${currentRound.targetWeight}g) beträgt ${dist}g und liegt damit über dem Limit von 50g.`
-        });
+      let disq = p.isDisqualified;
+      if (dist > 50) { 
+        disq = true; 
+        newlyDisqualified.push({ name: p.name, diff: dist, reason: "Abweichung > 50g" }); 
       }
-      let schnaepse = p.schnaepse + (summary.pointsToAward.includes(p.id) ? 1 : 0);
-      return { ...p, schnaepse, isDisqualified };
+      
+      // Award points for EACH achievement (count occurrences in pointsToAward)
+      const pointsThisRound = summary.pointsToAward.filter((id: string) => id === p.id).length;
+      
+      return { ...p, schnaepse: p.schnaepse + pointsThisRound, isDisqualified: disq };
     });
 
-    const minStartWeight = Math.min(...players.map(p => p.startWeight));
+    finishRoundLogic(updatedPlayers, updatedRounds, newlyDisqualified, summary);
+  };
+
+  const finishRoundLogic = (updatedPlayers: Player[], updatedRounds: Round[], newlyDisqualified: any[], summary: any) => {
+    const currentRound = updatedRounds[updatedRounds.length - 1];
     const triggerThreshold = isShortMode ? 278 : 445;
-    const finalLimit = minStartWeight - triggerThreshold;
+    const minStart = Math.min(...updatedPlayers.map(p => p.startWeight));
+    const triggers: any[] = [];
     
-    const triggers: Array<{name: string, weight: number, limit: number}> = [];
-    activePlayers.forEach(p => {
-        const currentWeight = parseInt(currentRoundResults[p.id]);
-        if (currentWeight < finalLimit) {
-            triggers.push({ name: p.name, weight: currentWeight, limit: finalLimit });
+    if (!currentRound.isFinal) {
+      updatedPlayers.forEach(p => {
+        if (currentRound.results[p.id] < minStart - triggerThreshold) {
+          triggers.push({ name: p.name, weight: currentRound.results[p.id], limit: minStart - triggerThreshold });
         }
-    });
+      });
 
-    if (triggers.length > 0) {
+      if (triggers.length > 0) {
         setFinalTriggered(true);
         setTriggeringPlayers(triggers);
         setShowAutoTargetModal(null);
-    } else {
-        setFinalTriggered(false);
-        setTriggeringPlayers([]);
+      } else {
+        const active = updatedPlayers.filter(p => !p.isDisqualified);
+        const weights = active.map(p => currentRound.results[p.id]);
+        const minW = Math.min(...weights);
+        const maxW = Math.max(...weights);
         
-        const remainingActive = updatedPlayers.filter(up => !up.isDisqualified);
-        const remainingWeights = remainingActive.map(p => currentRound.results[p.id]);
-        const range = getTargetRange(remainingWeights);
-        
-        if (range.max < range.min && remainingActive.length > 0) {
-            const minCurrent = Math.min(...remainingWeights);
-            setShowAutoTargetModal({
-                diff: 0,
-                target: minCurrent - 10,
-                reason: "Durch die unterschiedlichen Füllstände ist kein regulärer Zielbereich möglich. Das Ziel wurde automatisch angepasst."
-            });
+        // Auto-target if range size < 10
+        // Range is [maxW - 100, minW - 10]
+        // Size is (minW - 10) - (maxW - 100) = minW - maxW + 90
+        if (active.length > 0 && (minW - maxW + 90 < 10)) {
+          setShowAutoTargetModal({ 
+            target: Math.round(minW - 10), 
+            reason: "Automatisches Zielgewicht gesetzt, da der berechnete Bereich für das Zielgewicht kleiner als 10 Gramm ist." 
+          });
         } else {
-            setShowAutoTargetModal(null);
+          setShowAutoTargetModal(null);
         }
+      }
     }
 
     setPlayers(updatedPlayers);
@@ -299,120 +379,93 @@ const App: React.FC = () => {
   };
 
   const handleModalSequence = () => {
-    if (showSummary) {
-      setShowSummary(false);
-      const lastRound = rounds[rounds.length - 1];
-      if (lastRound && lastRound.isFinal) {
-        setGameState(GameState.RESULT_SCREEN);
-        return;
-      }
-      if (disqualifiedNotice) return;
-      triggerNextStep();
-    } 
-    else if (disqualifiedNotice) {
+    setShowSummary(false);
+    if (rounds.length > 0 && rounds[rounds.length - 1].isFinal) {
+      setGameState(GameState.RESULT_SCREEN);
+    } else if (disqualifiedNotice) {
       setDisqualifiedNotice(null);
-      const lastRound = rounds[rounds.length - 1];
-      if (lastRound && lastRound.isFinal) {
-        setGameState(GameState.RESULT_SCREEN);
-        return;
-      }
+    } else {
       triggerNextStep();
     }
   };
 
   const triggerNextStep = () => {
-    if (showAutoTargetModal) return;
-    if (finalTriggered) {
-      setShowFinalIntro(true);
+    if (showAutoTargetModal) {
+      handleTargetWeightConfirm(showAutoTargetModal.target);
+      setShowAutoTargetModal(null);
       return;
     }
-    if (players.every(p => p.isDisqualified)) {
-      setGameState(GameState.RESULT_SCREEN);
-    } else {
-      setGameState(GameState.ROUND_TARGET);
-    }
+    if (finalTriggered) { setShowFinalIntro(true); return; }
+    setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
+  };
+
+  const startFinalSequence = () => { 
+    setShowFinalIntro(false); 
+    setCurrentRoundTargets({});
+    setGameState(GameState.FINAL_ROUND_TARGETS); 
   };
 
   const handleFinalTargetsConfirm = () => {
-    const activePlayers = players.filter(p => !p.isDisqualified);
-    const allFilled = activePlayers.every(p => currentRoundTargets[p.id] && !isNaN(parseInt(currentRoundTargets[p.id])));
-    if (!allFilled) {
-      alert("Jeder Spieler muss ein geschätztes Leergewicht angeben.");
-      return;
-    }
+    const active = players.filter(p => !p.isDisqualified);
+    if (!active.every(p => currentRoundTargets[p.id])) { alert("Alle Leergewichte schätzen."); return; }
     const indTargets: Record<string, number> = {};
-    activePlayers.forEach(p => {
-      indTargets[p.id] = parseInt(currentRoundTargets[p.id]);
-    });
+    active.forEach(p => indTargets[p.id] = parseInt(currentRoundTargets[p.id]));
     setRounds([...rounds, { targetWeight: 0, individualTargets: indTargets, results: {}, isFinal: true }]);
     setCurrentRoundResults({});
     setGameState(GameState.FINAL_ROUND_RESULTS);
   };
 
   const handleFinalResultsConfirm = () => {
-    const activePlayers = players.filter(p => !p.isDisqualified);
-    const allFilled = activePlayers.every(p => currentRoundResults[p.id] && !isNaN(parseInt(currentRoundResults[p.id])));
-    if (!allFilled) { alert("Bitte alle Leergewichte eintragen."); return; }
+    const active = players.filter(p => !p.isDisqualified);
+    if (!active.every(p => currentRoundResults[p.id])) { alert("Bitte alle Ergebnisse eintragen."); return; }
     const updatedRounds = [...rounds];
-    const lastRound = updatedRounds[updatedRounds.length - 1];
-    activePlayers.forEach(p => { lastRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
-    const summary = getRoundSummary(lastRound, players);
-    const newlyDisqualified: Array<{name: string, diff: number, reason: string}> = [];
-    const updatedPlayers = players.map(p => {
-      if (p.isDisqualified) return p;
-      const weight = lastRound.results[p.id];
-      const target = lastRound.individualTargets![p.id];
-      const dist = Math.abs(weight - target);
-      let isDisqualified = p.isDisqualified;
-      if (dist > 50) { 
-        isDisqualified = true; 
-        newlyDisqualified.push({ 
-          name: p.name, 
-          diff: dist,
-          reason: `Im Finale beträgt die Abweichung zu deinem geschätzten Leergewicht (${target}g) stolze ${dist}g. Damit bist du leider disqualifiziert.`
-        }); 
-      }
-      let schnaepse = p.schnaepse + (summary.pointsToAward.includes(p.id) ? 1 : 0);
-      return { ...p, schnaepse, isDisqualified };
-    });
-    setPlayers(updatedPlayers);
-    setRounds(updatedRounds);
-    setSummaryData(summary);
-    setDisqualifiedNotice(newlyDisqualified.length > 0 ? newlyDisqualified : null);
-    setShowSummary(true);
-  };
-
-  const startFinalSequence = () => {
-    setShowFinalIntro(false);
-    setCurrentRoundTargets({});
-    setGameState(GameState.FINAL_ROUND_TARGETS);
+    const currentRound = updatedRounds[updatedRounds.length - 1];
+    active.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
+    
+    if (teams.length > 0) {
+      let maxAbsOffset = -1;
+      let losingTeamId = "";
+      teams.forEach(t => {
+        let teamOffset = 0;
+        t.playerIds.forEach(pid => {
+          const p = players.find(px => px.id === pid);
+          if (p && !p.isDisqualified) {
+            const target = currentRound.individualTargets?.[pid] || 0;
+            teamOffset += (currentRound.results[pid] - target);
+          }
+        });
+        if (Math.abs(teamOffset) > maxAbsOffset) {
+          maxAbsOffset = Math.abs(teamOffset);
+          losingTeamId = t.id;
+        }
+      });
+      const updatedTeams = teams.map(t => t.id === losingTeamId ? { ...t, points: t.points + 1 } : t);
+      setTeams(updatedTeams);
+      const summary = { 
+        furthestPlayers: [updatedTeams.find(t=>t.id===losingTeamId)?.name || ""], 
+        exactHits: [], 
+        specialHits: [], 
+        duplicates: [], 
+        pointsToAward: [] 
+      };
+      finishRoundLogic(players, updatedRounds, [], summary);
+    } else {
+      const summary = getRoundSummary(currentRound, players);
+      finishRoundLogic(players, updatedRounds, [], summary);
+    }
   };
 
   // Speedwiegen Handlers
   const handleSpeedSetupConfirm = () => {
-    const n = parseInt(speedLevels);
-    if (!speedPlayerName.trim()) { alert("Bitte einen Spielernamen eingeben."); return; }
-    if (isNaN(n) || n <= 0) { alert("Bitte eine gültige Stufenanzahl eingeben."); return; }
+    if (!speedPlayerName.trim()) { alert("Bitte Namen eingeben."); return; }
     setGameState(GameState.SPEED_CONFIG);
   };
 
   const handleSpeedConfigConfirm = () => {
-    const n = parseInt(speedLevels);
-    const targets = [];
-    for (let i = 1; i <= n; i++) {
-      const val = parseInt(speedTargets[i]);
-      if (isNaN(val)) { alert("Bitte alle Felder ausfüllen."); return; }
-      targets.push(val);
+    const levels = parseInt(speedLevels);
+    for (let i = 1; i <= levels; i++) {
+      if (!speedTargets[i]) { alert("Bitte alle Zielgewichte ausfüllen."); return; }
     }
-    // Check descending order
-    for (let i = 1; i < targets.length; i++) {
-      if (targets[i] >= targets[i-1]) {
-        alert("Die Zielgewichte müssen von oben nach unten absteigend sein.");
-        return;
-      }
-    }
-    
-    // Start countdown
     setGameState(GameState.SPEED_COUNTDOWN);
     setSpeedCountdown(3);
     const interval = setInterval(() => {
@@ -431,919 +484,895 @@ const App: React.FC = () => {
   };
 
   const handleSpeedGameplayConfirm = () => {
-    const n = parseInt(speedLevels);
-    for (let i = 1; i <= n; i++) {
-      if (isNaN(parseInt(speedResults[i]))) { alert("Bitte alle erreichten Gewichte eintragen."); return; }
+    const levels = parseInt(speedLevels);
+    for (let i = 1; i <= levels; i++) {
+      if (!speedResults[i]) { alert("Bitte alle Ergebnisse eintragen."); return; }
     }
     setSpeedEndTime(Date.now());
     setGameState(GameState.SPEED_RESULT);
   };
 
-  const downloadCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    if (gameState === GameState.SPEED_RESULT) {
-      csvContent += `SPEEDWIEGEN ERGEBNIS - ${speedPlayerName}\n`;
-      csvContent += `Zeit (s);Gesamtabweichung (g);Total (Sekunden + Gramm)\n`;
-      const timeSec = ((speedEndTime! - speedStartTime!) / 1000).toFixed(2);
-      const n = parseInt(speedLevels);
-      let totalDist = 0;
-      for (let i = 1; i <= n; i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
-      csvContent += `${timeSec};${totalDist};${(parseFloat(timeSec) + totalDist).toFixed(2)}\n\n`;
-      csvContent += `DETAILS\nStufe;Zielgewicht (g);Erreichtes Gewicht (g);Abweichung (g)\n`;
-      for (let i = 1; i <= n; i++) {
-        const t = parseInt(speedTargets[i]);
-        const r = parseInt(speedResults[i]);
-        csvContent += `${i};${t};${r};${Math.abs(t-r)}\n`;
+  // Teamwiegen Handlers
+  const handleTeamSetupConfirm = () => {
+    const initialTeams: Team[] = [];
+    const initialPlayers: Player[] = [];
+    let pIdx = 0;
+    for (let i = 1; i <= teamCount; i++) {
+      const pIds: string[] = [];
+      const size = teamSizes[i] || 2;
+      for (let s = 0; s < size; s++) {
+        const pId = `p${pIdx++}`;
+        pIds.push(pId);
+        initialPlayers.push({ id: pId, name: '', startWeight: 0, schnaepse: 0 });
       }
-    } else {
-      const ranking = players.map(p => {
-        const avgDist = calculateAverageDistance(p.id, rounds);
-        return { ...p, avgDist, total: avgDist + p.schnaepse };
-      }).sort((a, b) => {
-        if (a.isDisqualified && !b.isDisqualified) return 1;
-        if (!a.isDisqualified && b.isDisqualified) return -1;
-        return a.total - b.total;
-      });
-      csvContent += "RANGLISTE\nPlatz;Spieler;Durchschnittlicher Abstand;Schnaepse;Gesamtpunktzahl;Status\n";
-      ranking.forEach((p, idx) => {
-        csvContent += `${idx + 1};${p.name};${p.avgDist.toFixed(2)};${p.schnaepse};${p.total.toFixed(2)};${p.isDisqualified ? 'Disqualifiziert' : 'Aktiv'}\n`;
-      });
-      csvContent += "\n\nRUNDENVERLAUF\nRunde;Zielgewicht;";
-      players.forEach(p => { csvContent += `${p.name};`; });
-      csvContent += "\n";
-      rounds.forEach((r, rIdx) => {
-        const target = r.isFinal ? "Leerwiegen" : `${r.targetWeight}g`;
-        csvContent += `${rIdx + 1};${target};`;
-        players.forEach(p => { csvContent += `${r.results[p.id] || "—"};`; });
-        csvContent += "\n";
-      });
+      initialTeams.push({ id: `t${i}`, name: `Team ${i}`, playerIds: pIds, points: 0 });
     }
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Bundeswiega_Ergebnis_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setTeams(initialTeams);
+    setPlayers(initialPlayers);
+    setGameState(GameState.TEAM_NAMES);
   };
 
-  const graphMax = useMemo(() => {
-    let maxDist = 0;
+  const handleTeamNamesConfirm = () => {
+    if (players.some(p => !p.name.trim()) || teams.some(t => !t.name.trim())) {
+      alert("Bitte alle Namen ausfüllen.");
+      return;
+    }
+    setTempWeights(new Array(players.length).fill(''));
+    setGameState(GameState.TEAM_START_WEIGHTS);
+  };
+
+  const handleTeamNextRound = () => {
+    const activeTeam = teams[activeTeamIndex];
+    if (!activeTeam.playerIds.every(pid => currentRoundResults[pid] && !isNaN(parseInt(currentRoundResults[pid])))) { 
+      alert("Bitte alle Gewichte eintragen."); 
+      return; 
+    }
+
+    if (activeTeamIndex < teams.length - 1) {
+      setActiveTeamIndex(activeTeamIndex + 1);
+      return;
+    }
+
+    // Evaluate whole round
+    const updatedRounds = [...rounds];
+    const currentRound = updatedRounds[updatedRounds.length - 1];
+    players.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
+
+    let maxAbsOffset = -1;
+    let losingTeamId = "";
+    teams.forEach(t => {
+      let teamOffset = 0;
+      t.playerIds.forEach(pid => {
+        teamOffset += (parseInt(currentRoundResults[pid]) - currentRound.targetWeight);
+      });
+      if (Math.abs(teamOffset) > maxAbsOffset) {
+        maxAbsOffset = Math.abs(teamOffset);
+        losingTeamId = t.id;
+      }
+    });
+
+    const updatedTeams = teams.map(t => t.id === losingTeamId ? { ...t, points: t.points + 1 } : t);
+    setTeams(updatedTeams);
+    setActiveTeamIndex(0);
+    
+    setRounds(updatedRounds);
+    
+    // Check for final round trigger
+    const triggerThreshold = isShortMode ? 278 : 450;
+    const minStart = Math.min(...players.map(p => p.startWeight));
+    const triggers: any[] = [];
+    players.forEach(p => {
+      if (currentRound.results[p.id] < minStart - triggerThreshold) {
+        triggers.push({ name: p.name, weight: currentRound.results[p.id], limit: minStart - triggerThreshold });
+      }
+    });
+
+    if (triggers.length > 0) {
+      setFinalTriggered(true);
+      setTriggeringPlayers(triggers);
+    }
+
+    setSummaryData({ furthestPlayers: [updatedTeams.find(t=>t.id===losingTeamId)?.name || ""], exactHits: [], specialHits: [], duplicates: [], pointsToAward: [] });
+    setShowSummary(true);
+  };
+
+  const downloadCSV = () => {
+    let csv = "";
     if (gameState === GameState.SPEED_RESULT) {
-      const n = parseInt(speedLevels);
-      for (let i = 1; i <= n; i++) maxDist = Math.max(maxDist, Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i])));
+      csv = "Stufe;Ziel;Ergebnis;Abstand\n";
+      Array.from({ length: parseInt(speedLevels) }).forEach((_, i) => {
+        const target = speedTargets[i+1];
+        const result = speedResults[i+1];
+        const diff = Math.abs((parseInt(result) || 0) - (parseInt(target) || 0));
+        csv += `${i+1};${target}g;${result}g;${diff}g\n`;
+      });
+      const timeSec = (speedEndTime! - speedStartTime!) / 1000;
+      csv += `\nZeit;${timeSec.toFixed(2)}s\n`;
+      const totalDiff = Object.keys(speedResults).reduce((acc, key) => {
+        const k = parseInt(key);
+        return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
+      }, 0);
+      csv += `Gesamt-Score;${(timeSec + totalDiff).toFixed(2)}\n`;
     } else {
-      rounds.forEach(r => {
-          players.forEach(p => {
-              const res = r.results[p.id];
-              const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
-              if (res !== undefined && target !== undefined) maxDist = Math.max(maxDist, Math.abs(res - target));
-          });
+      csv = "Runde;Ziel;";
+      players.forEach(p => csv += `${p.name};`);
+      csv += "\n";
+      rounds.forEach((r, i) => {
+        csv += `${i+1};${r.isFinal ? 'Finale' : r.targetWeight + 'g'};`;
+        players.forEach(p => csv += `${r.results[p.id] || '-'};`);
+        csv += "\n";
       });
     }
-    return Math.max(10, Math.ceil(maxDist / 10) * 10);
-  }, [rounds, players, gameState, speedTargets, speedResults, speedLevels]);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = gameState === GameState.SPEED_RESULT ? `Speedwiegen_${speedPlayerName}.csv` : "Bundeswiega_Export.csv";
+    a.click();
+  };
 
-  const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.SPEED_SETUP, GameState.SPEED_CONFIG, GameState.SPEED_COUNTDOWN, GameState.SPEED_GAMEPLAY, GameState.SPEED_RESULT].includes(gameState);
+  const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => gameState !== GameState.START && setShowResetConfirm(true)}>
           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
-          <h1 className="text-2xl font-black tracking-tighter hidden sm:block" style={{ color: darkMode ? '#ffffff' : BRAND_COLOR }}>1. Bundeswiega</h1>
+          <h1 className="text-2xl font-black tracking-tighter" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
         </div>
-        <div className="flex space-x-2">
-          <button onClick={() => setDarkMode(!darkMode)} className={`p-3 rounded-full shadow-md border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
-            <i className={`fas ${darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-indigo-600'} text-xl`}></i>
-          </button>
-          {gameState !== GameState.START && (
-            <button onClick={() => setShowResetConfirm(true)} className={`p-3 rounded-full shadow-md border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200'}`}>
-              <i className="fas fa-arrow-left text-red-500 text-xl"></i>
-            </button>
-          )}
-        </div>
+        <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30">
+          <i className={`fas ${darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-indigo-600'}`}></i>
+        </button>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto relative">
         {gameState === GameState.START && (
-          <div className="text-center animate-in fade-in duration-700 max-w-2xl w-full">
-            <div className="mb-6 flex justify-center">
-              <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="block transition-transform hover:scale-105 active:scale-95">
-                <img src={LOGO_URL} alt="1. Bundeswiega Logo" className="w-56 h-56 md:w-64 md:h-64 object-contain drop-shadow-2xl" />
-              </a>
-            </div>
-            <h1 className="text-4xl md:text-5xl font-black mb-12 tracking-tighter uppercase text-center" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
-            <div className="flex flex-col space-y-4 w-full max-w-sm mx-auto">
-              <button onClick={startGame} className="text-white font-bold py-5 px-10 rounded-3xl shadow-xl transform active:scale-95 transition-all text-xl w-full flex items-center justify-center space-x-3" style={{ backgroundColor: BRAND_COLOR }}>
-                <i className="fas fa-play"></i>
-                <span>Spiel starten</span>
+          <div className="text-center animate-in fade-in duration-700">
+            <img src={LOGO_URL} className="w-64 h-64 mx-auto mb-12 drop-shadow-2xl" alt="Bundeswiega Logo" />
+            <h1 className="text-5xl font-black mb-12 tracking-tighter uppercase" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
+            <div className="flex flex-col space-y-4 max-w-xs mx-auto">
+              <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
+                <i className="fas fa-play"></i><span>Spiel starten</span>
               </button>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setShowComingSoon(true)} className="text-white font-bold py-4 rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-users mr-2"></i>Teamwiegen
-                </button>
-                <button onClick={startSpeedwiegen} className="text-white font-bold py-4 rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-bolt mr-2"></i>Speedwiegen
-                </button>
-              </div>
-              <button onClick={() => setShowRules(true)} className="w-full text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 text-lg active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
+              <button onClick={startSpeedwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
+                <i className="fas fa-bolt"></i><span>Speedwiegen</span>
+              </button>
+              <button onClick={startTeamwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
+                <i className="fas fa-users"></i><span>Teamwiegen</span>
+              </button>
+              <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-book"></i><span>Regeln</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* SPEEDWIEGEN SETUP */}
-        {gameState === GameState.SPEED_SETUP && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-black mb-6 text-center uppercase tracking-tighter">Speedwiegen Setup</h2>
+        {/* PLAYER_COUNT SCREEN */}
+        {gameState === GameState.PLAYER_COUNT && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+            <h2 className="text-2xl font-black mb-8">Spieleranzahl</h2>
+            <select value={playerCount} onChange={e => setPlayerCount(parseInt(e.target.value))} className="w-full p-4 rounded-xl border-2 mb-8 bg-transparent font-bold text-center" style={{ borderColor: BRAND_COLOR }}>
+              {[2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} Spieler</option>)}
+            </select>
+            <div className="flex items-center justify-center space-x-4 mb-8">
+              <div className="flex items-center space-x-2">
+                <div className="relative inline-block w-10 h-6">
+                  <input type="checkbox" id="sm-count" checked={isShortMode} onChange={e => setIsShortMode(e.target.checked)} className="opacity-0 w-0 h-0" />
+                  <label htmlFor="sm-count" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors ${isShortMode ? '' : 'bg-gray-400'}`} style={{ backgroundColor: isShortMode ? BRAND_COLOR : undefined }}>
+                    <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform ${isShortMode ? 'translate-x-4' : ''}`}></span>
+                  </label>
+                </div>
+                <label htmlFor="sm-count" className="font-bold text-sm">0,33 L Modus</label>
+              </div>
+              <button onClick={() => setShowModeInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
+            </div>
+            <button onClick={handlePlayerCountConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Namen eingeben</button>
+          </div>
+        )}
+
+        {/* PLAYER_NAMES SCREEN */}
+        {gameState === GameState.PLAYER_NAMES && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+            <h2 className="text-2xl font-black mb-8 text-center">Spielernamen</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              {players.map((p, i) => (
+                <input key={p.id} type="text" value={p.name} onChange={e => setPlayers(players.map(x => x.id === p.id ? {...x, name: e.target.value} : x))} placeholder={`Spieler ${i+1}`} className={`p-3 rounded-xl border-2 bg-transparent font-bold ${darkMode ? 'text-white border-white/20' : 'text-black border-black/20'}`} style={{ borderColor: players[i].name ? BRAND_COLOR : '' }} />
+              ))}
+            </div>
+            <button onClick={handlePlayerNamesConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
+          </div>
+        )}
+
+        {/* START_WEIGHTS SCREEN */}
+        {gameState === GameState.START_WEIGHTS && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+            <h2 className="text-2xl font-black mb-6 text-center">Startgewichte (g)</h2>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              {players.map((p, i) => (
+                <div key={p.id} className="relative">
+                  <label className="text-[10px] font-bold opacity-50 uppercase mb-1 block">{p.name}</label>
+                  <input type="number" min="0" max="999" value={tempWeights[i]} onChange={e => { const nw = [...tempWeights]; nw[i] = e.target.value.slice(0, 3); setTempWeights(nw); }} className={`w-full p-2 rounded-lg border-2 bg-transparent font-bold ${darkMode ? 'text-white border-white/20' : 'text-black border-black/20'}`} style={{ borderColor: tempWeights[i] ? BRAND_COLOR : '' }} />
+                </div>
+              ))}
+            </div>
+            <button onClick={onWeightsSubmit} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht festlegen</button>
+          </div>
+        )}
+
+        {/* ROUND_TARGET SCREEN */}
+        {gameState === GameState.ROUND_TARGET && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+            <h2 className="text-3xl font-black mb-6">Zielgewicht</h2>
+            <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
+            <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+              {players.map(p => (
+                <div key={p.id} className={`flex justify-between p-2 rounded-xl ${darkMode ? 'bg-white/10' : 'bg-black/10'} text-[10px] md:text-xs`}>
+                  <span>{p.name}</span>
+                  <span className="font-black">{p.isDisqualified ? '❌' : (rounds.length === 0 ? p.startWeight : rounds[rounds.length-1].results[p.id]) + 'g'}</span>
+                </div>
+              ))}
+            </div>
+            {(() => {
+              const act = players.filter(p => !p.isDisqualified).map(p => rounds.length === 0 ? p.startWeight : rounds[rounds.length-1].results[p.id]);
+              const range = getTargetRange(act);
+              return (
+                <div className="mb-6">
+                  <p className="text-xs opacity-50 mb-2">Gültiger Bereich: {Math.round(range.min)}g - {Math.round(range.max)}g</p>
+                  <input type="number" min="0" max="999" value={nextTargetInput} onChange={e => setNextTargetInput(e.target.value.slice(0, 3))} className={`w-full p-4 rounded-xl border-4 text-center font-black text-4xl bg-transparent ${darkMode ? 'text-white border-white/20' : 'text-black border-black/20'}`} style={{ borderColor: BRAND_COLOR }} placeholder="?" />
+                </div>
+              );
+            })()}
+            <button onClick={() => handleTargetWeightConfirm()} className="w-full text-white font-bold py-5 rounded-2xl active:scale-95 shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
+          </div>
+        )}
+
+        {/* GAMEPLAY SCREEN */}
+        {gameState === GameState.GAMEPLAY && (
+          <div className="w-full space-y-4 animate-in fade-in max-h-[90vh] overflow-y-auto pb-10 flex flex-col items-center">
+             <h2 className="text-2xl font-black uppercase text-center" style={{ color: BRAND_COLOR }}>Runde {rounds.length}</h2>
+             <GameTable 
+               showInputs={true} 
+               players={players} 
+               rounds={rounds} 
+               darkMode={darkMode} 
+               currentRoundResults={currentRoundResults} 
+               setCurrentRoundResults={setCurrentRoundResults} 
+             />
+             <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
+          </div>
+        )}
+
+        {/* TEAM SETUP SCREENS */}
+        {gameState === GameState.TEAM_SETUP && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+            <h2 className="text-2xl font-black mb-8">Teamwiegen Setup</h2>
+            <div className="mb-8">
+              <label className="block text-sm font-bold opacity-50 uppercase mb-2">Anzahl Teams</label>
+              <select value={teamCount} onChange={e => setTeamCount(parseInt(e.target.value))} className="w-full p-3 rounded-xl border-2 bg-transparent font-bold text-center" style={{ borderColor: BRAND_COLOR }}>
+                {[2,3,4,5].map(n => <option key={n} value={n}>{n} Teams</option>)}
+              </select>
+            </div>
             <div className="space-y-4 mb-8">
-              <div>
-                <label className="text-xs font-bold uppercase opacity-60 mb-1 block">Spielername</label>
-                <input type="text" value={speedPlayerName} onChange={(e) => setSpeedPlayerName(e.target.value)} placeholder="Dein Name" className={`w-full p-4 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: speedPlayerName ? BRAND_COLOR : '' }} />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase opacity-60 mb-1 block">Anzahl der Stufen</label>
-                <input type="number" value={speedLevels} onChange={(e) => setSpeedLevels(e.target.value)} placeholder="z.B. 10 Stufen" className={`w-full p-4 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: speedLevels ? BRAND_COLOR : '' }} />
-              </div>
+              {Array.from({ length: teamCount }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="font-bold">Team {i+1} Größe:</span>
+                  <select value={teamSizes[i+1] || 2} onChange={e => setTeamSizes({...teamSizes, [i+1]: parseInt(e.target.value)})} className="p-2 rounded-lg border bg-transparent font-bold">
+                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} Pers.</option>)}
+                  </select>
+                </div>
+              ))}
             </div>
-            <button onClick={handleSpeedSetupConfirm} className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Konfigurieren</button>
+            <div className="flex items-center justify-center space-x-4 mb-8">
+              <div className="flex items-center space-x-2">
+                <div className="relative inline-block w-10 h-6">
+                  <input type="checkbox" id="team-sm-count" checked={isShortMode} onChange={e => setIsShortMode(e.target.checked)} className="opacity-0 w-0 h-0" />
+                  <label htmlFor="team-sm-count" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors ${isShortMode ? '' : 'bg-gray-400'}`} style={{ backgroundColor: isShortMode ? BRAND_COLOR : undefined }}>
+                    <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform ${isShortMode ? 'translate-x-4' : ''}`}></span>
+                  </label>
+                </div>
+                <label htmlFor="team-sm-count" className="font-bold text-sm">0,33 L Modus</label>
+              </div>
+              <button onClick={() => setShowModeInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
+            </div>
+            <button onClick={handleTeamSetupConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Teams benennen</button>
           </div>
         )}
 
-        {/* SPEEDWIEGEN CONFIG */}
-        {gameState === GameState.SPEED_CONFIG && (
-          <div className="w-full animate-in fade-in duration-500 flex flex-col space-y-6">
-            <h2 className="text-2xl font-black text-center uppercase tracking-tighter">Speedwiegen: {speedPlayerName}</h2>
-            <div className={`p-6 rounded-3xl border shadow-lg overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-700/30">
-                      <th className="p-3 font-bold opacity-50 text-xs">STUFE</th>
-                      <th className="p-3 font-bold text-xs">ZIELGEWICHT (g)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
-                      <tr key={i} className="border-b border-gray-700/10">
-                        <td className="p-3 font-black text-sm opacity-60">#{i + 1}</td>
-                        <td className="p-2">
-                          <input 
-                            type="number" 
-                            value={speedTargets[i + 1] || ''} 
-                            onChange={(e) => setSpeedTargets({ ...speedTargets, [i + 1]: e.target.value })}
-                            placeholder="g"
-                            className={`w-full p-2 border-2 rounded-lg text-sm font-bold focus:outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
-                            style={{ borderColor: speedTargets[i + 1] ? BRAND_COLOR : '' }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Los geht's</button>
-          </div>
-        )}
-
-        {/* SPEEDWIEGEN COUNTDOWN */}
-        {gameState === GameState.SPEED_COUNTDOWN && (
-          <div className="flex items-center justify-center h-full w-full">
-            <span className="text-9xl font-black italic animate-bounce" style={{ color: BRAND_COLOR }}>{speedCountdown}</span>
-          </div>
-        )}
-
-        {/* SPEEDWIEGEN GAMEPLAY */}
-        {gameState === GameState.SPEED_GAMEPLAY && (
-          <div className="w-full animate-in fade-in duration-500 flex flex-col space-y-6">
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] font-bold uppercase opacity-50 tracking-widest mb-1">Zeit läuft...</span>
-              <span className="text-4xl font-black tabular-nums italic" style={{ color: BRAND_COLOR }}>
-                {(speedCurrentTime / 1000).toFixed(2)}s
-              </span>
-            </div>
-            <h2 className="text-xl font-black text-center uppercase tracking-tighter opacity-80">Spieler: {speedPlayerName}</h2>
-            <div className={`p-6 rounded-3xl border shadow-lg overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-700/30">
-                      <th className="p-3 font-bold opacity-50 text-[10px]">STUFE</th>
-                      <th className="p-3 font-bold text-[10px]">ZIEL (g)</th>
-                      <th className="p-3 font-bold text-[10px]">ERREICHT (g)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
-                      <tr key={i} className="border-b border-gray-700/10">
-                        <td className="p-3 font-black text-xs opacity-50">#{i + 1}</td>
-                        <td className="p-3 font-black text-sm">{speedTargets[i + 1]}g</td>
-                        <td className="p-2">
-                          <input 
-                            type="number" 
-                            value={speedResults[i + 1] || ''} 
-                            onChange={(e) => setSpeedResults({ ...speedResults, [i + 1]: e.target.value })}
-                            placeholder="Gewicht"
-                            className={`w-full p-2 border-2 rounded-lg text-sm font-bold focus:outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
-                            style={{ borderColor: speedResults[i + 1] ? BRAND_COLOR : '' }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <button onClick={handleSpeedGameplayConfirm} className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Fertig</button>
-          </div>
-        )}
-
-        {/* SPEEDWIEGEN RESULT */}
-        {gameState === GameState.SPEED_RESULT && (
-          <div className="w-full flex flex-col space-y-8 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-20 text-center text-gray-900 dark:text-white">
-            <h2 className="text-3xl font-black uppercase tracking-tighter mx-auto mb-2" style={{ color: BRAND_COLOR }}>🏎️ Speedwiegen Ergebnis</h2>
-            
-            <div ref={rankingAreaRef} className={`p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase opacity-50">Spieler</span>
-                  <span className="text-lg font-black">{speedPlayerName}</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase opacity-50">Zeit</span>
-                  <span className="text-lg font-black italic" style={{ color: BRAND_COLOR }}>{((speedEndTime! - speedStartTime!) / 1000).toFixed(2)}s</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase opacity-50">Abweichung</span>
-                  <span className="text-lg font-black">{(() => {
-                    let totalDist = 0;
-                    for (let i = 1; i <= parseInt(speedLevels); i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
-                    return `${totalDist}g`;
-                  })()}</span>
-                </div>
-                <div className="flex flex-col items-center bg-yellow-500/10 p-2 rounded-xl border border-yellow-500/20">
-                  <span className="text-[10px] font-bold uppercase opacity-50">Total</span>
-                  <span className="text-xl font-black" style={{ color: GOLD_COLOR }}>{(() => {
-                    const timeSec = (speedEndTime! - speedStartTime!) / 1000;
-                    let totalDist = 0;
-                    for (let i = 1; i <= parseInt(speedLevels); i++) totalDist += Math.abs(parseInt(speedTargets[i]) - parseInt(speedResults[i]));
-                    return (timeSec + totalDist).toFixed(2);
-                  })()}</span>
-                </div>
-              </div>
-
-              <div id="speed-table-capture" className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead>
-                    <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                      <th className="p-3 font-bold opacity-50">Stufe</th>
-                      <th className="p-3 font-bold">Ziel (g)</th>
-                      <th className="p-3 font-bold">Erreicht (g)</th>
-                      <th className="p-3 font-bold text-center">Diff (g)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
-                      const t = parseInt(speedTargets[i + 1]);
-                      const r = parseInt(speedResults[i + 1]);
+        {gameState === GameState.TEAM_NAMES && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl overflow-y-auto max-h-[80vh]">
+            <h2 className="text-2xl font-black mb-8 text-center">Team- & Spielernamen</h2>
+            <div className="space-y-8">
+              {teams.map((t, tIdx) => (
+                <div key={t.id} className="p-4 rounded-2xl bg-black/10 border-l-4" style={{ borderColor: PLAYER_COLORS[tIdx % PLAYER_COLORS.length] }}>
+                  <input type="text" value={t.name} onChange={e => setTeams(teams.map(x => x.id === t.id ? {...x, name: e.target.value} : x))} className="w-full text-xl font-black bg-transparent mb-4 border-b border-white/20" placeholder={`Name für ${t.id}`} />
+                  <div className="grid grid-cols-2 gap-3">
+                    {t.playerIds.map(pid => {
+                      const p = players.find(px => px.id === pid);
                       return (
-                        <tr key={i} className={`border-b ${darkMode ? 'border-gray-700/30' : 'border-gray-50'}`}>
-                          <td className="p-3 opacity-50">#{i + 1}</td>
-                          <td className="p-3 font-bold">{t}g</td>
-                          <td className="p-3 font-bold">{r}g</td>
-                          <td className="p-3 font-black text-center" style={{ color: t === r ? BRAND_COLOR : (Math.abs(t - r) > 20 ? '#ef4444' : 'inherit') }}>
-                            {t === r ? '🎯' : `${Math.abs(t - r)}g`}
-                          </td>
-                        </tr>
+                        <input key={pid} type="text" value={p?.name || ''} onChange={e => setPlayers(players.map(x => x.id === pid ? {...x, name: e.target.value} : x))} className="p-2 rounded-lg border bg-transparent font-bold text-sm" placeholder="Spieler Name" />
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex flex-col space-y-3 pt-4 px-3">
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setShowStats(true)} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
-                  <i className="fas fa-chart-line"></i><span>Statistik</span>
-                </button>
-                <button onClick={downloadCSV} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: '#059669' }}>
-                  <i className="fas fa-file-csv"></i><span>CSV erstellen</span>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => captureElement(rankingAreaRef, 'Bundeswiega_SpeedResult')} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-camera"></i><span className="text-xs">Screenshot Ranking</span>
-                </button>
-                <button onClick={() => setShowResetConfirm(true)} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-arrow-left"></i><span className="text-xs">Hauptmenü</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DEFAULT GAMEPLAY COMPONENTS */}
-        {gameState === GameState.PLAYER_COUNT && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-bold mb-6 text-center">Wie viele Spieler?</h2>
-            <select value={playerCount} onChange={(e) => setPlayerCount(parseInt(e.target.value))} className={`w-full p-4 border-2 rounded-xl mb-6 text-lg focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: BRAND_COLOR }}>
-              {Array.from({ length: 9 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} Spieler</option>)}
-            </select>
-            <div className="flex items-center justify-between mb-8 ml-1 pr-1">
-                <div className="flex items-center space-x-3">
-                  <div className="relative inline-block w-10 h-6">
-                    <input type="checkbox" id="shortModeToggle" checked={isShortMode} onChange={() => setIsShortMode(!isShortMode)} className="opacity-0 w-0 h-0" />
-                    <label htmlFor="shortModeToggle" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors duration-200 ${isShortMode ? '' : 'bg-gray-400'}`} style={{ backgroundColor: isShortMode ? BRAND_COLOR : undefined }}>
-                      <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ${isShortMode ? 'translate-x-4' : 'translate-x-0'}`}></span>
-                    </label>
-                  </div>
-                  <label htmlFor="shortModeToggle" className="text-sm font-bold opacity-80 cursor-pointer">0,33 L Modus</label>
-                  <button onClick={() => setShowModeInfo(true)} className="flex items-center justify-center w-6 h-6 rounded-full border border-gray-500 text-gray-500 text-sm font-bold hover:bg-gray-500/10 transition-colors">
-                    <i className="fas fa-question"></i>
-                  </button>
-                </div>
-            </div>
-            <button onClick={handlePlayerCountConfirm} className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Weiter</button>
-          </div>
-        )}
-
-        {gameState === GameState.PLAYER_NAMES && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-bold mb-6 text-center">Namen eingeben</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {players.map((p, i) => (
-                <div key={p.id}>
-                  <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest block mb-1">Spieler {i + 1}</label>
-                  <input type="text" placeholder={`Name Spieler ${i+1}`} value={p.name} autoFocus={i === 0} className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: players[i].name ? BRAND_COLOR : '' }} onChange={(e) => {
-                      const newPlayers = [...players];
-                      newPlayers[i].name = e.target.value;
-                      setPlayers(newPlayers);
-                    }} />
-                </div>
-              ))}
-            </div>
-            <button onClick={() => handlePlayerNamesConfirm(players.map(p => p.name))} className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte festlegen</button>
-          </div>
-        )}
-
-        {gameState === GameState.START_WEIGHTS && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-bold mb-2 text-center">Startgewichte</h2>
-            <p className="text-sm opacity-60 mb-6 text-center italic">Wiege dein Gefäß und trage das Gewicht ein</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {players.map((p, i) => (
-                <div key={p.id}>
-                  <label className="text-xs font-bold mb-1 block uppercase opacity-70 tracking-tighter text-left">{p.name}</label>
-                  <div className="relative">
-                    <input type="number" placeholder="Startgewicht" value={tempWeights[i]} className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: tempWeights[i] ? BRAND_COLOR : '' }} onChange={(e) => { const nextWeights = [...tempWeights]; nextWeights[i] = e.target.value; setTempWeights(nextWeights); }} />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 opacity-30 text-xs font-bold">g</span>
                   </div>
                 </div>
               ))}
             </div>
-            <button onClick={onWeightsSubmit} className="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-colors uppercase tracking-widest active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Spiel starten</button>
+            <button onClick={handleTeamNamesConfirm} className="w-full mt-8 text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
           </div>
         )}
 
-        {gameState === GameState.ROUND_TARGET && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-md border animate-in zoom-in duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-black mb-4 text-center uppercase tracking-tighter">Runde {rounds.length + 1}</h2>
-            <div className="mb-6">
-              <p className="text-[10px] font-bold uppercase opacity-50 mb-3 text-center tracking-widest">Aktuelle Füllstände</p>
-              <div className="grid grid-cols-2 gap-2">
-                {players.map(p => {
-                  const currentW = rounds.length === 0 ? p.startWeight : rounds[rounds.length - 1].results[p.id];
-                  return (
-                    <div key={p.id} className={`p-3 rounded-xl border flex flex-col items-center justify-center ${p.isDisqualified ? 'opacity-40 grayscale' : ''} ${darkMode ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-100'}`}>
-                      <span className="text-[10px] font-bold opacity-60 uppercase truncate w-full text-center mb-1">{p.name}</span>
-                      <span className="text-lg font-black">{p.isDisqualified ? '❌' : `${currentW}g`}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="text-center mt-4">
-              {(() => {
-                  const activePlayers = players.filter(p => !p.isDisqualified);
-                  const prevResults = rounds.length === 0 ? activePlayers.map(p => p.startWeight) : activePlayers.map(p => rounds[rounds.length - 1].results[p.id]);
-                  const range = getTargetRange(prevResults);
-                  return (
-                      <>
-                      <p className="text-sm opacity-70 mb-6 text-center">Zielgewicht festlegen: <br/><span className="font-bold" style={{ color: BRAND_COLOR }}>{Math.round(range.min)}g - {Math.round(range.max)}g</span></p>
-                      <input type="number" autoFocus value={nextTargetInput} onChange={(e) => setNextTargetInput(e.target.value)} placeholder="Ziel (g)" className={`w-full p-4 border-2 rounded-xl mb-6 text-3xl text-center font-black focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: BRAND_COLOR }} />
-                      </>
-                  );
-              })()}
-              <button onClick={() => handleTargetWeightConfirm()} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
-            </div>
-          </div>
-        )}
-
-        {(gameState === GameState.GAMEPLAY || gameState === GameState.FINAL_ROUND_RESULTS) && (
-          <div className="w-full flex flex-col space-y-6 animate-in fade-in duration-500">
-            <div id="gameplay-table-capture" className={`rounded-3xl shadow-xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                      <th className="p-4 border-b border-gray-700 font-bold text-center text-xs opacity-50">RND</th>
-                      {players.map(p => (
-                        <th key={p.id} className="p-2 border-b border-gray-700 font-bold text-center">
-                          <VerticalText text={p.name} />
-                        </th>
-                      ))}
-                      <th className={`p-4 border-b border-gray-700 font-bold text-center text-xs ${darkMode ? 'bg-yellow-900/20' : 'bg-yellow-50'}`}>ZIEL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rounds.map((r, rIdx) => {
-                        if (r.isFinal && gameState === GameState.FINAL_ROUND_RESULTS) return null;
-                        const targetValue = r.isFinal ? 'EX!' : `${r.targetWeight}g`;
-                        return (
-                      <tr key={rIdx} className={`hover:bg-opacity-50 border-b border-gray-800 transition-colors ${darkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'}`}>
-                        <td className="p-4 font-semibold opacity-50 text-center text-xs">#{rIdx + 1}</td>
-                        {players.map(p => {
-                          const val = r.results[p.id];
-                          const target = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
-                          const dist = val !== undefined && typeof target === 'number' ? Math.abs(val - target) : null;
-                          return (
-                            <td key={p.id} className="p-2 text-center align-middle">
-                              {val !== undefined ? (
-                                <>
-                                  <div className="font-semibold text-xs md:text-sm">{val}g</div>
-                                  {dist !== null && dist > 0 && <div className={`text-[9px] font-bold ${dist > 50 ? 'text-red-600 uppercase' : 'opacity-60'}`}>{dist > 50 ? 'D' : `+${dist}`}</div>}
-                                  {dist === 0 && <div className="text-[9px] font-bold" style={{ color: BRAND_COLOR }}>🎯</div>}
-                                </>
-                              ) : ( <div className="text-xs opacity-30">{p.isDisqualified ? '❌' : '—'}</div> )}
-                            </td>
-                          );
-                        })}
-                        <td className={`p-4 text-center font-bold text-xs md:text-sm ${darkMode ? 'text-yellow-400 bg-yellow-900/10' : 'text-blue-600 bg-yellow-50/50'}`}>{targetValue}</td>
-                      </tr>
-                    );})}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className={`p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                <h3 className="font-bold mb-4 text-center uppercase text-sm tracking-widest opacity-60">
-                  {gameState === GameState.FINAL_ROUND_RESULTS ? 'Leergewicht (g)' : 'Wiege-Ergebnisse (g)'}
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                    {players.filter(p => !p.isDisqualified).map(p => (
-                        <div key={p.id}>
-                            <label className="text-[10px] font-bold opacity-60 mb-1 block uppercase text-left">{p.name}</label>
-                            <input type="number" placeholder="g" value={currentRoundResults[p.id] || ''} onChange={(e) => setCurrentRoundResults({...currentRoundResults, [p.id]: e.target.value})} className={`w-full p-2 border-2 rounded-lg focus:outline-none transition-colors text-sm font-bold ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: currentRoundResults[p.id] ? BRAND_COLOR : '' }} />
+        {gameState === GameState.TEAM_START_WEIGHTS && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl overflow-y-auto max-h-[80vh]">
+            <h2 className="text-2xl font-black mb-8 text-center">Team-Startgewichte</h2>
+            <div className="space-y-6">
+              {teams.map((t, tIdx) => (
+                <div key={t.id} className="p-4 rounded-2xl bg-black/10">
+                  <h3 className="font-black text-sm uppercase opacity-50 mb-3" style={{ color: PLAYER_COLORS[tIdx % PLAYER_COLORS.length] }}>{t.name}</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {t.playerIds.map(pid => {
+                      const p = players.find(px => px.id === pid)!;
+                      const pGlobalIdx = players.indexOf(p);
+                      return (
+                        <div key={pid}>
+                          <label className="text-[10px] font-bold opacity-40">{p.name}</label>
+                          <input type="number" min="0" max="999" value={tempWeights[pGlobalIdx]} onChange={e => { const nw = [...tempWeights]; nw[pGlobalIdx] = e.target.value.slice(0, 3); setTempWeights(nw); }} className="w-full p-2 rounded-lg border bg-transparent font-bold" />
                         </div>
-                    ))}
+                      );
+                    })}
+                  </div>
                 </div>
-                <button onClick={gameState === GameState.GAMEPLAY ? handleNextRound : handleFinalResultsConfirm} className="w-full text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
+              ))}
+            </div>
+            <button onClick={onWeightsSubmit} className="w-full mt-8 text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht</button>
+          </div>
+        )}
+
+        {gameState === GameState.TEAM_ROUND_TARGET && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+            <h2 className="text-3xl font-black mb-6">Team-Ziel</h2>
+            <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
+            <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+              {players.map(p => (
+                <div key={p.id} className={`flex justify-between p-2 rounded-xl ${darkMode ? 'bg-white/10' : 'bg-black/10'} text-[10px] md:text-xs`}>
+                  <span>{p.name}</span>
+                  <span className="font-black">{(rounds.length === 0 ? p.startWeight : rounds[rounds.length-1].results[p.id]) + 'g'}</span>
+                </div>
+              ))}
+            </div>
+            {(() => {
+              const act = players.map(p => rounds.length === 0 ? p.startWeight : rounds[rounds.length-1].results[p.id]);
+              const range = getTargetRange(act);
+              return (
+                <div className="mb-6">
+                  <p className="text-xs opacity-50 mb-2">Bereich: {Math.round(range.min)}g - {Math.round(range.max)}g</p>
+                  <input type="number" min="0" max="999" value={nextTargetInput} onChange={e => setNextTargetInput(e.target.value.slice(0, 3))} className="w-full p-4 rounded-xl border-4 text-center font-black text-4xl bg-transparent" style={{ borderColor: BRAND_COLOR }} placeholder="?" />
+                </div>
+              );
+            })()}
+            <button onClick={() => handleTargetWeightConfirm()} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Start</button>
+          </div>
+        )}
+
+        {gameState === GameState.TEAM_GAMEPLAY && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl text-center">
+            <h2 className="text-2xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Runde {rounds.length}</h2>
+            <h3 className="text-4xl font-black mb-8 italic">{teams[activeTeamIndex].name}</h3>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              {teams[activeTeamIndex].playerIds.map(pid => {
+                const p = players.find(px => px.id === pid);
+                const val = parseInt(currentRoundResults[pid]);
+                const target = rounds[rounds.length - 1].targetWeight;
+                const diff = !isNaN(val) ? val - target : null;
+                return (
+                  <div key={pid}>
+                    <label className="block text-xs font-bold opacity-50 uppercase mb-1">{p?.name}</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="999" 
+                      value={currentRoundResults[pid] || ''} 
+                      onChange={e => setCurrentRoundResults({...currentRoundResults, [pid]: e.target.value.slice(0, 3)})} 
+                      className="w-full p-4 rounded-xl border-2 bg-transparent text-center font-black text-2xl" 
+                      placeholder="g" 
+                    />
+                    {diff !== null && (
+                      <div className={`mt-1 font-black text-lg ${diff > 0 ? 'text-emerald-500' : diff < 0 ? 'text-red-500' : 'opacity-50'}`}>
+                        {diff > 0 ? `+${diff}` : diff}g
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {(() => {
+              const target = rounds[rounds.length - 1].targetWeight;
+              const teamSumDiff = teams[activeTeamIndex].playerIds.reduce((acc, pid) => {
+                const val = parseInt(currentRoundResults[pid]);
+                return acc + (!isNaN(val) ? val - target : 0);
+              }, 0);
+              const allEntered = teams[activeTeamIndex].playerIds.every(pid => !isNaN(parseInt(currentRoundResults[pid])));
+              if (!allEntered && teamSumDiff === 0) return null;
+              return (
+                <div className={`mb-8 p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border-2 ${teamSumDiff > 0 ? 'border-emerald-500/30' : teamSumDiff < 0 ? 'border-red-500/30' : 'border-white/10'}`}>
+                  <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Team-Gesamtabstand</p>
+                  <p className={`text-3xl font-black ${teamSumDiff > 0 ? 'text-emerald-500' : teamSumDiff < 0 ? 'text-red-500' : ''}`}>
+                    {teamSumDiff > 0 ? `+${teamSumDiff}` : teamSumDiff}g
+                  </p>
+                </div>
+              );
+            })()}
+            <button onClick={handleTeamNextRound} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
+              {activeTeamIndex < teams.length - 1 ? 'Nächstes Team' : 'Runde auswerten'}
+            </button>
+          </div>
+        )}
+
+        {/* SPEEDWIEGEN SCREENS */}
+        {gameState === GameState.SPEED_SETUP && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+            <h2 className="text-2xl font-black mb-8">Speedwiegen Setup</h2>
+            <input type="text" value={speedPlayerName} onChange={e => setSpeedPlayerName(e.target.value)} className="w-full p-4 rounded-xl border-2 mb-4 bg-transparent font-bold" placeholder="Dein Name" />
+            <select value={speedLevels} onChange={e => setSpeedLevels(e.target.value)} className="w-full p-4 rounded-xl border-2 mb-8 bg-transparent font-bold">
+              {[3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} Stufen</option>)}
+            </select>
+            <button onClick={handleSpeedSetupConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Ziele definieren</button>
+          </div>
+        )}
+
+        {gameState === GameState.SPEED_CONFIG && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl overflow-y-auto max-h-[80vh]">
+            <h2 className="text-2xl font-black mb-8 text-center">Zielgewichte festlegen</h2>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
+                <div key={i+1}>
+                  <label className="text-xs font-bold opacity-50 uppercase">Stufe {i+1}</label>
+                  <input type="number" min="0" max="999" value={speedTargets[i+1] || ''} onChange={e => setSpeedTargets({...speedTargets, [i+1]: e.target.value.slice(0, 3)})} className="w-full p-3 rounded-xl border-2 bg-transparent text-center font-bold" placeholder="g" />
+                </div>
+              ))}
+            </div>
+            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Countdown starten</button>
+          </div>
+        )}
+
+        {gameState === GameState.SPEED_COUNTDOWN && (
+          <div className="text-center animate-pulse">
+            <h2 className="text-2xl font-black mb-12 uppercase opacity-50">Bereitmachen...</h2>
+            <div className="text-[120px] font-black" style={{ color: BRAND_COLOR }}>{speedCountdown}</div>
+          </div>
+        )}
+
+        {gameState === GameState.SPEED_GAMEPLAY && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-xl font-black uppercase">{speedPlayerName}</h2>
+              <div className="text-3xl font-mono font-black text-emerald-500">{(speedCurrentTime / 1000).toFixed(2)}s</div>
+            </div>
+            
+            <div className="overflow-x-auto mb-8 bg-black/10 rounded-2xl p-2">
+              <table className={`w-full text-sm text-left border-collapse ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                <thead>
+                  <tr className="border-b border-white/20">
+                    <th className="py-2 px-4">Stufe</th>
+                    <th className="py-2 px-4">Ziel (g)</th>
+                    <th className="py-2 px-4">Ergebnis (g)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
+                    <tr key={i+1} className="border-b border-white/10">
+                      <td className="py-3 px-4 font-bold">{i+1}</td>
+                      <td className="py-3 px-4 font-black">{speedTargets[i+1]}g</td>
+                      <td className="py-3 px-4">
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="999" 
+                          value={speedResults[i+1] || ''} 
+                          onChange={e => setSpeedResults({...speedResults, [i+1]: e.target.value.slice(0, 3)})} 
+                          className={`w-20 p-2 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
+                          placeholder="?" 
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <button onClick={handleSpeedGameplayConfirm} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Stop & Auswerten</button>
+          </div>
+        )}
+
+        {gameState === GameState.SPEED_RESULT && (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
+            <h2 className="text-3xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Ergebnis</h2>
+            
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Zeit</p>
+                <p className="text-3xl font-mono font-black text-emerald-500">{((speedEndTime! - speedStartTime!) / 1000).toFixed(2)}s</p>
+              </div>
+              <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Gesamt-Score</p>
+                <p className="text-3xl font-mono font-black" style={{ color: BRAND_COLOR }}>
+                  {(() => {
+                    const timeSec = (speedEndTime! - speedStartTime!) / 1000;
+                    const totalDiff = Object.keys(speedResults).reduce((acc, key) => {
+                      const k = parseInt(key);
+                      return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
+                    }, 0);
+                    return (timeSec + totalDiff).toFixed(2);
+                  })()}
+                </p>
+              </div>
+            </div>
+
+            <div ref={rankingAreaRef} className="overflow-x-auto mb-8 p-4 rounded-2xl bg-black/10">
+              <table className={`w-full text-sm text-left border-collapse ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                <thead>
+                  <tr className="border-b border-white/20">
+                    <th className="py-2 px-4">Stufe</th>
+                    <th className="py-2 px-4">Ziel</th>
+                    <th className="py-2 px-4">Ergebnis</th>
+                    <th className="py-2 px-4">Abstand</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
+                    const target = parseInt(speedTargets[i+1]) || 0;
+                    const result = parseInt(speedResults[i+1]) || 0;
+                    const diff = Math.abs(result - target);
+                    return (
+                      <tr key={i+1} className="border-b border-white/10">
+                        <td className="py-3 px-4 font-bold">{i+1}</td>
+                        <td className="py-3 px-4">{target}g</td>
+                        <td className="py-3 px-4 font-black">{result}g</td>
+                        <td className="py-3 px-4 text-red-500 font-bold">+{diff}g</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button onClick={() => captureElement(rankingAreaRef, `Speed_Result_${speedPlayerName}`)} className="py-4 rounded-2xl border-2 font-black text-xs shadow-md"><i className="fas fa-image mr-2"></i>Screenshot</button>
+              <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
+              <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
+              <button onClick={resetToStart} className="py-4 rounded-2xl border-2 font-bold uppercase">Hauptmenü</button>
             </div>
           </div>
         )}
 
         {gameState === GameState.FINAL_ROUND_TARGETS && (
-          <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-xl border animate-in slide-in-from-bottom-4 duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h2 className="text-2xl font-black mb-4 text-center uppercase tracking-tighter">Schätzung Leergewicht</h2>
-            <p className="text-sm opacity-60 mb-8 text-center italic">Gib an, wie viel dein Gefäß im leeren Zustand wiegt (dein Ziel für das Finale).</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-              {players.filter(p => !p.isDisqualified).map((p) => (
+          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+            <h2 className="text-2xl font-black mb-8 text-center uppercase" style={{ color: BRAND_COLOR }}>Leergewicht schätzen</h2>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              {players.filter(p => !p.isDisqualified).map(p => (
                 <div key={p.id}>
-                  <label className="text-xs font-bold mb-1 block uppercase opacity-70 tracking-tighter text-left">{p.name}</label>
-                  <div className="relative">
-                    <input type="number" placeholder="Zielgewicht" value={currentRoundTargets[p.id] || ''} className={`w-full p-3 border-2 rounded-xl focus:outline-none transition-colors ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-200 text-gray-900'}`} style={{ borderColor: currentRoundTargets[p.id] ? BRAND_COLOR : '' }} onChange={(e) => setCurrentRoundTargets({...currentRoundTargets, [p.id]: e.target.value})} />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 opacity-30 text-xs font-bold">g</span>
-                  </div>
+                  <label className="text-[10px] font-bold opacity-50 uppercase mb-1 block">{p.name}</label>
+                  <input type="number" min="0" max="999" value={currentRoundTargets[p.id] || ''} onChange={e => setCurrentRoundTargets({...currentRoundTargets, [p.id]: e.target.value.slice(0, 3)})} className="w-full p-2 rounded-lg border-2 bg-transparent font-bold" placeholder="g" />
                 </div>
               ))}
             </div>
-            <button onClick={handleFinalTargetsConfirm} className="w-full text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase tracking-widest active:scale-95" style={{ backgroundColor: GOLD_COLOR }}>Ziele speichern</button>
+            <button onClick={handleFinalTargetsConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
           </div>
         )}
 
-        {gameState === GameState.RESULT_SCREEN && (
-          <div className="w-full flex flex-col space-y-8 animate-in fade-in duration-500 max-h-screen overflow-y-auto px-1 pb-20 text-center text-gray-900 dark:text-white">
-            <h2 className="text-3xl font-black uppercase tracking-tighter mx-auto mb-2" style={{ color: BRAND_COLOR }}>🏆 Gesamtergebnis</h2>
-            
-            <div ref={rankingAreaRef} className={`p-4 md:p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
-              <div className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
-                <table className="w-full text-left border-collapse text-xs sm:text-sm">
-                    <thead>
-                      <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                        <th className="p-3 font-bold opacity-50">#</th>
-                        <th className="p-3 font-bold">SPIELER</th>
-                        <th className="p-3 font-bold text-center">∅ ABST.</th>
-                        <th className="p-3 font-bold text-center">S.</th>
-                        <th className="p-3 font-bold text-center" style={{ backgroundColor: BRAND_COLOR + '1A' }}>TOTAL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {players.map(p => {
-                          const avgDist = calculateAverageDistance(p.id, rounds);
-                          return { ...p, avgDist, total: avgDist + p.schnaepse };
-                        }).sort((a, b) => {
-                          if (a.isDisqualified && !b.isDisqualified) return 1;
-                          if (!a.isDisqualified && b.isDisqualified) return -1;
-                          return a.total - b.total;
-                        }).map((p, idx) => (
-                          <tr key={p.id} className={`border-b ${darkMode ? 'border-gray-800' : 'border-gray-50'} ${idx === 0 && !p.isDisqualified ? 'bg-yellow-500/10 font-bold' : ''} ${p.isDisqualified ? 'bg-red-500/5' : ''}`}>
-                            <td className="p-3 text-lg">{p.isDisqualified ? '💀' : (idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`)}</td>
-                            <td className={`p-3 font-black ${p.isDisqualified ? 'line-through text-red-500 opacity-60' : ''}`}>{p.name}</td>
-                            <td className="p-3 text-center">{p.isDisqualified ? '—' : `${p.avgDist.toFixed(2)}g`}</td>
-                            <td className="p-3 text-center font-bold">{p.schnaepse}</td>
-                            <td className="p-3 text-center font-black" style={{ color: BRAND_COLOR, backgroundColor: BRAND_COLOR + '0D' }}>{p.isDisqualified ? '—' : p.total.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                </table>
-              </div>
-            </div>
+        {gameState === GameState.FINAL_ROUND_RESULTS && (
+          <div className="w-full space-y-4 animate-in fade-in max-h-[90vh] overflow-y-auto pb-10 flex flex-col items-center">
+             <h2 className="text-2xl font-black uppercase text-center" style={{ color: BRAND_COLOR }}>Leergewicht messen</h2>
+             <GameTable 
+               showInputs={true} 
+               players={players} 
+               rounds={rounds} 
+               darkMode={darkMode} 
+               currentRoundResults={currentRoundResults} 
+               setCurrentRoundResults={setCurrentRoundResults} 
+             />
+             <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
+          </div>
+        )}
 
-            <div ref={roundsAreaRef} className={`p-4 md:p-6 rounded-3xl border shadow-lg ${darkMode ? 'bg-slate-900 border-gray-800' : 'bg-white border-gray-100'}`}>
-                <h4 className="font-bold uppercase text-xs mb-4 opacity-50 text-left">Rundenverlauf</h4>
-                <div className={`rounded-2xl overflow-hidden border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
-                  <table className="w-full text-xs text-left border-collapse">
-                    <thead>
-                      <tr className={darkMode ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                        <th className="p-3 font-bold opacity-50 border-r border-gray-700/30 text-center">Rnd</th>
-                        {players.map(p => <th key={p.id} className="p-2 font-bold text-center">{p.name}</th>)}
-                        <th className="p-3 font-bold text-center border-l border-gray-700/30">Ziel</th>
-                      </tr>
-                    </thead>
+        {/* SHARED RESULTS SCREEN */}
+        {gameState === GameState.RESULT_SCREEN && (
+          <div className="w-full space-y-8 pb-20 animate-in fade-in duration-500 overflow-y-auto max-h-screen">
+             <h2 className="text-4xl font-black text-center uppercase" style={{ color: BRAND_COLOR }}>Endergebnis</h2>
+             
+             {teams.length > 0 ? (
+               <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
+                 <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Team-Ranking</h3>
+                 <table className="w-full text-left">
+                    <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Schnäpse</th></tr></thead>
                     <tbody>
-                      {rounds.map((r, i) => (
-                        <tr key={i} className={`border-b ${darkMode ? 'border-gray-700/30' : 'border-gray-50'}`}>
-                          <td className="p-3 border-r border-gray-700/30 text-center font-semibold opacity-50">{i + 1}</td>
-                          {players.map(p => <td key={p.id} className="p-2 text-center">{r.results[p.id] !== undefined ? `${r.results[p.id]}g` : '❌'}</td>)}
-                          <td className="p-3 text-center font-bold border-l border-gray-700/30" style={{ color: BRAND_COLOR }}>{r.isFinal ? 'Finale' : `${r.targetWeight}g`}</td>
+                      {teams.sort((a,b) => b.points - a.points).map((t, idx) => (
+                        <tr key={t.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                          <td className="py-4 font-black">{idx+1}</td>
+                          <td className="py-4 font-black">{t.name}</td>
+                          <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{t.points}</td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
-                </div>
-              </div>
+                 </table>
+               </div>
+             ) : (
+               <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
+                 <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Ranking</h3>
+                 <table className="w-full text-left">
+                    <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Spieler</th><th className="text-center pb-2">Ø Abst.</th><th className="text-center pb-2">S.</th><th className="text-center pb-2">Total</th></tr></thead>
+                    <tbody>
+                      {players.map(p => ({...p, avg: calculateAverageDistance(p.id, rounds), tot: calculateAverageDistance(p.id, rounds) + p.schnaepse}))
+                        .sort((a,b)=> (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.tot - b.tot))
+                        .map((p, idx) => (
+                          <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                            <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
+                            <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>{p.name}</td>
+                            <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(1)}g</td>
+                            <td className="text-center font-bold">{p.schnaepse}</td>
+                            <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                 </table>
+               </div>
+             )}
 
-            <div className="flex flex-col space-y-3 pt-4 px-3">
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setShowStats(true)} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
-                  <i className="fas fa-chart-line"></i><span>Statistik</span>
-                </button>
-                <button onClick={downloadCSV} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: '#059669' }}>
-                  <i className="fas fa-file-csv"></i><span>CSV erstellen</span>
-                </button>
+             {rounds.length > 0 && (
+               <div ref={roundsAreaRef} className="w-full">
+                 <h3 className="text-xl font-black mb-4 uppercase ml-2 flex items-center"><i className="fas fa-table mr-3 opacity-40"></i>Spieltabelle</h3>
+                 <GameTable 
+                   players={players} 
+                   rounds={rounds} 
+                   darkMode={darkMode} 
+                   currentRoundResults={currentRoundResults} 
+                   setCurrentRoundResults={setCurrentRoundResults} 
+                 />
+               </div>
+             )}
+
+              <div className="grid grid-cols-2 gap-3 px-2">
+                <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
+                <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
+                <button onClick={() => captureElement(rankingAreaRef, 'Ranking')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-image mr-2"></i>Screenshot Ranking</button>
+                <button onClick={() => captureElement(roundsAreaRef, 'Tabelle')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-table mr-2"></i>Screenshot Tabelle</button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => captureElement(rankingAreaRef, 'Bundeswiega_Ranking')} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-camera"></i><span className="text-xs">Screenshot Ranking</span>
-                </button>
-                <button onClick={() => captureElement(roundsAreaRef, 'Bundeswiega_Tabelle')} className="text-white font-black py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95" style={{ backgroundColor: DARK_GRAY }}>
-                  <i className="fas fa-camera"></i><span className="text-xs">Screenshot Tabelle</span>
-                </button>
-              </div>
-              <button onClick={() => setShowResetConfirm(true)} className="w-full font-black py-4 rounded-2xl shadow-lg border bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-red-500 transition-all border-gray-200 dark:border-gray-700 active:scale-95">Hauptmenü</button>
-            </div>
+              <button onClick={resetToStart} className={`w-full py-5 rounded-2xl border-2 font-black opacity-60 uppercase tracking-widest mt-4 ${darkMode ? 'border-white/20' : 'border-black/20'}`}>zurück zum Hauptmenü</button>
           </div>
         )}
       </main>
 
+      <footer className="mt-auto pt-8 pb-4 relative">
+        <div className={`text-center text-[10px] font-black uppercase tracking-widest transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'}`}>
+          {isShortMode ? '0,33 L Modus' : '500 ml Modus'}
+        </div>
+        <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 p-3 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white shadow-lg transition-transform hover:scale-110 active:scale-90 z-50">
+          <i className="fab fa-instagram text-xl"></i>
+        </a>
+      </footer>
+
       {/* --- MODALS --- */}
-      
       {showSummary && summaryData && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border animate-in slide-in-from-bottom duration-300 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenauswertung</h3>
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
+            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenergebnis</h3>
             <div className="space-y-4">
-              <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-red-900/20 border-red-900/40' : 'bg-red-50 border-red-200'}`}>
-                <i className="fas fa-skull text-xl text-red-500 mr-4"></i>
-                <div className="flex-1">
-                  <p className="text-[10px] font-bold opacity-60 uppercase">Größter Abstand (+1 Schnaps)</p>
-                  <p className="text-lg font-black text-gray-900 dark:text-white">{summaryData.furthestPlayers.join(' & ')}</p>
-                </div>
+              <div className="p-4 rounded-2xl border bg-red-500/10 flex items-center">
+                <i className="fas fa-skull text-red-500 mr-4 text-xl"></i>
+                <div><p className="text-[10px] font-bold opacity-50 uppercase">{teams.length ? 'Verlierer Team' : 'Größter Abstand'}</p><p className="text-lg font-black">{summaryData.furthestPlayers.join(' & ')}</p></div>
               </div>
-              {summaryData.exactHits.length > 0 && (
-                <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-emerald-900/20 border-emerald-900/40' : 'bg-emerald-50 border-emerald-200'}`}>
-                  <i className="fas fa-bullseye text-xl text-emerald-500 mr-4"></i>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Volltreffer! (+1 Schnaps)</p>
-                    <p className="text-lg font-black text-gray-900 dark:text-white">{summaryData.exactHits.join(', ')}</p>
-                  </div>
+              {!teams.length && summaryData.exactHits.length > 0 && (
+                <div className="p-4 rounded-2xl border bg-emerald-500/10 flex items-center">
+                  <i className="fas fa-bullseye text-emerald-500 mr-4 text-xl"></i>
+                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Volltreffer!</p><p className="text-lg font-black">{summaryData.exactHits.join(', ')}</p></div>
                 </div>
               )}
-              {!summaryData.isFinal && summaryData.duplicates.length > 0 && (
-                <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-blue-900/20 border-blue-900/40' : 'bg-blue-50 border-blue-200'}`}>
-                  <i className="fas fa-users-rays text-xl text-blue-500 mr-4"></i>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Wiegezwillinge! (+1 Schnaps)</p>
-                    <div className="space-y-1">
-                      {summaryData.duplicates.map((d: any, i: number) => (
-                        <p key={i} className="text-lg font-black text-gray-900 dark:text-white">{d.playerNames.join(' & ')} ({d.weight}g)</p>
-                      ))}
-                    </div>
-                  </div>
+              {!teams.length && summaryData.specialHits.length > 0 && (
+                <div className="p-4 rounded-2xl border bg-amber-500/10 flex items-center">
+                  <span className="text-2xl mr-4">🥂</span>
+                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Schnappszahl!</p><p className="text-sm font-black">{summaryData.specialHits.map((s:any)=>`${s.playerName} (${s.value}g)`).join(', ')}</p></div>
                 </div>
               )}
-              {!summaryData.isFinal && summaryData.specialHits.length > 0 && (
-                <div className={`p-4 rounded-2xl border flex items-center ${darkMode ? 'bg-amber-900/20 border-amber-900/40' : 'bg-amber-50 border-amber-200'}`}>
-                  <i className="fas fa-star text-xl text-amber-500 mr-4"></i>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Schnapszahl! (+1 Schnaps)</p>
-                    <p className="text-lg font-black text-gray-900 dark:text-white">{summaryData.specialHits.map((s: any) => `${s.playerName} (${s.value}g)`).join(', ')}</p>
-                  </div>
+              {!teams.length && summaryData.duplicates.length > 0 && (
+                <div className="p-4 rounded-2xl border bg-indigo-500/10 flex items-center">
+                  <i className="fas fa-clone text-indigo-500 mr-4 text-xl"></i>
+                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Wiegezwillinge!</p><p className="text-sm font-black">{summaryData.duplicates.map((d:any)=>`${d.playerNames.join(' & ')} (${d.weight}g)`).join(', ')}</p></div>
                 </div>
               )}
             </div>
-            <button onClick={handleModalSequence} className="w-full mt-10 text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Weiter</button>
+            <button onClick={handleModalSequence} className="w-full mt-10 text-white font-black py-5 rounded-2xl shadow-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Weiter</button>
           </div>
         </div>
       )}
 
-      {disqualifiedNotice && !showSummary && (
-        <div className="fixed inset-0 z-[410] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-10 max-w-sm w-full shadow-2xl border-4 border-red-600 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl animate-bounce">
-              <i className="fas fa-user-xmark text-4xl text-white"></i>
+      {showFinalIntro && (
+        <div className="fixed inset-0 z-[420] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl text-center">
+          <div className="max-w-lg w-full">
+            <h2 className="text-5xl font-black mb-6 uppercase text-yellow-500 italic animate-pulse">Das Finale</h2>
+            <div className={`bg-white/5 border ${darkMode ? 'border-white/10' : 'border-black/10'} p-8 rounded-3xl mb-12 text-white text-left`}>
+              <p className="text-xs font-bold opacity-50 uppercase mb-4 tracking-widest">Die letzte Runde wurde ausgelöst:</p>
+              <ul className="space-y-4 mb-8">
+                {triggeringPlayers.map((p, i) => (
+                  <li key={i} className="flex flex-col border-l-4 border-yellow-500 pl-4">
+                    <span className="font-black text-xl uppercase">{p.name}</span>
+                    <span className="text-xs opacity-60">Füllstand: {p.weight}g <span className="mx-2">|</span> Grenzwert: {p.limit}g</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm font-bold leading-relaxed border-t border-white/10 pt-4">Trinkt eure Gläser leer und schätzt anschließend euer individuelles <span className="text-yellow-400 uppercase">Leergewicht!</span></p>
             </div>
-            <h3 className="text-3xl font-black mb-6 uppercase tracking-tighter italic text-red-600">Ausgeschieden</h3>
-            <div className="space-y-4 mb-8">
-              {disqualifiedNotice.map((p, i) => (
-                <div key={i} className={`p-4 rounded-2xl border ${darkMode ? 'bg-red-900/10 border-red-900/30' : 'bg-red-50 border-red-100'}`}>
-                  <p className="text-xl font-black uppercase text-gray-900 dark:text-white mb-1">{p.name}</p>
-                  <p className="text-xs opacity-80 leading-tight">{p.reason}</p>
-                </div>
+            <button onClick={startFinalSequence} className="w-full text-white font-black py-6 rounded-3xl text-2xl uppercase shadow-2xl active:scale-95 transition-all" style={{ backgroundColor: GOLD_COLOR }}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {disqualifiedNotice && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-lg">
+          <div className={`rounded-3xl p-8 max-sm w-full ${darkMode ? 'bg-slate-900' : 'bg-white'} border-4 border-red-500 shadow-2xl text-center`}>
+            <i className="fas fa-skull-crossbones text-5xl text-red-500 mb-6"></i>
+            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Ausgeschieden!</h3>
+            <div className="space-y-2 mb-8">
+              {disqualifiedNotice.map((n, i) => (
+                <div key={i} className="font-black text-lg">{n.name} <span className="opacity-50 text-xs">({n.diff}g Abstand)</span></div>
               ))}
             </div>
-            <button onClick={handleModalSequence} className="w-full bg-red-600 text-white font-black py-4 rounded-2xl shadow-lg uppercase transition-transform active:scale-95">Bestätigen</button>
+            <p className="opacity-70 text-sm mb-10">Ein Abstand von mehr als 50 Gramm zum Zielgewicht bedeutet das sofortige Aus.</p>
+            <button onClick={() => { setDisqualifiedNotice(null); triggerNextStep(); }} className="w-full py-4 rounded-xl bg-red-500 text-white font-bold uppercase active:scale-95 shadow-lg">OK</button>
           </div>
         </div>
       )}
 
-      {showAutoTargetModal && !showSummary && !disqualifiedNotice && !finalTriggered && (
+      {showAutoTargetModal && (
         <div className="fixed inset-0 z-[430] flex items-center justify-center p-4 bg-black/85 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-md w-full shadow-2xl border-2 border-emerald-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-magic text-2xl text-white"></i></div>
+          <div className={`rounded-3xl p-8 max-md w-full shadow-2xl border-2 border-emerald-500 ${darkMode ? 'bg-gray-800' : 'bg-white'} text-center`}>
             <h3 className="text-2xl font-black mb-4 uppercase text-emerald-500">Auto-Zielgewicht</h3>
-            <p className="opacity-80 mb-6 leading-relaxed text-sm text-gray-900 dark:text-white">{showAutoTargetModal.reason}</p>
-            <div className={`p-6 rounded-2xl mb-8 ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                <p className="text-[10px] font-bold uppercase opacity-50 mb-1">Festgelegtes Ziel für Runde {rounds.length + 1}</p>
-                <p className="text-4xl font-black text-gray-900 dark:text-white" style={{ color: BRAND_COLOR }}>{showAutoTargetModal.target}g</p>
+            <p className="opacity-80 mb-6 text-sm leading-relaxed">{showAutoTargetModal.reason}</p>
+            <div className={`p-6 rounded-2xl mb-8 ${darkMode ? 'bg-gray-700' : 'bg-black/5'}`}>
+              <p className="text-[10px] font-bold opacity-50 mb-1 uppercase tracking-widest">Neues Ziel</p>
+              <p className="text-5xl font-black" style={{ color: BRAND_COLOR }}>{showAutoTargetModal.target}g</p>
             </div>
-            <button onClick={() => { handleTargetWeightConfirm(showAutoTargetModal.target); setShowAutoTargetModal(null); triggerNextStep(); }} className="w-full text-white font-bold py-4 rounded-xl shadow-lg hover:bg-opacity-90 transition-all uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
+            <button onClick={() => { handleTargetWeightConfirm(showAutoTargetModal.target); setShowAutoTargetModal(null); }} className="w-full text-white font-bold py-4 rounded-xl shadow-lg active:scale-95" style={{ backgroundColor: GOLD_COLOR }}>OK</button>
           </div>
         </div>
       )}
 
       {targetWeightError && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border-4 border-red-500 animate-in zoom-in duration-300 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><i className="fas fa-exclamation-circle text-2xl text-white"></i></div>
-            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Ungültiges Zielgewicht</h3>
-            <p className="opacity-80 mb-8 leading-relaxed text-sm text-gray-900 dark:text-white">{targetWeightError.message}</p>
-            <button onClick={() => { setNextTargetInput(targetWeightError.correction.toString()); setTargetWeightError(null); }} className="w-full text-white font-bold py-4 rounded-xl shadow-lg hover:bg-opacity-90 transition-all uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>OK</button>
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-sm w-full ${darkMode ? 'bg-slate-900' : 'bg-white'} border-4 border-red-500 text-center shadow-2xl`}>
+            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Ungültig</h3>
+            <p className="opacity-80 mb-8 text-sm leading-relaxed">{targetWeightError.message}</p>
+            <button onClick={() => { setNextTargetInput(targetWeightError.correction.toString()); setTargetWeightError(null); }} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: '#ef4444' }}>Korrigieren</button>
+          </div>
+        </div>
+      )}
+
+      {startWeightError && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-sm w-full ${darkMode ? 'bg-slate-900' : 'bg-white'} border-4 border-red-500 text-center shadow-2xl`}>
+            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Eingabefehler</h3>
+            <p className="opacity-80 mb-8 text-sm leading-relaxed">{startWeightError}</p>
+            <button onClick={() => setStartWeightError(null)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: '#ef4444' }}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl text-center border-2 border-red-500 ${darkMode ? 'bg-slate-900' : 'bg-white'}`}>
+            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Abbrechen?</h3>
+            <p className="opacity-70 mb-8 text-sm">Der aktuelle Spielstand geht verloren.</p>
+            <div className="flex flex-col space-y-3">
+              <button onClick={resetToStart} className="py-4 rounded-xl bg-red-600 text-white font-bold uppercase active:scale-95">Bestätigen</button>
+              <button onClick={() => setShowResetConfirm(false)} className="py-4 rounded-xl border-2 font-bold uppercase active:scale-95">Zurück</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModeInfo && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <h3 className="text-xl font-black mb-4 text-center uppercase" style={{ color: BRAND_COLOR }}>0,33 L Modus</h3>
+            <p className="text-sm opacity-80 mb-8 text-center leading-relaxed">Aktiviert diesen Modus, wenn ihr mit 0,33 Liter Gefäßen spielt. Das Mindest-Startgewicht beträgt hier 333g und die Ausscheide-Grenzen sind entsprechend angepasst.</p>
+            <button onClick={() => setShowModeInfo(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
           </div>
         </div>
       )}
 
       {showRules && (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in">
-            <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] shadow-2xl border flex flex-col ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <h3 className="text-2xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Regeln einer Runde “Wiegen”</h3>
-              <div className="overflow-y-auto flex-1 pr-2 space-y-6 text-sm text-left scrollbar-thin scrollbar-thumb-gray-500 text-gray-900 dark:text-white leading-relaxed">
-                <section>
-                  <p><strong>Spieleranzahl:</strong> mehr als 2</p>
-                  <p className="mt-2"><strong>Alter:</strong> 18 Jahre +</p>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Ziel des Spiels:</h4>
-                  <p className="opacity-90">Der gemeinsame Spaß steht im Fokus. Alle Mitspielenden trinken innerhalb einer Runde “Wiegen” mindestens ein Bier und ggf. Schnäpse.</p>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Punktespiel:</h4>
-                  <p className="opacity-90">Beim Punktespiel wird jeder getrunkene Schnaps beim jeweiligen Spieler (w/m/d) als Minuspunkt gewertet. Anhand der gesammelten Minuspunkte wird ein Ranking erstellt.</p>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Spielaufbau und Material:</h4>
-                  <p className="opacity-90">Mindestens eine Küchenwaage (Präferenz: Elektronisch & geeicht, in Schritten von 1g) wird vor dem Wiegemeister (w/m/d) platziert. Bei mehr als 8 Spielenden empfiehlt sich eine zweite Waage.</p>
-                  <p className="opacity-90 mt-2">Ein zu teilender Schnaps (Präferenz: Pfefferminzlikör, schön billig, nicht Berliner Luft).</p>
-                  <p className="opacity-90 mt-2">Pro mitspielende Person ein Bier 0,5l (Präferenz: Dosenbier, kein Radler; Flaschenbier ist auch möglich). Wichtig ist, dass alle Spielenden das gleiche Gefäß mit gleicher Flüssigkeitsmenge nutzen.</p>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Spielvorgang:</h4>
-                  <p className="opacity-90 italic">Der Wiegemeister (w/m/d) stellt das Startgewicht aller Getränke der Spielenden fest und verkündet dieses offen.</p>
-                  
-                  <div className="mt-4 space-y-4">
-                    <h5 className="font-bold underline uppercase text-xs tracking-widest opacity-70">Erste Runde</h5>
-                    <div>
-                      <p className="font-bold mb-1">a) Ansagephase</p>
-                      <p className="opacity-90">Der Wiegemeister (m/m/d) verkündet das erste Zielgewicht. Das Zielgewicht muss mindestens 1g unter dem niedrigsten Startgewicht liegen und maximal 100g unter dem höchsten Startgewicht liegen.</p>
-                      <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (633g), Lisa (646g), Marvin (639g). Zielgewicht: 546g bis 632g.</p>
-                      <p className="opacity-90 mt-2">Liegen die Gewichte so weit aufeinander, dass dies rechnerisch nicht möglich ist, so muss das Zielgewicht 1g unter dem niedrigsten Getränkegewicht angesagt werden.</p>
-                      <p className="opacity-70 text-[10px] bg-black/5 dark:bg-white/5 p-2 rounded mt-2">Beispiel: Kevin (543g), Lisa (598g), Marvin (491g). Neues Zielgewicht: 490g.</p>
-                    </div>
-                    
-                    <div>
-                      <p className="font-bold mb-1">b) Trinkphase:</p>
-                      <p className="opacity-90">Alle Mitspielenden setzen ihr Getränk an und trinken eine beliebige Menge daraus, ohne abzusetzen. Ziel ist es, möglichst nahe dem Zielgewicht zu kommen, dieses jedoch nicht exakt zu erreichen. Danach wiegt der Wiegemeister offen.</p>
-                    </div>
-                    
-                    <div>
-                      <p className="font-bold mb-1">c) Rundenendphase</p>
-                      <ul className="list-disc pl-5 opacity-90 space-y-1">
-                        <li>Der Spieler mit der höchsten Differenz zum Zielgewicht (+1 Schnaps)</li>
-                        <li>Alle Spieler mit einer Schnapszahl (z.B. 222, 444) (+1 Schnaps)</li>
-                        <li>Alle Spieler mit identischem Gewicht (+1 Schnaps)</li>
-                        <li>Alle Spieler, die das Zielgewicht exakt getroffen haben (+1 Schnaps)</li>
-                      </ul>
-                    </div>
-                  </div>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Die nächste Runde</h4>
-                  <p className="opacity-90">Die neue Runde beginnt mit der Ansagephase durch die Person links im Uhrzeigersinn neben dem Wiegemeister. Danach folgen Trink- und Endphase.</p>
-                </section>
-                
-                <section>
-                  <h4 className="font-black uppercase text-base mb-1" style={{ color: BRAND_COLOR }}>Letzte Runde</h4>
-                  <p className="opacity-90">Eingeleitet, wenn das minimal anzusagende Zielgewicht die Grenze des niedrigsten Startgewichts abzüglich 500g unterschreiten würde. Alle trinken aus und schätzen das Leergewicht. Danach endet das Spiel.</p>
-                </section>
-              </div>
-              <button onClick={() => setShowRules(false)} className="w-full mt-6 text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
-            </div>
-          </div>
-      )}
-
-      {showModeInfo && (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in">
-            <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-xl shadow-lg"><i className="fas fa-info"></i></div>
-              <h3 className="text-xl font-black mb-4 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Gefäßgröße</h3>
-              <p className="text-sm opacity-90 mb-8 text-center leading-relaxed">
-                Standardmäßig spielt man mit einem Gefäß der Größe 500 ml. Wird dieser Regler aktiviert, so spielt ihr mit einem Gefäß der Größe 0,33 L. Alle Spieler müssen sich auf eine gemeinsame Größe einigen.
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
+            <h3 className="text-2xl font-black mb-6 text-center uppercase" style={{ color: BRAND_COLOR }}>Die Regeln</h3>
+            <div className="space-y-4 text-sm opacity-90 mb-8 max-h-[60vh] overflow-y-auto pr-2">
+              <p><strong>1. Spielprinzip:</strong> Ziel ist es, in jeder Runde das vorgegebene Zielgewicht möglichst genau zu treffen.</p>
+              <p><strong>2. Zielgewicht:</strong> Es muss unter dem niedrigsten Füllstand liegen und darf maximal 100g unter dem höchsten liegen.</p>
+              <p><strong>3. Ausscheiden:</strong> Wer mehr als 50g vom Zielgewicht abweicht, ist sofort ausgeschieden (💀).</p>
+              <p><strong>4. Punkte (Schnäpse):</strong>
+                <ul className="list-disc ml-5 mt-2 space-y-1">
+                  <li><strong>Der Letzte:</strong> Der Spieler, der am weitesten vom Ziel weg ist (aber &le; 50g), bekommt einen Punkt.</li>
+                  <li><strong>Volltreffer:</strong> Exaktes Treffen des Ziels gibt einen Punkt.</li>
+                  <li><strong>Schnappszahl:</strong> Treffen einer Schnappszahl (z.B. 111g, 222g) gibt einen Punkt.</li>
+                  <li><strong>Wiegezwillinge:</strong> Haben zwei Spieler das gleiche Gewicht, bekommen beide einen Punkt.</li>
+                </ul>
               </p>
-              <button onClick={() => setShowModeInfo(false)} className="w-full text-white font-black py-4 rounded-xl shadow-lg transition-colors uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
+              <p><strong>5. Das Finale:</strong> Erreicht ein Spieler den Schwellenwert, wird das Finale ausgelöst. Alle trinken leer und schätzen ihr Leergewicht.</p>
             </div>
-          </div>
-      )}
-
-      {showFinalIntro && !showSummary && !disqualifiedNotice && !showAutoTargetModal && (
-          <div className="fixed inset-0 z-[420] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl animate-in zoom-in duration-500">
-              <div className="text-center max-w-lg w-full">
-                  <div className="w-32 h-32 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-10 shadow-[0_0_50px_rgba(234,179,8,0.5)] animate-pulse">
-                      <i className="fas fa-trophy text-6xl text-white"></i>
-                  </div>
-                  <h2 className="text-5xl font-black mb-6 uppercase italic tracking-tighter text-yellow-500">DAS FINALE</h2>
-                  <div className="bg-white/5 border border-white/10 p-6 rounded-3xl mb-12 text-white text-left">
-                      <p className="text-xs font-bold uppercase opacity-50 tracking-widest mb-3">Ausgelöst durch:</p>
-                      <ul className="space-y-3 mb-6">
-                        {triggeringPlayers.map((p, i) => (
-                          <li key={i} className="flex flex-col border-l-2 border-yellow-500 pl-3">
-                            <span className="font-black text-lg uppercase">{p.name}</span>
-                            <span className="text-xs opacity-70">Gewicht: <span className="text-yellow-400">{p.weight}g</span> (Limit: {p.limit}g)</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="text-sm leading-relaxed font-bold pt-4 border-t border-white/10">
-                        In der letzten Runde trinken alle aus und schätzen ihr <span className="text-yellow-400 uppercase">Leergewicht!</span>
-                      </p>
-                  </div>
-                  <button onClick={startFinalSequence} className="w-full text-white font-black py-6 rounded-3xl shadow-2xl text-2xl uppercase tracking-widest transform active:scale-95 transition-all" style={{ backgroundColor: GOLD_COLOR }}>FINALE STARTEN</button>
-              </div>
-          </div>
-      )}
-
-      {showResetConfirm && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-2xl font-black mb-4 uppercase text-red-600 text-center">Abbrechen?</h3>
-            <p className="opacity-70 mb-8 text-center text-sm">Der aktuelle Spielstand geht verloren.</p>
-            <div className="flex flex-col space-y-3">
-              <button onClick={resetToStart} className="w-full bg-red-600 text-white font-bold py-4 rounded-xl shadow-lg uppercase active:scale-95">Beenden</button>
-              <button onClick={() => setShowResetConfirm(false)} className={`w-full font-bold py-4 rounded-xl border transition-colors uppercase active:scale-95 ${darkMode ? 'border-gray-600' : 'border-gray-200'}`}>Zurück</button>
-            </div>
+            <button onClick={() => setShowRules(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Alles klar!</button>
           </div>
         </div>
       )}
 
       {showStats && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl animate-in zoom-in duration-300">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'}`}>
-            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenverlauf & Genauigkeit</h3>
-            <div ref={statsAreaRef} className="relative p-6 md:p-10 rounded-2xl border border-gray-700/30 bg-black/20 flex-1">
-                <div className="relative w-full h-[250px] md:h-[350px]">
-                    <svg className="w-full h-full overflow-visible" viewBox="0 0 400 200" preserveAspectRatio="none">
-                        {[0, 0.25, 0.5, 0.75, 1].map(p => (
-                          <g key={p}>
-                            <line x1="0" y1={200 - (p * 200)} x2="400" y2={200 - (p * 200)} stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" />
-                            <text x="-8" y={200 - (p * 200)} dominantBaseline="middle" textAnchor="end" className="fill-current opacity-30 text-[8px] font-bold">{Math.round(graphMax * p)}g</text>
-                          </g>
-                        ))}
-                        {gameState === GameState.SPEED_RESULT ? (
-                          // Statistik für Speedwiegen
-                          (() => {
-                            const n = parseInt(speedLevels);
-                            const points = Array.from({ length: n }).map((_, i) => {
-                              const t = parseInt(speedTargets[i + 1]);
-                              const r = parseInt(speedResults[i + 1]);
-                              const dist = Math.abs(t - r);
-                              return `${(i / (n - 1 || 1)) * 400},${200 - Math.min(200, dist * (200 / graphMax))}`;
-                            }).join(' ');
-                            
-                            return (
-                              <>
-                                <polyline points={points} fill="none" stroke={BRAND_COLOR} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                {Array.from({ length: n }).map((_, i) => {
-                                  const t = parseInt(speedTargets[i + 1]);
-                                  const r = parseInt(speedResults[i + 1]);
-                                  const dist = Math.abs(t - r);
-                                  return (
-                                    <circle key={i} cx={(i / (n - 1 || 1)) * 400} cy={200 - Math.min(200, dist * (200 / graphMax))} r="4" fill={BRAND_COLOR} />
-                                  );
-                                })}
-                              </>
-                            );
-                          })()
-                        ) : (
-                          // Statistik für normales Wiegen
-                          players.map((p, pIdx) => {
-                            const activeRounds = rounds.filter(r => r.results[p.id] !== undefined);
-                            if (activeRounds.length < 1) return null;
-                            const points = activeRounds.map((r, rIdx) => {
-                                const target = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
-                                const dist = Math.abs(r.results[p.id] - target!);
-                                return `${(rIdx / (rounds.length - 1 || 1)) * 400},${200 - Math.min(200, dist * (200 / graphMax))}`;
-                            }).join(' ');
-                            
-                            if (activeRounds.length === 1) {
-                                const target = activeRounds[0].isFinal ? activeRounds[0].individualTargets?.[p.id] : activeRounds[0].targetWeight;
-                                const dist = Math.abs(activeRounds[0].results[p.id] - target!);
-                                return <circle key={p.id} cx="0" cy={200 - Math.min(200, dist * (200 / graphMax))} r="4" fill={PLAYER_COLORS[pIdx % PLAYER_COLORS.length]} />;
-                            }
-                            
-                            return <polyline key={p.id} points={points} fill="none" stroke={PLAYER_COLORS[pIdx % PLAYER_COLORS.length]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />;
-                        })
-                        )}
-                    </svg>
-                </div>
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-5xl w-full shadow-2xl border flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-black/10 text-black'}`}>
+            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Abstandsverlauf</h3>
+            <div ref={statsAreaRef} className={`relative p-8 rounded-2xl border ${darkMode ? 'border-white/20 bg-black/20' : 'border-black/10 bg-black/5'} flex-1 min-h-[350px]`}>
+              {gameState === GameState.SPEED_RESULT ? (
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 1000 400" preserveAspectRatio="none">
+                  {[0, 20, 40, 60, 80, 100].map(v => {
+                    const y = 400 - (v * 4);
+                    return (
+                      <g key={v}>
+                        <line x1="0" y1={y} x2="1000" y2={y} stroke={darkMode ? "white" : "black"} strokeOpacity="0.1" />
+                        <text x="-15" y={y} dominantBaseline="middle" textAnchor="end" className={`fill-current opacity-30 text-[12px] font-bold ${darkMode ? 'fill-white' : 'fill-black'}`}>{v}g</text>
+                      </g>
+                    );
+                  })}
+                  {(() => {
+                    const levels = parseInt(speedLevels);
+                    const pts = Array.from({ length: levels }).map((_, i) => {
+                      const x = (i / (levels - 1)) * 1000;
+                      const target = parseInt(speedTargets[i+1]) || 0;
+                      const result = parseInt(speedResults[i+1]) || 0;
+                      const diff = Math.abs(result - target);
+                      return `${x},${400 - Math.min(100, diff) * 4}`;
+                    }).join(' ');
+                    return <polyline points={pts} fill="none" stroke={BRAND_COLOR} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />;
+                  })()}
+                </svg>
+              ) : (
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 1000 400" preserveAspectRatio="none">
+                  {[0, 10, 20, 30, 40, 50].map(v => {
+                    const y = 400 - (v * 8);
+                    return (
+                      <g key={v}>
+                        <line x1="0" y1={y} x2="1000" y2={y} stroke={darkMode ? "white" : "black"} strokeOpacity="0.1" />
+                        <text x="-15" y={y} dominantBaseline="middle" textAnchor="end" className={`fill-current opacity-30 text-[12px] font-bold ${darkMode ? 'fill-white' : 'fill-black'}`}>{v}g</text>
+                      </g>
+                    );
+                  })}
+                  {players.map((p, idx) => {
+                    const activeRounds = rounds.filter(r => r.results[p.id] !== undefined);
+                    if (activeRounds.length < 2) return null;
+                    const pts = activeRounds.map((r, i) => {
+                      const x = (i / (activeRounds.length - 1)) * 1000;
+                      const tg = r.isFinal ? r.individualTargets?.[p.id] : r.targetWeight;
+                      return `${x},${400 - Math.min(50, Math.abs(r.results[p.id] - tg!)) * 8}`;
+                    }).join(' ');
+                    return <polyline key={p.id} points={pts} fill="none" stroke={PLAYER_COLORS[idx % PLAYER_COLORS.length]} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />;
+                  })}
+                </svg>
+              )}
             </div>
-
-            <div className="flex flex-wrap justify-center gap-4 mt-6 bg-black/10 dark:bg-white/5 p-4 rounded-2xl">
+            
+            <div className="mt-6 flex flex-wrap justify-center gap-4">
               {gameState === GameState.SPEED_RESULT ? (
                 <div className="flex items-center space-x-2">
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: BRAND_COLOR }}></span>
-                  <span className="text-[10px] font-bold uppercase tracking-tight opacity-80 text-gray-900 dark:text-white">{speedPlayerName}</span>
+                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: BRAND_COLOR }}></div>
+                  <span className="text-xs font-bold">{speedPlayerName}</span>
                 </div>
               ) : (
                 players.map((p, idx) => (
                   <div key={p.id} className="flex items-center space-x-2">
-                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></span>
-                    <span className="text-[10px] font-bold uppercase tracking-tight opacity-80 text-gray-900 dark:text-white">{p.name}</span>
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}></div>
+                    <span className="text-xs font-bold">{p.name}</span>
                   </div>
                 ))
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-8">
-              <button onClick={() => captureElement(statsAreaRef, 'Bundeswiega_Statistik')} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all uppercase active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
-                <i className="fas fa-camera"></i><span>Screenshot</span>
-              </button>
-              <button onClick={() => setShowStats(false)} className="text-white font-black py-5 rounded-2xl shadow-xl transition-all uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Schließen</button>
-            </div>
+            <button onClick={() => setShowStats(false)} className="w-full mt-8 py-4 rounded-xl text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Schließen</button>
           </div>
         </div>
       )}
-
-      {showComingSoon && (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in zoom-in">
-            <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <div className="w-12 h-12 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-xl"><i className="fas fa-tools"></i></div>
-              <h3 className="text-xl font-bold mb-4 text-center">In Arbeit</h3>
-              <p className="text-sm opacity-80 mb-8 text-center">Dieser Modus ist zurzeit noch in Arbeit!</p>
-              <button onClick={() => setShowComingSoon(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Alles klar</button>
-            </div>
-          </div>
-      )}
-
-      {startWeightError && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-lg">
-          <div className={`rounded-3xl p-8 max-sm w-full shadow-2xl border-4 border-red-500 text-center ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <h3 className="text-2xl font-black mb-4 uppercase text-red-500">Eingabe zu niedrig</h3>
-            <p className="opacity-80 mb-8 leading-relaxed text-sm">{startWeightError}</p>
-            <button onClick={() => setStartWeightError(null)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>OK</button>
-          </div>
-        </div>
-      )}
-
-      <footer className={`mt-auto pt-8 pb-4 text-center text-[10px] font-black uppercase tracking-[0.1em] transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'}`}>
-        {isShortMode ? 'Du spielst im 0,33 L Modus' : 'Du spielst im 500 ml Modus'}
-      </footer>
     </div>
   );
 };

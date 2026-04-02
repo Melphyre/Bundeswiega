@@ -847,9 +847,11 @@ const App: React.FC = () => {
                 const val = parseInt(currentRoundResults[pid]);
                 const target = rounds[rounds.length - 1].targetWeight;
                 const diff = !isNaN(val) ? val - target : null;
+                const currentWeight = rounds.length > 1 ? rounds[rounds.length - 2].results[pid] : p?.startWeight;
                 return (
                   <div key={pid}>
                     <label className="block text-xs font-bold opacity-50 uppercase mb-1">{p?.name}</label>
+                    <div className="text-[10px] opacity-40 mb-1 font-bold">Aktuell: {currentWeight}g</div>
                     <input 
                       type="number" 
                       min="0" 

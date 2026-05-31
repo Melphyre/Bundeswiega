@@ -19,7 +19,7 @@ export function calculateAverageDistance(playerId: string, rounds: Round[]): num
   return distances.reduce((a, b) => a + b, 0) / distances.length;
 }
 
-export function getRoundSummary(round: Round, players: Player[]): {
+export function getRoundSummary(round: Round, players: Player[], tournamentMode: boolean = true): {
   furthestPlayers: string[];
   specialHits: { playerName: string; value: number }[];
   duplicates: { weight: number; playerNames: string[] }[];
@@ -71,7 +71,7 @@ export function getRoundSummary(round: Round, players: Player[]): {
   });
 
   if (!round.isFinal) {
-    if (maxDist <= 50) {
+    if (!tournamentMode || maxDist < 50) {
       furthestPlayerIds.forEach(id => pointsToAward.push(id));
     }
 

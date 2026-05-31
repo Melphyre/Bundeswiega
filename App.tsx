@@ -114,6 +114,8 @@ const App: React.FC = () => {
   const [showFinalIntro, setShowFinalIntro] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showModeInfo, setShowModeInfo] = useState(false);
+  const [tournamentMode, setTournamentMode] = useState(true);
+  const [showTournamentInfo, setShowTournamentInfo] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showAutoTargetModal, setShowAutoTargetModal] = useState<{ target: number, reason: string } | null>(null);
@@ -184,6 +186,7 @@ const App: React.FC = () => {
     setTeams([]);
     setFinalTriggered(false);
     setIsShortMode(false);
+    setTournamentMode(true);
   };
 
   const startTeamwiegen = () => {
@@ -298,16 +301,16 @@ const App: React.FC = () => {
     const currentRound = updatedRounds[updatedRounds.length - 1];
     activePlayers.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
 
-    const summary = getRoundSummary(currentRound, players);
+    const summary = getRoundSummary(currentRound, players, tournamentMode);
     const newlyDisqualified: any[] = [];
     const updatedPlayers = players.map(p => {
       if (p.isDisqualified) return p;
       const weight = currentRound.results[p.id];
       const dist = Math.abs(weight - currentRound.targetWeight);
       let disq = p.isDisqualified;
-      if (dist > 50) { 
+      if (tournamentMode && dist >= 50) { 
         disq = true; 
-        newlyDisqualified.push({ name: p.name, diff: dist, reason: "Abweichung > 50g" }); 
+        newlyDisqualified.push({ name: p.name, diff: dist, reason: "Abweichung ≥ 50g" }); 
       }
       
       // Award points for EACH achievement (count occurrences in pointsToAward)
@@ -435,7 +438,7 @@ const App: React.FC = () => {
       };
       finishRoundLogic(players, updatedRounds, [], summary);
     } else {
-      const summary = getRoundSummary(currentRound, players);
+      const summary = getRoundSummary(currentRound, players, tournamentMode);
       finishRoundLogic(players, updatedRounds, [], summary);
     }
   };
@@ -639,7 +642,7 @@ const App: React.FC = () => {
             <select value={playerCount} onChange={e => setPlayerCount(parseInt(e.target.value))} className="w-full p-4 rounded-xl border-2 mb-8 bg-transparent font-bold text-center" style={{ borderColor: BRAND_COLOR }}>
               {[2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} Spieler</option>)}
             </select>
-            <div className="flex items-center justify-center space-x-4 mb-8">
+            <div className="flex flex-col space-y-4 items-center justify-center mb-8">
               <div className="flex items-center space-x-2">
                 <div className="relative inline-block w-10 h-6">
                   <input type="checkbox" id="sm-count" checked={isShortMode} onChange={e => setIsShortMode(e.target.checked)} className="opacity-0 w-0 h-0" />
@@ -647,9 +650,20 @@ const App: React.FC = () => {
                     <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform ${isShortMode ? 'translate-x-4' : ''}`}></span>
                   </label>
                 </div>
-                <label htmlFor="sm-count" className="font-bold text-sm">0,33 L Modus</label>
+                <label htmlFor="sm-count" className="font-bold text-sm select-none">0,33 L Modus</label>
+                <button onClick={() => setShowModeInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
               </div>
-              <button onClick={() => setShowModeInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
+
+              <div className="flex items-center space-x-2">
+                <div className="relative inline-block w-10 h-6">
+                  <input type="checkbox" id="tournament-switch" checked={tournamentMode} onChange={e => setTournamentMode(e.target.checked)} className="opacity-0 w-0 h-0" />
+                  <label htmlFor="tournament-switch" className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors ${tournamentMode ? '' : 'bg-gray-400'}`} style={{ backgroundColor: tournamentMode ? BRAND_COLOR : undefined }}>
+                    <span className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform ${tournamentMode ? 'translate-x-4' : ''}`}></span>
+                  </label>
+                </div>
+                <label htmlFor="tournament-switch" className="font-bold text-sm select-none">Turnier Modus</label>
+                <button onClick={() => setShowTournamentInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
+              </div>
             </div>
             <button onClick={handlePlayerCountConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Namen eingeben</button>
           </div>
@@ -1264,6 +1278,19 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {showTournamentInfo && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-w-sm w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
+            <h3 className="text-xl font-black mb-4 text-center uppercase" style={{ color: BRAND_COLOR }}>Turnier Modus</h3>
+            <p className="text-sm opacity-80 mb-8 text-center leading-relaxed">
+              Im Turnier-Modus scheidet ein Spieler aus, wenn sein Abstand in einer Runde zum Zielgewicht 50g oder Höher ist.<br/><br/>
+              Ist der Turniermodus deaktiviert, so können Spieler nicht ausscheiden, egal wie groß der Abstand ist.
+            </p>
+            <button onClick={() => setShowTournamentInfo(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
+          </div>
+        </div>
+      )}
+
       {showRules && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
           <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
@@ -1271,10 +1298,10 @@ const App: React.FC = () => {
             <div className="space-y-4 text-sm opacity-90 mb-8 max-h-[60vh] overflow-y-auto pr-2">
               <p><strong>1. Spielprinzip:</strong> Ziel ist es, in jeder Runde das vorgegebene Zielgewicht möglichst genau zu treffen.</p>
               <p><strong>2. Zielgewicht:</strong> Es muss unter dem niedrigsten Füllstand liegen und darf maximal 100g unter dem höchsten liegen.</p>
-              <p><strong>3. Ausscheiden:</strong> Wer mehr als 50g vom Zielgewicht abweicht, ist sofort ausgeschieden (💀).</p>
+              <p><strong>3. Ausscheiden:</strong> {tournamentMode ? 'Wer 50g oder mehr vom Zielgewicht abweicht, ist sofort ausgeschieden (💀).' : 'Deaktiviert (Kein Ausscheiden in diesem Spiel).'}</p>
               <p><strong>4. Punkte (Schnäpse):</strong>
                 <ul className="list-disc ml-5 mt-2 space-y-1">
-                  <li><strong>Der Letzte:</strong> Der Spieler, der am weitesten vom Ziel weg ist (aber &le; 50g), bekommt einen Punkt.</li>
+                  <li><strong>Der Letzte:</strong> Der Spieler, der am weitesten vom Ziel weg ist {tournamentMode ? '(aber &le; 50g)' : ''}, bekommt einen Punkt.</li>
                   <li><strong>Volltreffer:</strong> Exaktes Treffen des Ziels gibt einen Punkt.</li>
                   <li><strong>Schnappszahl:</strong> Treffen einer Schnappszahl (z.B. 111g, 222g) gibt einen Punkt.</li>
                   <li><strong>Wiegezwillinge:</strong> Haben zwei Spieler das gleiche Gewicht, bekommen beide einen Punkt.</li>

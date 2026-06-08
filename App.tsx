@@ -152,6 +152,20 @@ const App: React.FC = () => {
   }, [darkMode]);
 
   useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (gameState !== GameState.START) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [gameState]);
+
+  useEffect(() => {
     let interval: any;
     if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime) {
       interval = setInterval(() => {
@@ -1145,6 +1159,17 @@ const App: React.FC = () => {
         <div className={`text-center text-[10px] font-black uppercase tracking-widest transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'}`}>
           {isShortMode ? '0,33 L Modus' : '500 ml Modus'}
         </div>
+        {gameState === GameState.START && (
+          <a
+            id="become-member-btn"
+            href="mailto:bundeswiega@gmail.com?subject=Kostenlos%20Mitglied%20werden"
+            className="absolute bottom-4 left-4 py-3 px-5 rounded-full font-bold text-xs md:text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95 z-50 flex items-center space-x-2 border border-white/10"
+            style={{ backgroundColor: BRAND_COLOR }}
+          >
+            <i className="fas fa-user-plus text-sm"></i>
+            <span>kostenlos Mitglied werden</span>
+          </a>
+        )}
         <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 p-3 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white shadow-lg transition-transform hover:scale-110 active:scale-90 z-50">
           <i className="fab fa-instagram text-xl"></i>
         </a>

@@ -100,6 +100,55 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
     );
   };
 
+interface ParsedRecord {
+  gameMode: string;
+  playerName: string;
+  date: string;
+  avg: number;
+  schnaepse: number;
+}
+
+const parseRecords = (data: any[][]): ParsedRecord[] => {
+  if (!data || data.length < 2) return [];
+  const list: ParsedRecord[] = [];
+  const headerRow = data[0];
+  const maxCol = headerRow.length;
+
+  for (let c = 0; c < maxCol; c += 3) {
+    const headerVal = headerRow[c];
+    if (headerVal === undefined || headerVal === null || headerVal === "") continue;
+
+    let gameMode = "Standardspiel";
+    let playerName = String(headerVal);
+
+    if (typeof headerVal === 'string' && headerVal.startsWith('[')) {
+      const match = headerVal.match(/^\[(.*?)\]\s*(.*)$/);
+      if (match) {
+        gameMode = match[1];
+        playerName = match[2];
+      }
+    }
+
+    for (let r = 2; r < data.length; r++) {
+      const row = data[r];
+      if (!row) continue;
+      const dateVal = row[c];
+      if (dateVal !== undefined && dateVal !== null && dateVal !== "") {
+        const avgVal = row[c + 1] !== undefined && row[c + 1] !== null ? Number(row[c + 1]) : 0;
+        const schnaepseVal = row[c + 2] !== undefined && row[c + 2] !== null ? Number(row[c + 2]) : 0;
+        list.push({
+          gameMode,
+          playerName,
+          date: String(dateVal),
+          avg: avgVal,
+          schnaepse: schnaepseVal
+        });
+      }
+    }
+  }
+  return list;
+};
+
 const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
@@ -127,6 +176,15 @@ const App: React.FC = () => {
   const [nextTargetInput, setNextTargetInput] = useState('');
   const [summaryData, setSummaryData] = useState<any>(null);
   const [tempWeights, setTempWeights] = useState<string[]>([]);
+  const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [uploadMessage, setUploadMessage] = useState<string>('');
+  
+  // Records States
+  const [showRecords, setShowRecords] = useState(false);
+  const [recordsData, setRecordsData] = useState<any[][] | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
+  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Standardspiel');
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
@@ -201,6 +259,8 @@ const App: React.FC = () => {
     setFinalTriggered(false);
     setIsShortMode(false);
     setTournamentMode(true);
+    setUploadState('idle');
+    setUploadMessage('');
   };
 
   const startTeamwiegen = () => {
@@ -211,6 +271,8 @@ const App: React.FC = () => {
     setPlayers([]);
     setTeams([]);
     setIsShortMode(false);
+    setUploadState('idle');
+    setUploadMessage('');
   };
 
   const startSpeedwiegen = () => {
@@ -222,6 +284,8 @@ const App: React.FC = () => {
     setSpeedStartTime(null);
     setSpeedEndTime(null);
     setSpeedCurrentTime(0);
+    setUploadState('idle');
+    setUploadMessage('');
   };
 
   const resetToStart = () => {
@@ -230,6 +294,8 @@ const App: React.FC = () => {
     setPlayers([]);
     setTeams([]);
     setShowResetConfirm(false);
+    setUploadState('idle');
+    setUploadMessage('');
   };
 
   const handlePlayerCountConfirm = () => {
@@ -613,6 +679,113 @@ const App: React.FC = () => {
     a.click();
   };
 
+  const handleUploadResults = async () => {
+    setUploadState('loading');
+    setUploadMessage('');
+
+    try {
+      const today = new Date().toLocaleDateString('de-DE');
+      let gameMode = 'Standardspiel';
+      let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number }> = [];
+
+      if (gameState === GameState.SPEED_RESULT) {
+        gameMode = 'Speedwiegen';
+        const totalLevels = parseInt(speedLevels) || 1;
+        let totalDiff = 0;
+        Array.from({ length: totalLevels }).forEach((_, i) => {
+          const target = parseInt(speedTargets[i+1]) || 0;
+          const result = parseInt(speedResults[i+1]) || 0;
+          totalDiff += Math.abs(result - target);
+        });
+        const avg = Number((totalDiff / totalLevels).toFixed(1));
+        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: 0 }];
+      } else if (gameState === GameState.RESULT_SCREEN) {
+        if (teams.length > 0) {
+          gameMode = 'Teamwiegen';
+          resultsToUpload = teams.map(t => {
+            let totalOffset = 0;
+            let roundsCount = 0;
+            rounds.forEach(r => {
+              let roundOffset = 0;
+              let playersCount = 0;
+              t.playerIds.forEach(pid => {
+                const val = r.results[pid];
+                if (val !== undefined && val !== null) {
+                  roundOffset += Math.abs(val - r.targetWeight);
+                  playersCount++;
+                }
+              });
+              if (playersCount > 0) {
+                totalOffset += (roundOffset / playersCount);
+                roundsCount++;
+              }
+            });
+            const avg = roundsCount > 0 ? (totalOffset / roundsCount) : 0;
+            return {
+              name: t.name,
+              avg: Number(avg.toFixed(1)),
+              schnaepse: t.points
+            };
+          });
+        } else {
+          gameMode = 'Standardspiel';
+          resultsToUpload = players.map(p => {
+            const avg = calculateAverageDistance(p.id, rounds);
+            return {
+              name: p.name,
+              avg: Number(avg.toFixed(1)),
+              schnaepse: p.schnaepse
+            };
+          });
+        }
+      }
+
+      console.log("Uploading to backend:", { gameMode, results: resultsToUpload, date: today });
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          gameMode,
+          results: resultsToUpload,
+          date: today
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setUploadState('success');
+        setUploadMessage(data.message || 'Ergebnisse erfolgreich hochgeladen!');
+      } else {
+        setUploadState('error');
+        setUploadMessage(data.error || 'Fehler beim Hochladen der Ergebnisse.');
+      }
+    } catch (err: any) {
+      console.error("Error calling upload API:", err);
+      setUploadState('error');
+      setUploadMessage(err.message || 'Netzwerkfehler beim Hochladen.');
+    }
+  };
+
+  const fetchRecords = async () => {
+    setRecordsLoading(true);
+    setRecordsError(null);
+    try {
+      const res = await fetch('/api/records');
+      const json = await res.json();
+      if (res.ok) {
+        setRecordsData(json.data || []);
+      } else {
+        setRecordsError(json.error || 'Fehler beim Laden der Rekorde.');
+      }
+    } catch (err: any) {
+      setRecordsError(err.message || 'Verbindungsfehler beim Laden.');
+    } finally {
+      setRecordsLoading(false);
+    }
+  };
+
   const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
   return (
@@ -644,6 +817,9 @@ const App: React.FC = () => {
               </button>
               <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-book"></i><span>Regeln</span>
+              </button>
+              <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: GOLD_COLOR }}>
+                <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
               </button>
             </div>
           </div>
@@ -1055,6 +1231,26 @@ const App: React.FC = () => {
               <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
               <button onClick={resetToStart} className="py-4 rounded-2xl border-2 font-bold uppercase">Hauptmenü</button>
             </div>
+
+            <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
+              <button 
+                onClick={handleUploadResults} 
+                disabled={uploadState === 'loading'}
+                className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black shadow-lg flex items-center justify-center space-x-2 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-sm"
+              >
+                {uploadState === 'loading' ? (
+                  <i className="fas fa-spinner animate-spin"></i>
+                ) : (
+                  <i className="fas fa-cloud-upload-alt mr-2"></i>
+                )}
+                <span>Ergebnisse hochladen</span>
+              </button>
+              {uploadMessage && (
+                <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {uploadMessage}
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -1150,27 +1346,47 @@ const App: React.FC = () => {
                 <button onClick={() => captureElement(rankingAreaRef, 'Ranking')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-image mr-2"></i>Screenshot Ranking</button>
                 <button onClick={() => captureElement(roundsAreaRef, 'Tabelle')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-table mr-2"></i>Screenshot Tabelle</button>
               </div>
+              <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
+                <button 
+                  onClick={handleUploadResults} 
+                  disabled={uploadState === 'loading'}
+                  className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black shadow-lg flex items-center justify-center space-x-2 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-sm"
+                >
+                  {uploadState === 'loading' ? (
+                    <i className="fas fa-spinner animate-spin"></i>
+                  ) : (
+                    <i className="fas fa-cloud-upload-alt mr-2"></i>
+                  )}
+                  <span>Ergebnisse hochladen</span>
+                </button>
+                {uploadMessage && (
+                  <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {uploadMessage}
+                  </p>
+                )}
+              </div>
+
               <button onClick={resetToStart} className={`w-full py-5 rounded-2xl border-2 font-black opacity-60 uppercase tracking-widest mt-4 ${darkMode ? 'border-white/20' : 'border-black/20'}`}>zurück zum Hauptmenü</button>
           </div>
         )}
       </main>
 
-      <footer className="mt-auto pt-8 pb-4 relative">
-        <div className={`text-center text-[10px] font-black uppercase tracking-widest transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'}`}>
+      <footer className="mt-auto pt-16 pb-8 relative flex flex-col md:block items-center justify-center">
+        <div className={`text-center text-[10px] font-black uppercase tracking-widest transition-opacity duration-500 ${showModeFooter ? 'opacity-40' : 'opacity-0'} mb-4 md:mb-0`}>
           {isShortMode ? '0,33 L Modus' : '500 ml Modus'}
         </div>
         {gameState === GameState.START && (
           <a
             id="become-member-btn"
             href="mailto:bundeswiega@gmail.com?subject=Kostenlos%20Mitglied%20werden"
-            className="absolute bottom-4 left-4 py-3 px-5 rounded-full font-bold text-xs md:text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95 z-50 flex items-center space-x-2 border border-white/10"
+            className="md:absolute md:bottom-4 md:left-4 py-3 px-5 rounded-full font-bold text-xs md:text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95 z-50 flex items-center justify-center space-x-2 border border-white/10 my-2 md:my-0 w-fit h-fit"
             style={{ backgroundColor: BRAND_COLOR }}
           >
             <i className="fas fa-user-plus text-sm"></i>
             <span>kostenlos Mitglied werden</span>
           </a>
         )}
-        <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 p-3 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white shadow-lg transition-transform hover:scale-110 active:scale-90 z-50">
+        <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="md:absolute md:bottom-4 md:right-4 p-3 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white shadow-lg transition-transform hover:scale-110 active:scale-90 z-50 my-2 md:my-0 flex items-center justify-center w-fit h-fit">
           <i className="fab fa-instagram text-xl"></i>
         </a>
       </footer>
@@ -1289,6 +1505,177 @@ const App: React.FC = () => {
               <button onClick={resetToStart} className="py-4 rounded-xl bg-red-600 text-white font-bold uppercase active:scale-95">Bestätigen</button>
               <button onClick={() => setShowResetConfirm(false)} className="py-4 rounded-xl border-2 font-bold uppercase active:scale-95">Zurück</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showRecords && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border-2 flex flex-col ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-black'}`}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-black uppercase flex items-center" style={{ color: BRAND_COLOR }}>
+                <i className="fas fa-trophy mr-3 text-yellow-500"></i>Rekorde & Statistiken
+              </h3>
+              <button 
+                onClick={() => { setShowRecords(false); setRecordsData(null); }}
+                className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
+              >
+                ✕
+              </button>
+            </div>
+
+            {recordsLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                <i className="fas fa-spinner animate-spin text-3xl" style={{ color: BRAND_COLOR }}></i>
+                <p className="text-sm font-bold opacity-60">Statistiken werden vom Cloud Storage abgerufen...</p>
+              </div>
+            ) : recordsError ? (
+              <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/30 text-center space-y-4 my-10">
+                <i className="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+                <p className="text-sm font-bold text-red-500">{recordsError}</p>
+                <button onClick={fetchRecords} className="px-5 py-2 rounded-xl bg-red-500 text-white font-bold text-xs uppercase hover:bg-red-600 active:scale-95">Erneut versuchen</button>
+              </div>
+            ) : (
+              <div>
+                {/* Mode Tabs */}
+                <div className="flex space-x-2 mb-6 border-b border-gray-500/10 pb-4 overflow-x-auto">
+                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveRecordsTab(tab)}
+                      className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap ${
+                        activeRecordsTab === tab 
+                          ? 'text-white shadow-md' 
+                          : 'opacity-50 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: activeRecordsTab === tab ? BRAND_COLOR : 'transparent' }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Main Records viewport */}
+                {(() => {
+                  const list = parseRecords(recordsData || []);
+                  const filtered = list.filter(r => r.gameMode === activeRecordsTab);
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-16 opacity-55">
+                        <i className="fas fa-info-circle text-4xl mb-4"></i>
+                        <p className="font-bold text-sm">Keine Einträge für {activeRecordsTab} gefunden.</p>
+                      </div>
+                    );
+                  }
+
+                  // 1. Leaderboard of Best Averages (Lowest first) or Best overall achievements
+                  // Let's find personal record of every player (best single-game average)
+                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string }> = {};
+                  filtered.forEach(item => {
+                    const existing = personalBests[item.playerName];
+                    if (!existing || item.avg < existing.avg) {
+                      personalBests[item.playerName] = { avg: item.avg, schnaepse: item.schnaepse, date: item.date };
+                    }
+                  });
+
+                  const leaderboardAverages = Object.entries(personalBests)
+                    .map(([name, data]) => ({ name, ...data }))
+                    .sort((a, b) => a.avg - b.avg); // lower is better
+
+                  // 2. Leaderboard of highest single-game points (schnaepse)
+                  const pointsLeaderboard = [...filtered]
+                    .sort((a, b) => b.schnaepse - a.schnaepse)
+                    .slice(0, 10); // top 10
+
+                  return (
+                    <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Averages Section */}
+                        <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                          <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                            <i className="fas fa-medal mr-2 text-amber-400"></i>Persönliche Bestwerte (Ø Abstand)
+                          </h4>
+                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Niedrigster Ø-Abstand zählt (Je niedriger desto besser)</p>
+                          <div className="space-y-2">
+                            {leaderboardAverages.slice(0, 10).map((p, idx) => (
+                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                <div className="flex items-center space-x-3">
+                                  <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                  <span className="font-black">{p.name}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(1)}g</span>
+                                  <span className="block text-[8px] opacity-40">{p.date}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Points (Schnäpse) Section */}
+                        <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                          <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                            <i className="fas fa-crown mr-2 text-yellow-500"></i>Meiste Schnäpse in einem Spiel
+                          </h4>
+                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Meiste erlangte Punkte / Schnäpse</p>
+                          <div className="space-y-2">
+                            {pointsLeaderboard.map((p, idx) => (
+                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                <div className="flex items-center space-x-3">
+                                  <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                  <span className="font-black">{p.playerName}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-black text-sm text-indigo-400">{p.schnaepse} Pkt</span>
+                                  <span className="block text-[8px] opacity-40">{p.date}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Complete Game History Log */}
+                      <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                        <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                          <i className="fas fa-history mr-2 opacity-50"></i>Historie der Einträge (Letzte Spiele)
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold">
+                                <th className="pb-2">Datum</th>
+                                <th className="pb-2">Spieler/Team</th>
+                                <th className="pb-2">Ø-Abstand</th>
+                                <th className="pb-2 text-right">Punkte/Schnäpse</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filtered.slice(0, 50).map((item, idx) => (
+                                <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
+                                  <td className="py-2 opacity-75 font-semibold">{item.date}</td>
+                                  <td className="py-2 font-black">{item.playerName}</td>
+                                  <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
+                                  <td className="py-2 text-right font-black text-indigo-400">{item.schnaepse}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            <button 
+              onClick={() => { setShowRecords(false); setRecordsData(null); }}
+              className="mt-6 w-full py-4 rounded-xl font-black uppercase text-xs tracking-widest border border-gray-500/20 opacity-60 hover:opacity-100"
+            >
+              Schließen
+            </button>
           </div>
         </div>
       )}

@@ -111,39 +111,26 @@ interface ParsedRecord {
 const parseRecords = (data: any[][]): ParsedRecord[] => {
   if (!data || data.length < 2) return [];
   const list: ParsedRecord[] = [];
-  const headerRow = data[0];
-  const maxCol = headerRow.length;
+  
+  // Skip row 0 which is the header row: Datum;Modus;Name;Avg;Schnaepse
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    if (!row || row.length < 5) continue;
+    
+    const dateVal = row[0];
+    const gameMode = row[1];
+    const playerName = row[2];
+    const avgVal = row[3] !== undefined && row[3] !== null ? Number(row[3]) : 0;
+    const schnaepseVal = row[4] !== undefined && row[4] !== null ? Number(row[4]) : 0;
 
-  for (let c = 0; c < maxCol; c += 3) {
-    const headerVal = headerRow[c];
-    if (headerVal === undefined || headerVal === null || headerVal === "") continue;
-
-    let gameMode = "Standardspiel";
-    let playerName = String(headerVal);
-
-    if (typeof headerVal === 'string' && headerVal.startsWith('[')) {
-      const match = headerVal.match(/^\[(.*?)\]\s*(.*)$/);
-      if (match) {
-        gameMode = match[1];
-        playerName = match[2];
-      }
-    }
-
-    for (let r = 2; r < data.length; r++) {
-      const row = data[r];
-      if (!row) continue;
-      const dateVal = row[c];
-      if (dateVal !== undefined && dateVal !== null && dateVal !== "") {
-        const avgVal = row[c + 1] !== undefined && row[c + 1] !== null ? Number(row[c + 1]) : 0;
-        const schnaepseVal = row[c + 2] !== undefined && row[c + 2] !== null ? Number(row[c + 2]) : 0;
-        list.push({
-          gameMode,
-          playerName,
-          date: String(dateVal),
-          avg: avgVal,
-          schnaepse: schnaepseVal
-        });
-      }
+    if (dateVal && playerName) {
+      list.push({
+        gameMode: String(gameMode),
+        playerName: String(playerName),
+        date: String(dateVal),
+        avg: avgVal,
+        schnaepse: schnaepseVal,
+      });
     }
   }
   return list;
@@ -698,7 +685,8 @@ const App: React.FC = () => {
           totalDiff += Math.abs(result - target);
         });
         const avg = Number((totalDiff / totalLevels).toFixed(1));
-        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: 0 }];
+        const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: timeSec }];
       } else if (gameState === GameState.RESULT_SCREEN) {
         if (teams.length > 0) {
           gameMode = 'Teamwiegen';
@@ -1583,9 +1571,9 @@ const App: React.FC = () => {
                     .map(([name, data]) => ({ name, ...data }))
                     .sort((a, b) => a.avg - b.avg); // lower is better
 
-                  // 2. Leaderboard of highest single-game points (schnaepse)
+                  // 2. Leaderboard of highest single-game points (schnaepse) (lowest time is better for Speedwiegen)
                   const pointsLeaderboard = [...filtered]
-                    .sort((a, b) => b.schnaepse - a.schnaepse)
+                    .sort((a, b) => activeRecordsTab === 'Speedwiegen' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse)
                     .slice(0, 10); // top 10
 
                   return (
@@ -1613,12 +1601,15 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Points (Schnäpse) Section */}
+                        {/* Points (Schnäpse) / Time Section */}
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                           <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                            <i className="fas fa-crown mr-2 text-yellow-500"></i>Meiste Schnäpse in einem Spiel
+                            <i className={activeRecordsTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
+                            {activeRecordsTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
                           </h4>
-                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Meiste erlangte Punkte / Schnäpse</p>
+                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold font-bold">
+                            {activeRecordsTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
+                          </p>
                           <div className="space-y-2">
                             {pointsLeaderboard.map((p, idx) => (
                               <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
@@ -1627,7 +1618,9 @@ const App: React.FC = () => {
                                   <span className="font-black">{p.playerName}</span>
                                 </div>
                                 <div className="text-right">
-                                  <span className="font-black text-sm text-indigo-400">{p.schnaepse} Pkt</span>
+                                  <span className="font-black text-sm text-indigo-400">
+                                    {activeRecordsTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
+                                  </span>
                                   <span className="block text-[8px] opacity-40">{p.date}</span>
                                 </div>
                               </div>
@@ -1648,7 +1641,7 @@ const App: React.FC = () => {
                                 <th className="pb-2">Datum</th>
                                 <th className="pb-2">Spieler/Team</th>
                                 <th className="pb-2">Ø-Abstand</th>
-                                <th className="pb-2 text-right">Punkte/Schnäpse</th>
+                                <th className="pb-2 text-right">{activeRecordsTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1657,7 +1650,9 @@ const App: React.FC = () => {
                                   <td className="py-2 opacity-75 font-semibold">{item.date}</td>
                                   <td className="py-2 font-black">{item.playerName}</td>
                                   <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
-                                  <td className="py-2 text-right font-black text-indigo-400">{item.schnaepse}</td>
+                                  <td className="py-2 text-right font-black text-indigo-400">
+                                    {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>

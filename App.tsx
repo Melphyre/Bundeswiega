@@ -694,7 +694,7 @@ const App: React.FC = () => {
           const result = parseInt(speedResults[i+1]) || 0;
           totalDiff += Math.abs(result - target);
         });
-        const avg = Number((totalDiff / totalLevels).toFixed(1));
+        const avg = Number((totalDiff / totalLevels).toFixed(2));
         const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
         resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: timeSec, levels: totalLevels }];
       } else if (gameState === GameState.RESULT_SCREEN) {
@@ -721,7 +721,7 @@ const App: React.FC = () => {
             const avg = roundsCount > 0 ? (totalOffset / roundsCount) : 0;
             return {
               name: t.name,
-              avg: Number(avg.toFixed(1)),
+              avg: Number(avg.toFixed(2)),
               schnaepse: t.points
             };
           });
@@ -731,7 +731,7 @@ const App: React.FC = () => {
             const avg = calculateAverageDistance(p.id, rounds);
             return {
               name: p.name,
-              avg: Number(avg.toFixed(1)),
+              avg: Number(avg.toFixed(2)),
               schnaepse: p.schnaepse
             };
           });
@@ -1342,9 +1342,9 @@ const App: React.FC = () => {
                           <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
                             <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
                             <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>{p.name}</td>
-                            <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(1)}g</td>
+                            <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(2)}g</td>
                             <td className="text-center font-bold">{p.schnaepse}</td>
-                            <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(1)}</td>
+                            <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(2)}</td>
                           </tr>
                         ))}
                     </tbody>
@@ -1768,10 +1768,10 @@ const App: React.FC = () => {
                                                 return (
                                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
                                                     <td className="py-3 font-semibold text-gray-400">{item.date}</td>
-                                                    <td className="py-3 text-center text-emerald-500 font-bold pr-4">{item.avg.toFixed(1)}g</td>
+                                                    <td className="py-3 text-center text-emerald-500 font-bold pr-4">{item.avg.toFixed(2)}g</td>
                                                     <td className="py-3 text-center text-indigo-400 font-bold pr-4">{item.schnaepse}</td>
                                                     <td className="py-3 text-right font-black" style={{ color: BRAND_COLOR }}>
-                                                      {totalScore.toFixed(1)}
+                                                      {totalScore.toFixed(2)}
                                                     </td>
                                                   </tr>
                                                 );
@@ -1891,7 +1891,7 @@ const App: React.FC = () => {
                                         </div>
                                         <div className="text-right">
                                           <span className="font-black text-sm text-yellow-500">{p.schnaepse} Schnäpse</span>
-                                          <span className="block text-[8px] opacity-40">{p.date} • Ø {p.avg.toFixed(1)}g</span>
+                                          <span className="block text-[8px] opacity-40">{p.date} • Ø {p.avg.toFixed(2)}g</span>
                                         </div>
                                       </div>
                                     ))
@@ -1932,7 +1932,7 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
                                       <h5 className="font-black text-base">{topSingleAvg.playerName}</h5>
-                                      <p className="text-xs font-semibold text-amber-500">{topSingleAvg.avg.toFixed(1)}g Abweichung <span className="opacity-50 text-[10px]">({topSingleAvg.date})</span></p>
+                                      <p className="text-xs font-semibold text-amber-500">{topSingleAvg.avg.toFixed(2)}g Abweichung <span className="opacity-50 text-[10px]">({topSingleAvg.date})</span></p>
                                     </div>
                                   </div>
                                 )}
@@ -2004,7 +2004,7 @@ const App: React.FC = () => {
                                           </button>
                                         </div>
                                         <div className="text-right">
-                                          <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(1)}g</span>
+                                          <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
                                           <span className="block text-[8px] opacity-40">{p.date} • {p.schnaepse} Pkt</span>
                                         </div>
                                       </div>
@@ -2038,7 +2038,7 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
                                       <h5 className="font-black text-base">{topSingleTotal.playerName}</h5>
-                                      <p className="text-xs font-semibold text-purple-400">Total: {(topSingleTotal.avg + topSingleTotal.schnaepse).toFixed(1)} <span className="opacity-75 text-[10px]">({topSingleTotal.avg.toFixed(1)}g Avg + {topSingleTotal.schnaepse} Schnäpse)</span></p>
+                                      <p className="text-xs font-semibold text-purple-400">Total: {(topSingleTotal.avg + topSingleTotal.schnaepse).toFixed(2)} <span className="opacity-75 text-[10px]">({topSingleTotal.avg.toFixed(2)}g Avg + {topSingleTotal.schnaepse} Schnäpse)</span></p>
                                     </div>
                                   </div>
                                 )}
@@ -2052,7 +2052,7 @@ const App: React.FC = () => {
                                       <div>
                                         <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
                                         <h5 className="font-black text-base">{topCareerAverageTotal.name}</h5>
-                                        <p className="text-xs font-semibold text-blue-400">Ø Total: {avgTotal.toFixed(1)} <span className="opacity-50 text-[10px]">({topCareerAverageTotal.gamesPlayed} Spiele)</span></p>
+                                        <p className="text-xs font-semibold text-blue-400">Ø Total: {avgTotal.toFixed(2)} <span className="opacity-50 text-[10px]">({topCareerAverageTotal.gamesPlayed} Spiele)</span></p>
                                       </div>
                                     </div>
                                   );
@@ -2128,8 +2128,8 @@ const App: React.FC = () => {
                                           </button>
                                         </div>
                                         <div className="text-right">
-                                          <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(1)}</span>
-                                          <span className="block text-[8px] opacity-40">{p.avg.toFixed(1)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
+                                          <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(2)}</span>
+                                          <span className="block text-[8px] opacity-40">{p.avg.toFixed(2)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
                                         </div>
                                       </div>
                                     ))
@@ -2181,7 +2181,7 @@ const App: React.FC = () => {
                                   <span className="font-black">{p.name}</span>
                                 </div>
                                 <div className="text-right">
-                                  <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(1)}g</span>
+                                  <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
                                   <span className="block text-[8px] opacity-40">
                                     {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
                                   </span>
@@ -2260,7 +2260,7 @@ const App: React.FC = () => {
                                         item.playerName
                                       )}
                                     </td>
-                                    <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
+                                    <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(2)}g</td>
                                     {activeRecordsTab === 'Speedwiegen' && (
                                       <td className="py-2 text-indigo-400 font-bold">
                                         {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
@@ -2335,7 +2335,7 @@ const App: React.FC = () => {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-emerald-500 font-bold text-sm">Ø: {item.avg.toFixed(1)}g</p>
+                      <p className="text-emerald-500 font-bold text-sm">Ø: {item.avg.toFixed(2)}g</p>
                       <p className="text-indigo-400 font-bold text-xs">{item.schnaepse} Pkt / Schnäpse</p>
                     </div>
                   </div>

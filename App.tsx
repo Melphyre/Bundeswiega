@@ -172,6 +172,10 @@ const App: React.FC = () => {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Standardspiel');
+  const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
+  const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
+  const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
+  const [activePlayerNameTab, setActivePlayerNameTab] = useState<string | null>(null);
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
@@ -716,7 +720,7 @@ const App: React.FC = () => {
             };
           });
         } else {
-          gameMode = 'Standardspiel';
+          gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
           resultsToUpload = players.map(p => {
             const avg = calculateAverageDistance(p.id, rounds);
             return {
@@ -726,6 +730,12 @@ const App: React.FC = () => {
             };
           });
         }
+      }
+
+      if (resultsToUpload.length === 0) {
+        setUploadState('error');
+        setUploadMessage('Keine Ergebnisse zum Hochladen vorhanden.');
+        return;
       }
 
       console.log("Uploading to backend:", { gameMode, results: resultsToUpload, date: today });
@@ -1546,9 +1556,18 @@ const App: React.FC = () => {
                 {/* Main Records viewport */}
                 {(() => {
                   const list = parseRecords(recordsData || []);
-                  const filtered = list.filter(r => r.gameMode === activeRecordsTab);
+                  let filtered: any[] = [];
+                  if (activeRecordsTab === 'Standardspiel') {
+                    if (standardspielSizeTab === '500ml') {
+                      filtered = list.filter(r => r.gameMode === 'Standardspiel (500ml)' || r.gameMode === 'Standardspiel');
+                    } else {
+                      filtered = list.filter(r => r.gameMode === 'Standardspiel (0,33L)');
+                    }
+                  } else {
+                    filtered = list.filter(r => r.gameMode === activeRecordsTab);
+                  }
 
-                  if (filtered.length === 0) {
+                  if (activeRecordsTab !== 'Standardspiel' && filtered.length === 0) {
                     return (
                       <div className="text-center py-16 opacity-55">
                         <i className="fas fa-info-circle text-4xl mb-4"></i>
@@ -1558,6 +1577,398 @@ const App: React.FC = () => {
                   }
 
                   // 1. Leaderboard of Best Averages (Lowest first) or Best overall achievements
+                  if (activeRecordsTab === 'Standardspiel') {
+                    // Compute player stats map
+                    const playerStatsMap: Record<string, {
+                      name: string;
+                      gamesPlayed: number;
+                      totalSchnaepse: number;
+                      bestSchnaepseSingle: number;
+                      bestAvgSingle: number;
+                      careerAverage: number;
+                      bestTotalSingle: number;
+                      scores: Array<{ avg: number; schnaepse: number; date: string }>;
+                    }> = {};
+
+                    filtered.forEach(item => {
+                      const name = item.playerName;
+                      if (!playerStatsMap[name]) {
+                        playerStatsMap[name] = {
+                          name,
+                          gamesPlayed: 0,
+                          totalSchnaepse: 0,
+                          bestSchnaepseSingle: 0,
+                          bestAvgSingle: Infinity,
+                          careerAverage: 0,
+                          bestTotalSingle: Infinity,
+                          scores: [],
+                        };
+                      }
+                      const stat = playerStatsMap[name];
+                      stat.gamesPlayed += 1;
+                      stat.totalSchnaepse += item.schnaepse;
+                      if (item.schnaepse > stat.bestSchnaepseSingle) {
+                        stat.bestSchnaepseSingle = item.schnaepse;
+                      }
+                      if (item.avg < stat.bestAvgSingle) {
+                        stat.bestAvgSingle = item.avg;
+                      }
+                      const totalSingle = item.avg + item.schnaepse;
+                      if (totalSingle < stat.bestTotalSingle) {
+                        stat.bestTotalSingle = totalSingle;
+                      }
+                      stat.scores.push({ avg: item.avg, schnaepse: item.schnaepse, date: item.date });
+                    });
+
+                    // Calculate averages
+                    Object.values(playerStatsMap).forEach(stat => {
+                      const sumAvg = stat.scores.reduce((sum, s) => sum + s.avg, 0);
+                      stat.careerAverage = sumAvg / stat.gamesPlayed;
+                    });
+
+                    const playerStatsList = Object.values(playerStatsMap);
+
+                    return (
+                      <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+                        {/* Modus und Sub-Tabs selector */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-500/5 pb-4">
+                          <div className="flex flex-col space-y-1">
+                            <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
+                            <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
+                              {(['500ml', '0,33L'] as const).map(size => (
+                                <button
+                                  key={size}
+                                  onClick={() => setStandardspielSizeTab(size)}
+                                  className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
+                                    standardspielSizeTab === size
+                                      ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                      : 'opacity-60 hover:opacity-100'
+                                  }`}
+                                >
+                                  {size === '500ml' ? '500 ml' : '0,33 L'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col space-y-1">
+                            <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Statistikreiter</span>
+                            <div className={`flex flex-wrap gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
+                              {(['all', 'highest_schnaepse', 'best_avg', 'best_total'] as const).map(subTab => {
+                                let label = "";
+                                if (subTab === 'all') label = "Spieler";
+                                if (subTab === 'highest_schnaepse') label = "Schnappsrekord";
+                                if (subTab === 'best_avg') label = "Durschnittsrekord";
+                                if (subTab === 'best_total') label = "Total Rekord";
+                                return (
+                                  <button
+                                    key={subTab}
+                                    onClick={() => setActiveStandardSubTab(subTab)}
+                                    className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
+                                      activeStandardSubTab === subTab
+                                        ? (darkMode ? 'bg-slate-700 text-white shadow' : 'bg-white text-gray-950 shadow')
+                                        : 'opacity-60 hover:opacity-100'
+                                    }`}
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {filtered.length === 0 ? (
+                          <div className="text-center py-12 opacity-55">
+                            <i className="fas fa-beer text-4xl mb-3 text-amber-500"></i>
+                            <p className="font-bold text-sm">Keine Einträge für den {standardspielSizeTab === '500ml' ? '500 ml Modus' : '0,33 L Modus'} gefunden.</p>
+                            <p className="text-[10px] opacity-75 mt-1">Spiele eine Runde im entsprechenden Format und lade dein Ergebnis hoch!</p>
+                          </div>
+                        ) : (
+                          <>
+                            {activeStandardSubTab === 'all' && (() => {
+                              const playerNames = Array.from(new Set(filtered.map(item => item.playerName))).sort();
+                              const currentActivePlayer = activePlayerNameTab && playerNames.includes(activePlayerNameTab)
+                                ? activePlayerNameTab
+                                : (playerNames[0] || null);
+
+                              return (
+                                <div className="space-y-4">
+                                  {/* Under-reiter for Names */}
+                                  <div className="flex flex-col space-y-1.5">
+                                    <span className="text-[10px] uppercase font-black opacity-40 tracking-wider">Spieler-Historie (Unterreiter)</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {playerNames.map(name => {
+                                        const isActive = name === currentActivePlayer;
+                                        const pGames = filtered.filter(f => f.playerName === name);
+                                        return (
+                                          <button
+                                            key={name}
+                                            onClick={() => setActivePlayerNameTab(name)}
+                                            className={`py-1.5 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                              isActive
+                                                ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                                : (darkMode ? 'bg-slate-800 hover:bg-slate-750 text-gray-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-800')
+                                            }`}
+                                          >
+                                            {name} <span className="text-[9px] opacity-60">({pGames.length})</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {currentActivePlayer ? (() => {
+                                    const playerGames = filtered.filter(f => f.playerName === currentActivePlayer);
+                                    return (
+                                      <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                                        <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                                          <i className="fas fa-beer mr-2 text-amber-500"></i>Spiele von: {currentActivePlayer}
+                                        </h4>
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-left text-xs whitespace-nowrap">
+                                            <thead>
+                                              <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold">
+                                                <th className="pb-2 pr-4">{`Datum`}</th>
+                                                <th className="pb-2 text-center pr-4">{`Durchschnittliche Abweichung`}</th>
+                                                <th className="pb-2 text-center pr-4">{`Schnäpse`}</th>
+                                                <th className="pb-2 text-right">{`Total`}</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {playerGames.map((item, idx) => {
+                                                const totalScore = item.avg + item.schnaepse;
+                                                return (
+                                                  <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
+                                                    <td className="py-3 font-semibold text-gray-400">{item.date}</td>
+                                                    <td className="py-3 text-center text-emerald-500 font-bold pr-4">{item.avg.toFixed(1)}g</td>
+                                                    <td className="py-3 text-center text-indigo-400 font-bold pr-4">{item.schnaepse}</td>
+                                                    <td className="py-3 text-right font-black" style={{ color: BRAND_COLOR }}>
+                                                      {totalScore.toFixed(1)}
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                    );
+                                  })() : (
+                                    <p className="text-center opacity-60 text-xs py-8">Keine Spieler vorhanden.</p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                        {activeStandardSubTab === 'highest_schnaepse' && (() => {
+                          const sortedByTotalSchnaepse = [...playerStatsList].sort((a,b) => b.totalSchnaepse - a.totalSchnaepse);
+                          const sortedBySingleSchnaepse = [...filtered].sort((a,b) => b.schnaepse - a.schnaepse);
+                          
+                          const topTotal = sortedByTotalSchnaepse[0];
+                          const topSingle = sortedBySingleSchnaepse[0];
+                          
+                          return (
+                            <div className="space-y-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {topTotal && (
+                                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-yellow-500/20' : 'bg-emerald-500/5 border-emerald-500/10'} flex items-center space-x-4`}>
+                                    <div className="w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 text-xl font-bold">
+                                      👑
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Gesamt)</span>
+                                      <h5 className="font-black text-base">{topTotal.name}</h5>
+                                      <p className="text-xs font-semibold text-yellow-500">{topTotal.totalSchnaepse} Schnäpse ({topTotal.gamesPlayed} Spiele)</p>
+                                    </div>
+                                  </div>
+                                )}
+                                {topSingle && (
+                                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-indigo-500/20' : 'bg-indigo-500/5 border-indigo-500/10'} flex items-center space-x-4`}>
+                                    <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-500 text-xl font-bold">
+                                      🍻
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Rekord-Einzelspiel (Schnäpse)</span>
+                                      <h5 className="font-black text-base">{topSingle.playerName}</h5>
+                                      <p className="text-xs font-semibold text-indigo-400">{topSingle.schnaepse} Schnäpse <span className="opacity-50 text-[10px]">({topSingle.date})</span></p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                                  <i className="fas fa-wine-glass-alt mr-2 text-pink-400"></i>Rangliste: Meiste Schnäpse gesamt
+                                </h4>
+                                <div className="space-y-2">
+                                  {sortedByTotalSchnaepse.slice(0, 10).map((p, idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                      <div className="flex items-center space-x-2 pb-0.5">
+                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <button 
+                                          onClick={() => setSelectedPlayerForDetails(p.name)}
+                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                        >
+                                          <span>{p.name}</span>
+                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                        </button>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-black text-sm text-yellow-500">{p.totalSchnaepse} Schnäpse</span>
+                                        <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {activeStandardSubTab === 'best_avg' && (() => {
+                          const sortedByCareerAverage = [...playerStatsList].sort((a,b) => a.careerAverage - b.careerAverage);
+                          const sortedBySingleAverage = [...filtered].sort((a,b) => a.avg - b.avg);
+                          
+                          const topCareerAvg = sortedByCareerAverage[0];
+                          const topSingleAvg = sortedBySingleAverage[0];
+                          
+                          return (
+                            <div className="space-y-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {topCareerAvg && (
+                                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-emerald-500/20' : 'bg-emerald-500/5 border-emerald-500/10'} flex items-center space-x-4`}>
+                                    <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 text-xl font-bold">
+                                      🎯
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Präzisions-Meister (Ø Gesamt)</span>
+                                      <h5 className="font-black text-base">{topCareerAvg.name}</h5>
+                                      <p className="text-xs font-semibold text-emerald-500">{topCareerAvg.careerAverage.toFixed(2)}g Ø-Abweichung</p>
+                                    </div>
+                                  </div>
+                                )}
+                                {topSingleAvg && (
+                                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-amber-500/20' : 'bg-amber-500/5 border-amber-500/10'} flex items-center space-x-4`}>
+                                    <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 text-xl font-bold">
+                                      ⚡
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
+                                      <h5 className="font-black text-base">{topSingleAvg.playerName}</h5>
+                                      <p className="text-xs font-semibold text-amber-500">{topSingleAvg.avg.toFixed(1)}g Abweichung <span className="opacity-50 text-[10px]">({topSingleAvg.date})</span></p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                                  <i className="fas fa-crosshairs mr-2 text-emerald-400"></i>Rangliste: Bestes Durchschnittspiel (Ø Abstand)
+                                </h4>
+                                <div className="space-y-2">
+                                  {sortedByCareerAverage.slice(0, 10).map((p, idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                      <div className="flex items-center space-x-2 pb-0.5">
+                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <button 
+                                          onClick={() => setSelectedPlayerForDetails(p.name)}
+                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                        >
+                                          <span>{p.name}</span>
+                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                        </button>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-black text-sm text-emerald-500">{p.careerAverage.toFixed(1)}g</span>
+                                        <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {activeStandardSubTab === 'best_total' && (() => {
+                          const sortedBySingleTotal = [...filtered].sort((a,b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse));
+                          const sortedByCareerAverageTotal = [...playerStatsList].sort((a,b) => {
+                            const aTotalAvg = a.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / a.gamesPlayed;
+                            const bTotalAvg = b.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / b.gamesPlayed;
+                            return aTotalAvg - bTotalAvg;
+                          });
+                          
+                          const topSingleTotal = sortedBySingleTotal[0];
+                          const topCareerAverageTotal = sortedByCareerAverageTotal[0];
+                          
+                          return (
+                            <div className="space-y-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {topSingleTotal && (
+                                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-purple-500/20' : 'bg-purple-500/5 border-purple-500/10'} flex items-center space-x-4`}>
+                                    <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-500 text-xl font-bold">
+                                      🏆
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
+                                      <h5 className="font-black text-base">{topSingleTotal.playerName}</h5>
+                                      <p className="text-xs font-semibold text-purple-400">Total: {(topSingleTotal.avg + topSingleTotal.schnaepse).toFixed(1)} <span className="opacity-75 text-[10px]">({topSingleTotal.avg.toFixed(1)}g Avg + {topSingleTotal.schnaepse} Schnäpse)</span></p>
+                                    </div>
+                                  </div>
+                                )}
+                                {topCareerAverageTotal && (() => {
+                                  const avgTotal = topCareerAverageTotal.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / topCareerAverageTotal.gamesPlayed;
+                                  return (
+                                    <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-blue-500/20' : 'bg-blue-500/5 border-blue-500/10'} flex items-center space-x-4`}>
+                                      <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 text-xl font-bold">
+                                        📊
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
+                                        <h5 className="font-black text-base">{topCareerAverageTotal.name}</h5>
+                                        <p className="text-xs font-semibold text-blue-400">Ø Total: {avgTotal.toFixed(1)} <span className="opacity-50 text-[10px]">({topCareerAverageTotal.gamesPlayed} Spiele)</span></p>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+
+                              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                                  <i className="fas fa-trophy mr-2 text-purple-400"></i>Rangliste: Bestes Einzel-Total (Ø Abstand + Schnäpse)
+                                </h4>
+                                <div className="space-y-2">
+                                  {sortedBySingleTotal.slice(0, 10).map((p, idx) => (
+                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                      <div className="flex items-center space-x-2 pb-0.5">
+                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <button 
+                                          onClick={() => setSelectedPlayerForDetails(p.playerName)}
+                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                        >
+                                          <span>{p.playerName}</span>
+                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                        </button>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(1)}</span>
+                                        <span className="block text-[8px] opacity-40">{p.avg.toFixed(1)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                          </>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Default view for other modes (Speedwiegen, Teamwiegen)
                   // Let's find personal record of every player (best single-game average)
                   const personalBests: Record<string, { avg: number; schnaepse: number; date: string }> = {};
                   filtered.forEach(item => {
@@ -1648,7 +2059,19 @@ const App: React.FC = () => {
                               {filtered.slice(0, 50).map((item, idx) => (
                                 <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
                                   <td className="py-2 opacity-75 font-semibold">{item.date}</td>
-                                  <td className="py-2 font-black">{item.playerName}</td>
+                                  <td className="py-2 font-black">
+                                    {activeRecordsTab === 'Standardspiel' ? (
+                                      <button 
+                                        onClick={() => setSelectedPlayerForDetails(item.playerName)}
+                                        className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                      >
+                                        <span>{item.playerName}</span>
+                                        <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                      </button>
+                                    ) : (
+                                      item.playerName
+                                    )}
+                                  </td>
                                   <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
                                   <td className="py-2 text-right font-black text-indigo-400">
                                     {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
@@ -1668,6 +2091,63 @@ const App: React.FC = () => {
             <button 
               onClick={() => { setShowRecords(false); setRecordsData(null); }}
               className="mt-6 w-full py-4 rounded-xl font-black uppercase text-xs tracking-widest border border-gray-500/20 opacity-60 hover:opacity-100"
+            >
+              Schließen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedPlayerForDetails && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black uppercase tracking-tight" style={{ color: BRAND_COLOR }}>
+                Historie: {selectedPlayerForDetails}
+              </h3>
+              <button 
+                onClick={() => setSelectedPlayerForDetails(null)} 
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+              >
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+            
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+              {(() => {
+                const list = parseRecords(recordsData || []);
+                let filteredList = [];
+                if (standardspielSizeTab === '500ml') {
+                  filteredList = list.filter(r => (r.gameMode === 'Standardspiel (500ml)' || r.gameMode === 'Standardspiel') && r.playerName === selectedPlayerForDetails);
+                } else {
+                  filteredList = list.filter(r => r.gameMode === 'Standardspiel (0,33L)' && r.playerName === selectedPlayerForDetails);
+                }
+                
+                if (filteredList.length === 0) {
+                  return <p className="text-center opacity-60 py-8 text-sm">Keine Spiele für diesen Modus aufgezeichnet.</p>;
+                }
+                
+                return [...filteredList].reverse().map((item, idx) => (
+                  <div key={idx} className={`p-4 rounded-xl border flex justify-between items-center ${darkMode ? 'bg-slate-900/60 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                    <div>
+                      <p className="font-bold text-sm">{item.date}</p>
+                      <p className="text-[10px] opacity-60">
+                        {item.gameMode}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-500 font-bold text-sm">Ø: {item.avg.toFixed(1)}g</p>
+                      <p className="text-indigo-400 font-bold text-xs">{item.schnaepse} Pkt / Schnäpse</p>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+            
+            <button 
+              onClick={() => setSelectedPlayerForDetails(null)} 
+              className="mt-6 w-full py-4 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow-lg active:scale-95 transition-transform" 
+              style={{ backgroundColor: BRAND_COLOR }}
             >
               Schließen
             </button>

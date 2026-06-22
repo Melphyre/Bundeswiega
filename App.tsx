@@ -106,6 +106,7 @@ interface ParsedRecord {
   date: string;
   avg: number;
   schnaepse: number;
+  levels?: number;
 }
 
 const parseRecords = (data: any[][]): ParsedRecord[] => {
@@ -122,6 +123,7 @@ const parseRecords = (data: any[][]): ParsedRecord[] => {
     const playerName = row[2];
     const avgVal = row[3] !== undefined && row[3] !== null ? Number(row[3]) : 0;
     const schnaepseVal = row[4] !== undefined && row[4] !== null ? Number(row[4]) : 0;
+    const levelsVal = row[5] !== undefined && row[5] !== null && row[5] !== "" ? Number(row[5]) : undefined;
 
     if (dateVal && playerName) {
       list.push({
@@ -130,6 +132,7 @@ const parseRecords = (data: any[][]): ParsedRecord[] => {
         date: String(dateVal),
         avg: avgVal,
         schnaepse: schnaepseVal,
+        levels: levelsVal,
       });
     }
   }
@@ -176,6 +179,9 @@ const App: React.FC = () => {
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
   const [activePlayerNameTab, setActivePlayerNameTab] = useState<string | null>(null);
+  const [schnaepseSortMode, setSchnaepseSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
+  const [avgSortMode, setAvgSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
+  const [totalSortMode, setTotalSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
@@ -677,7 +683,7 @@ const App: React.FC = () => {
     try {
       const today = new Date().toLocaleDateString('de-DE');
       let gameMode = 'Standardspiel';
-      let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number }> = [];
+      let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number; levels?: number }> = [];
 
       if (gameState === GameState.SPEED_RESULT) {
         gameMode = 'Speedwiegen';
@@ -690,7 +696,7 @@ const App: React.FC = () => {
         });
         const avg = Number((totalDiff / totalLevels).toFixed(1));
         const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
-        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: timeSec }];
+        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: timeSec, levels: totalLevels }];
       } else if (gameState === GameState.RESULT_SCREEN) {
         if (teams.length > 0) {
           gameMode = 'Teamwiegen';
@@ -1143,26 +1149,47 @@ const App: React.FC = () => {
                     <th className="py-2 px-4">Stufe</th>
                     <th className="py-2 px-4">Ziel (g)</th>
                     <th className="py-2 px-4">Ergebnis (g)</th>
+                    <th className="py-2 px-4 text-right">Abstand zum nächsten Ziel</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
-                    <tr key={i+1} className="border-b border-white/10">
-                      <td className="py-3 px-4 font-bold">{i+1}</td>
-                      <td className="py-3 px-4 font-black">{speedTargets[i+1]}g</td>
-                      <td className="py-3 px-4">
-                        <input 
-                          type="number" 
-                          min="0" 
-                          max="999" 
-                          value={speedResults[i+1] || ''} 
-                          onChange={e => setSpeedResults({...speedResults, [i+1]: e.target.value.slice(0, 3)})} 
-                          className={`w-20 p-2 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
-                          placeholder="?" 
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                  {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
+                    const idxLevel = i + 1;
+                    const prevInput = idxLevel > 1 ? speedResults[idxLevel - 1] : undefined;
+                    const target = parseInt(speedTargets[idxLevel]) || 0;
+                    
+                    let differenceStr = "-";
+                    if (idxLevel > 1) {
+                      if (prevInput !== undefined && prevInput !== null && prevInput !== "") {
+                        const prevVal = parseInt(prevInput) || 0;
+                        const diff = Math.abs(prevVal - target);
+                        differenceStr = `${diff}g`;
+                      } else {
+                        differenceStr = "?";
+                      }
+                    }
+                    
+                    return (
+                      <tr key={idxLevel} className="border-b border-white/10">
+                        <td className="py-3 px-4 font-bold">{idxLevel}</td>
+                        <td className="py-3 px-4 font-black">{speedTargets[idxLevel]}g</td>
+                        <td className="py-3 px-4">
+                          <input 
+                            type="number" 
+                            min="0" 
+                            max="999" 
+                            value={speedResults[idxLevel] || ''} 
+                            onChange={e => setSpeedResults({...speedResults, [idxLevel]: e.target.value.slice(0, 3)})} 
+                            className={`w-20 p-2 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
+                            placeholder="?" 
+                          />
+                        </td>
+                        <td className="py-3 px-4 text-right font-black text-indigo-400">
+                          {differenceStr}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1798,28 +1825,77 @@ const App: React.FC = () => {
                               </div>
 
                               <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                                  <i className="fas fa-wine-glass-alt mr-2 text-pink-400"></i>Rangliste: Meiste Schnäpse gesamt
-                                </h4>
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 pb-2 border-b border-gray-500/10">
+                                  <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                    <i className="fas fa-wine-glass-alt mr-2 text-pink-400"></i>
+                                    {schnaepseSortMode === 'gesamt' ? 'Rangliste: Meiste Schnäpse gesamt' : 'Rangliste: Meiste Schnäpse Einzelspiel'}
+                                  </h4>
+                                  
+                                  {/* Toggle buttons */}
+                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                    <button
+                                      onClick={() => setSchnaepseSortMode('gesamt')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        schnaepseSortMode === 'gesamt'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Gesamt
+                                    </button>
+                                    <button
+                                      onClick={() => setSchnaepseSortMode('einzelspiel')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        schnaepseSortMode === 'einzelspiel'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Einzelspiel
+                                    </button>
+                                  </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                  {sortedByTotalSchnaepse.slice(0, 10).map((p, idx) => (
-                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                      <div className="flex items-center space-x-2 pb-0.5">
-                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                        <button 
-                                          onClick={() => setSelectedPlayerForDetails(p.name)}
-                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
-                                        >
-                                          <span>{p.name}</span>
-                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                        </button>
+                                  {schnaepseSortMode === 'gesamt' ? (
+                                    sortedByTotalSchnaepse.slice(0, 10).map((p, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                        <div className="flex items-center space-x-2 pb-0.5">
+                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                          <button 
+                                            onClick={() => setSelectedPlayerForDetails(p.name)}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          >
+                                            <span>{p.name}</span>
+                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          </button>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="font-black text-sm text-yellow-500">{p.totalSchnaepse} Schnäpse</span>
+                                          <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                        </div>
                                       </div>
-                                      <div className="text-right">
-                                        <span className="font-black text-sm text-yellow-500">{p.totalSchnaepse} Schnäpse</span>
-                                        <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                    ))
+                                  ) : (
+                                    sortedBySingleSchnaepse.slice(0, 10).map((p, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                        <div className="flex items-center space-x-2 pb-0.5">
+                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                          <button 
+                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          >
+                                            <span>{p.playerName}</span>
+                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          </button>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="font-black text-sm text-yellow-500">{p.schnaepse} Schnäpse</span>
+                                          <span className="block text-[8px] opacity-40">{p.date} • Ø {p.avg.toFixed(1)}g</span>
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    ))
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1863,28 +1939,77 @@ const App: React.FC = () => {
                               </div>
 
                               <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                                  <i className="fas fa-crosshairs mr-2 text-emerald-400"></i>Rangliste: Bestes Durchschnittspiel (Ø Abstand)
-                                </h4>
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 pb-2 border-b border-gray-500/10">
+                                  <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                    <i className="fas fa-crosshairs mr-2 text-emerald-400"></i>
+                                    Rangliste: Durchschnitt
+                                  </h4>
+                                  
+                                  {/* Toggle buttons */}
+                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                    <button
+                                      onClick={() => setAvgSortMode('gesamt')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        avgSortMode === 'gesamt'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Gesamtdurchschnitt
+                                    </button>
+                                    <button
+                                      onClick={() => setAvgSortMode('einzelspiel')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        avgSortMode === 'einzelspiel'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Einzelspiel
+                                    </button>
+                                  </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                  {sortedByCareerAverage.slice(0, 10).map((p, idx) => (
-                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                      <div className="flex items-center space-x-2 pb-0.5">
-                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                        <button 
-                                          onClick={() => setSelectedPlayerForDetails(p.name)}
-                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
-                                        >
-                                          <span>{p.name}</span>
-                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                        </button>
+                                  {avgSortMode === 'gesamt' ? (
+                                    sortedByCareerAverage.slice(0, 10).map((p, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                        <div className="flex items-center space-x-2 pb-0.5">
+                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                          <button 
+                                            onClick={() => setSelectedPlayerForDetails(p.name)}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          >
+                                            <span>{p.name}</span>
+                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          </button>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="font-black text-sm text-emerald-500">{p.careerAverage.toFixed(2)}g</span>
+                                          <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                        </div>
                                       </div>
-                                      <div className="text-right">
-                                        <span className="font-black text-sm text-emerald-500">{p.careerAverage.toFixed(1)}g</span>
-                                        <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                    ))
+                                  ) : (
+                                    sortedBySingleAverage.slice(0, 10).map((p, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                        <div className="flex items-center space-x-2 pb-0.5">
+                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                          <button 
+                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          >
+                                            <span>{p.playerName}</span>
+                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          </button>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(1)}g</span>
+                                          <span className="block text-[8px] opacity-40">{p.date} • {p.schnaepse} Pkt</span>
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    ))
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1935,28 +2060,80 @@ const App: React.FC = () => {
                               </div>
 
                               <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                                <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                                  <i className="fas fa-trophy mr-2 text-purple-400"></i>Rangliste: Bestes Einzel-Total (Ø Abstand + Schnäpse)
-                                </h4>
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 pb-2 border-b border-gray-500/10">
+                                  <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                    <i className="fas fa-trophy mr-2 text-purple-400"></i>
+                                    Rangliste: Total
+                                  </h4>
+                                  
+                                  {/* Toggle buttons */}
+                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                    <button
+                                      onClick={() => setTotalSortMode('gesamt')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        totalSortMode === 'gesamt'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Gesamtdurchschnitt
+                                    </button>
+                                    <button
+                                      onClick={() => setTotalSortMode('einzelspiel')}
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        totalSortMode === 'einzelspiel'
+                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      }`}
+                                    >
+                                      Einzelspiel
+                                    </button>
+                                  </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                  {sortedBySingleTotal.slice(0, 10).map((p, idx) => (
-                                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                      <div className="flex items-center space-x-2 pb-0.5">
-                                        <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                        <button 
-                                          onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                          className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
-                                        >
-                                          <span>{p.playerName}</span>
-                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                        </button>
+                                  {totalSortMode === 'gesamt' ? (
+                                    sortedByCareerAverageTotal.slice(0, 10).map((p, idx) => {
+                                      const careerTotalAvg = p.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / p.gamesPlayed;
+                                      return (
+                                        <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                          <div className="flex items-center space-x-2 pb-0.5">
+                                            <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                            <button 
+                                              onClick={() => setSelectedPlayerForDetails(p.name)}
+                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            >
+                                              <span>{p.name}</span>
+                                              <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            </button>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="font-black text-sm text-purple-400">{careerTotalAvg.toFixed(2)}</span>
+                                            <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    sortedBySingleTotal.slice(0, 10).map((p, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                        <div className="flex items-center space-x-2 pb-0.5">
+                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                          <button 
+                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          >
+                                            <span>{p.playerName}</span>
+                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          </button>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(1)}</span>
+                                          <span className="block text-[8px] opacity-40">{p.avg.toFixed(1)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
+                                        </div>
                                       </div>
-                                      <div className="text-right">
-                                        <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(1)}</span>
-                                        <span className="block text-[8px] opacity-40">{p.avg.toFixed(1)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
-                                      </div>
-                                    </div>
-                                  ))}
+                                    ))
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1970,11 +2147,11 @@ const App: React.FC = () => {
 
                   // Default view for other modes (Speedwiegen, Teamwiegen)
                   // Let's find personal record of every player (best single-game average)
-                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string }> = {};
+                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string; levels?: number }> = {};
                   filtered.forEach(item => {
                     const existing = personalBests[item.playerName];
                     if (!existing || item.avg < existing.avg) {
-                      personalBests[item.playerName] = { avg: item.avg, schnaepse: item.schnaepse, date: item.date };
+                      personalBests[item.playerName] = { avg: item.avg, schnaepse: item.schnaepse, date: item.date, levels: item.levels };
                     }
                   });
 
@@ -2005,7 +2182,9 @@ const App: React.FC = () => {
                                 </div>
                                 <div className="text-right">
                                   <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(1)}g</span>
-                                  <span className="block text-[8px] opacity-40">{p.date}</span>
+                                  <span className="block text-[8px] opacity-40">
+                                    {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                  </span>
                                 </div>
                               </div>
                             ))}
@@ -2032,7 +2211,9 @@ const App: React.FC = () => {
                                   <span className="font-black text-sm text-indigo-400">
                                     {activeRecordsTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
                                   </span>
-                                  <span className="block text-[8px] opacity-40">{p.date}</span>
+                                  <span className="block text-[8px] opacity-40">
+                                    {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                  </span>
                                 </div>
                               </div>
                             ))}
@@ -2052,6 +2233,7 @@ const App: React.FC = () => {
                                 <th className="pb-2">Datum</th>
                                 <th className="pb-2">Spieler/Team</th>
                                 <th className="pb-2">Ø-Abstand</th>
+                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
                                 <th className="pb-2 text-right">{activeRecordsTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
                               </tr>
                             </thead>
@@ -2073,6 +2255,11 @@ const App: React.FC = () => {
                                     )}
                                   </td>
                                   <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
+                                  {activeRecordsTab === 'Speedwiegen' && (
+                                    <td className="py-2 text-indigo-400 font-bold">
+                                      {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
+                                    </td>
+                                  )}
                                   <td className="py-2 text-right font-black text-indigo-400">
                                     {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
                                   </td>

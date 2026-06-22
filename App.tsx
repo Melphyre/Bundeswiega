@@ -2221,10 +2221,11 @@ const App: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Complete Game History Log */}
+                      {/* Complete Game History Log / Ranking im Speedwiegen */}
                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                         <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                          <i className="fas fa-history mr-2 opacity-50"></i>Historie der Einträge (Letzte Spiele)
+                          <i className="fas fa-history mr-2 opacity-50"></i>
+                          {activeRecordsTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
                         </h4>
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
@@ -2235,36 +2236,47 @@ const App: React.FC = () => {
                                 <th className="pb-2">Ø-Abstand</th>
                                 {activeRecordsTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
                                 <th className="pb-2 text-right">{activeRecordsTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
+                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2 text-right">Total</th>}
                               </tr>
                             </thead>
                             <tbody>
-                              {filtered.slice(0, 50).map((item, idx) => (
-                                <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
-                                  <td className="py-2 opacity-75 font-semibold">{item.date}</td>
-                                  <td className="py-2 font-black">
-                                    {activeRecordsTab === 'Standardspiel' ? (
-                                      <button 
-                                        onClick={() => setSelectedPlayerForDetails(item.playerName)}
-                                        className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center group"
-                                      >
-                                        <span>{item.playerName}</span>
-                                        <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                      </button>
-                                    ) : (
-                                      item.playerName
-                                    )}
-                                  </td>
-                                  <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
-                                  {activeRecordsTab === 'Speedwiegen' && (
-                                    <td className="py-2 text-indigo-400 font-bold">
-                                      {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
+                              {(() => {
+                                const displayList = activeRecordsTab === 'Speedwiegen'
+                                  ? [...filtered].sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse))
+                                  : filtered;
+                                return displayList.slice(0, 50).map((item, idx) => (
+                                  <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
+                                    <td className="py-2 opacity-75 font-semibold">{item.date}</td>
+                                    <td className="py-2 font-black">
+                                      {activeRecordsTab === 'Standardspiel' ? (
+                                        <button 
+                                          onClick={() => setSelectedPlayerForDetails(item.playerName)}
+                                          className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                        >
+                                          <span>{item.playerName}</span>
+                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                        </button>
+                                      ) : (
+                                        item.playerName
+                                      )}
                                     </td>
-                                  )}
-                                  <td className="py-2 text-right font-black text-indigo-400">
-                                    {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
-                                  </td>
-                                </tr>
-                              ))}
+                                    <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(1)}g</td>
+                                    {activeRecordsTab === 'Speedwiegen' && (
+                                      <td className="py-2 text-indigo-400 font-bold">
+                                        {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
+                                      </td>
+                                    )}
+                                    <td className="py-2 text-right font-black text-indigo-400">
+                                      {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
+                                    </td>
+                                    {activeRecordsTab === 'Speedwiegen' && (
+                                      <td className="py-2 text-right font-black text-purple-400">
+                                        {(item.avg + item.schnaepse).toFixed(2)}
+                                      </td>
+                                    )}
+                                  </tr>
+                                ));
+                              })()}
                             </tbody>
                           </table>
                         </div>

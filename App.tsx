@@ -2451,12 +2451,8 @@ const App: React.FC = () => {
                       }
                     });
 
-                    // Sort: Unlocked first (by number of awards descending), then locked
-                    const sortedGroups = [...allGroups].sort((a, b) => {
-                      if (a.awards.length > 0 && b.awards.length === 0) return -1;
-                      if (a.awards.length === 0 && b.awards.length > 0) return 1;
-                      return b.awards.length - a.awards.length;
-                    });
+                    // Sort unlocked groups by number of awards descending
+                    const sortedUnlockedGroups = [...unlockedGroups].sort((a, b) => b.awards.length - a.awards.length);
 
                     return (
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
@@ -2494,43 +2490,46 @@ const App: React.FC = () => {
                         </div>
 
                         {/* Achievements Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {sortedGroups.map(ach => {
-                            const isUnlocked = ach.awards.length > 0;
-                            const rarityBadge = {
-                              common: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-                              rare: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-                              epic: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-                              legendary: "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                            }[ach.rarity] || "bg-gray-500/20 text-gray-400 border-gray-500/30";
+                        {sortedUnlockedGroups.length === 0 ? (
+                          <div className="p-12 text-center opacity-60">
+                            <i className="fas fa-trophy text-5xl mb-4 block text-amber-500/50"></i>
+                            <p className="font-bold text-lg">Noch keine Achievements freigeschaltet</p>
+                            <p className="text-xs mt-2">Erreiche besondere Meilensteine im Spiel, um Achievements freizuschalten.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {sortedUnlockedGroups.map(ach => {
+                              const rarityBadge = {
+                                common: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+                                rare: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+                                epic: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+                                legendary: "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                              }[ach.rarity] || "bg-gray-500/20 text-gray-400 border-gray-500/30";
 
-                            return (
-                              <div 
-                                key={ach.id} 
-                                className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
-                                  isUnlocked 
-                                    ? (darkMode ? 'bg-slate-900/70 border-slate-700' : 'bg-gray-50 border-gray-200')
-                                    : (darkMode ? 'bg-slate-900/20 border-slate-800 opacity-50' : 'bg-gray-100/50 border-gray-200 opacity-50')
-                                }`}
-                              >
-                                <div>
-                                  <div className="flex items-start space-x-3">
-                                    <div className="text-3xl p-3 rounded-xl bg-black/10 flex items-center justify-center min-w-[50px]">
-                                      {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
-                                    </div>
-                                    <div className="flex-1">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <h4 className="font-black text-sm">{ach.title}</h4>
-                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${rarityBadge}`}>
-                                          {ach.rarity}
-                                        </span>
+                              return (
+                                <div 
+                                  key={ach.id} 
+                                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
+                                    darkMode ? 'bg-slate-900/70 border-slate-700' : 'bg-gray-50 border-gray-200'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="flex items-start space-x-3">
+                                      <div className="text-3xl p-3 rounded-xl bg-black/10 flex items-center justify-center min-w-[50px]">
+                                        {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
                                       </div>
-                                      <p className="text-xs opacity-70 mt-1">{ach.description}</p>
+                                      <div className="flex-1">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <h4 className="font-black text-sm">{ach.title}</h4>
+                                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${rarityBadge}`}>
+                                            {ach.rarity}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs opacity-70 mt-1">{ach.description}</p>
+                                      </div>
                                     </div>
-                                  </div>
 
-                                  {/* List of Awards */}
-                                  {isUnlocked ? (
+                                    {/* List of Awards */}
                                     <div className="mt-3 pt-3 border-t border-gray-500/10 space-y-1.5">
                                       <div className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Erhalten von:</div>
                                       {ach.awards.map((aw, awIdx) => (
@@ -2557,16 +2556,12 @@ const App: React.FC = () => {
                                         </div>
                                       ))}
                                     </div>
-                                  ) : (
-                                    <div className="mt-3 pt-2 border-t border-gray-500/10 text-[11px] opacity-40 italic flex items-center gap-1">
-                                      <i className="fas fa-lock text-[10px]"></i> Noch nicht freigeschaltet
-                                    </div>
-                                  )}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   }

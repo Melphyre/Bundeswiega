@@ -61,6 +61,23 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common' },
 ];
 
+export function getTeamAlternatingPlayerSequence(teams: Team[]): Array<{ playerId: string; teamId: string }> {
+  const sequence: Array<{ playerId: string; teamId: string }> = [];
+  if (!teams || teams.length === 0) return sequence;
+  const maxTeamSize = Math.max(...teams.map(t => t.playerIds.length));
+  for (let m = 0; m < maxTeamSize; m++) {
+    for (let t = 0; t < teams.length; t++) {
+      if (m < teams[t].playerIds.length) {
+        sequence.push({
+          playerId: teams[t].playerIds[m],
+          teamId: teams[t].id
+        });
+      }
+    }
+  }
+  return sequence;
+}
+
 export const checkAchievements = (
   players: Player[],
   rounds: Round[],
@@ -68,6 +85,7 @@ export const checkAchievements = (
   isEndOfGame: boolean = false,
   previouslyEarned: Achievement[] = []
 ): Achievement[] => {
+  if (teams && teams.length > 0) return [];
   if (!players || players.length === 0 || !rounds || rounds.length === 0) {
     return [];
   }
@@ -765,6 +783,8 @@ const App: React.FC = () => {
   const [teamCount, setTeamCount] = useState(2);
   const [teamSizes, setTeamSizes] = useState<Record<number, number>>({ 1: 2, 2: 2 });
   const [activeTeamIndex, setActiveTeamIndex] = useState(0);
+  const [showStartPlayerModal, setShowStartPlayerModal] = useState(false);
+  const [teamStepIndex, setTeamStepIndex] = useState(0);
   
   const rankingAreaRef = useRef<HTMLDivElement>(null);
   const roundsAreaRef = useRef<HTMLDivElement>(null);
@@ -899,7 +919,16 @@ const App: React.FC = () => {
     }
     const updatedPlayers = players.map((p, i) => ({ ...p, startWeight: numericWeights[i] }));
     setPlayers(updatedPlayers);
-    setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
+
+    // Pick random start player before first target weight
+    const active = updatedPlayers.filter(p => !p.isDisqualified);
+    if (active.length > 0) {
+      const randomIndex = Math.floor(Math.random() * active.length);
+      setAnnouncingPlayerIndex(randomIndex);
+      setShowStartPlayerModal(true);
+    } else {
+      setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
+    }
   };
 
   const handleTargetWeightConfirm = (customTarget?: number) => {
@@ -938,6 +967,7 @@ const App: React.FC = () => {
     setRounds([...rounds, { targetWeight: target, results: {}, announcingPlayerId: currentAnnouncer?.id }]);
     setCurrentRoundResults({});
     setNextTargetInput('');
+    setTeamStepIndex(0);
     setGameState(teams.length > 0 ? GameState.TEAM_GAMEPLAY : GameState.GAMEPLAY);
   };
 
@@ -1018,25 +1048,27 @@ const App: React.FC = () => {
     }
 
     // Check achievements for intermediate round
-    const newAch = checkAchievements(updatedPlayers, updatedRounds, teams, currentRound.isFinal || false, earnedAchievements);
-    if (newAch && newAch.length > 0) {
-      setNewlyEarnedAchievements(newAch);
-      setEarnedAchievements(prev => {
-        const updated = [...prev];
-        newAch.forEach(ach => {
-          const existing = updated.find(a => a.id === ach.id);
-          if (existing) {
-            ach.earnedBy.forEach(name => {
-              if (!existing.earnedBy.includes(name)) {
-                existing.earnedBy.push(name);
-              }
-            });
-          } else {
-            updated.push({ ...ach });
-          }
+    if (teams.length === 0 && gameState !== GameState.SPEED_RESULT && gameState !== GameState.SPEED_GAMEPLAY) {
+      const newAch = checkAchievements(updatedPlayers, updatedRounds, teams, currentRound.isFinal || false, earnedAchievements);
+      if (newAch && newAch.length > 0) {
+        setNewlyEarnedAchievements(newAch);
+        setEarnedAchievements(prev => {
+          const updated = [...prev];
+          newAch.forEach(ach => {
+            const existing = updated.find(a => a.id === ach.id);
+            if (existing) {
+              ach.earnedBy.forEach(name => {
+                if (!existing.earnedBy.includes(name)) {
+                  existing.earnedBy.push(name);
+                }
+              });
+            } else {
+              updated.push({ ...ach });
+            }
+          });
+          return updated;
         });
-        return updated;
-      });
+      }
     }
 
     setAnnouncingPlayerIndex(prev => prev + 1);
@@ -1063,26 +1095,28 @@ const App: React.FC = () => {
 
     if (rounds.length > 0 && rounds[rounds.length - 1].isFinal) {
       setGameState(GameState.RESULT_SCREEN);
-      const finalAch = checkAchievements(players, rounds, teams, true, earnedAchievements);
-      if (finalAch && finalAch.length > 0) {
-        setNewlyEarnedAchievements(finalAch);
-        setEarnedAchievements(prev => {
-          const updated = [...prev];
-          finalAch.forEach(ach => {
-            const existing = updated.find(a => a.id === ach.id);
-            if (existing) {
-              ach.earnedBy.forEach(name => {
-                if (!existing.earnedBy.includes(name)) {
-                  existing.earnedBy.push(name);
-                }
-              });
-            } else {
-              updated.push({ ...ach });
-            }
+      if (teams.length === 0 && gameState !== GameState.SPEED_RESULT && gameState !== GameState.SPEED_GAMEPLAY) {
+        const finalAch = checkAchievements(players, rounds, teams, true, earnedAchievements);
+        if (finalAch && finalAch.length > 0) {
+          setNewlyEarnedAchievements(finalAch);
+          setEarnedAchievements(prev => {
+            const updated = [...prev];
+            finalAch.forEach(ach => {
+              const existing = updated.find(a => a.id === ach.id);
+              if (existing) {
+                ach.earnedBy.forEach(name => {
+                  if (!existing.earnedBy.includes(name)) {
+                    existing.earnedBy.push(name);
+                  }
+                });
+              } else {
+                updated.push({ ...ach });
+              }
+            });
+            return updated;
           });
-          return updated;
-        });
-        setShowAchievements(true);
+          setShowAchievements(true);
+        }
       }
     } else if (!disqualifiedNotice) {
       triggerNextStep();
@@ -1129,30 +1163,68 @@ const App: React.FC = () => {
     active.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
     
     if (teams.length > 0) {
-      let maxAbsOffset = -1;
-      let losingTeamId = "";
-      teams.forEach(t => {
-        let teamOffset = 0;
+      const teamEval = teams.map(t => {
+        let rawOffsetSum = 0;
         t.playerIds.forEach(pid => {
-          const p = players.find(px => px.id === pid);
-          if (p && !p.isDisqualified) {
-            const target = currentRound.individualTargets?.[pid] || 0;
-            teamOffset += (currentRound.results[pid] - target);
-          }
+          const target = currentRound.individualTargets?.[pid] || 0;
+          rawOffsetSum += (currentRound.results[pid] - target);
         });
-        if (Math.abs(teamOffset) > maxAbsOffset) {
-          maxAbsOffset = Math.abs(teamOffset);
-          losingTeamId = t.id;
+        const absDist = Math.abs(rawOffsetSum);
+        return { team: t, rawOffsetSum, absDist };
+      });
+
+      const absDists = teamEval.map(e => e.absDist);
+      const isAllTie = teams.length > 1 && absDists.every(d => d === absDists[0]);
+      const bullseyeTeams = teamEval.filter(e => e.absDist === 0);
+
+      const penaltyPoints: Record<string, number> = {};
+      teams.forEach(t => { penaltyPoints[t.id] = 0; });
+      const eventMessages: string[] = [];
+
+      if (isAllTie) {
+        eventMessages.push("🤝 Gleichstand! Keine Punkte in dieser Runde.");
+      } else {
+        const maxDist = Math.max(...absDists);
+        const worstTeams = teamEval.filter(e => e.absDist === maxDist);
+        worstTeams.forEach(wt => {
+          penaltyPoints[wt.team.id] += 1;
+          eventMessages.push(`🪨 ${wt.team.name} hat den größten Abstand (${wt.absDist}g) und erhält 1 Strafpunkt.`);
+        });
+
+        if (bullseyeTeams.length > 0) {
+          bullseyeTeams.forEach(be => {
+            eventMessages.push(`🎯 ${be.team.name} trifft exakt! Alle anderen Teams erhalten 1 zusätzlichen Strafpunkt!`);
+          });
+          teamEval.forEach(e => {
+            if (e.absDist > 0) {
+              penaltyPoints[e.team.id] += 1;
+            }
+          });
+        }
+      }
+
+      teamEval.forEach(e => {
+        if (SPECIAL_NUMBERS.includes(e.absDist)) {
+          penaltyPoints[e.team.id] += 1;
+          eventMessages.push(`🥂 ${e.team.name} hat eine Schnappszahl als Abstand (${e.absDist}g)! +1 Strafpunkt.`);
         }
       });
-      const updatedTeams = teams.map(t => t.id === losingTeamId ? { ...t, points: t.points + 1 } : t);
+
+      const updatedTeams = teams.map(t => ({
+        ...t,
+        points: t.points + (penaltyPoints[t.id] || 0)
+      }));
       setTeams(updatedTeams);
-      const summary = { 
-        furthestPlayers: [updatedTeams.find(t=>t.id===losingTeamId)?.name || ""], 
-        exactHits: [], 
-        specialHits: [], 
-        duplicates: [], 
-        pointsToAward: [] 
+
+      const summary = {
+        isTeamSummary: true,
+        teamEval,
+        eventMessages,
+        furthestPlayers: [],
+        exactHits: [],
+        specialHits: [],
+        duplicates: [],
+        pointsToAward: []
       };
       finishRoundLogic(players, updatedRounds, [], summary);
     } else {
@@ -1227,42 +1299,91 @@ const App: React.FC = () => {
     setGameState(GameState.TEAM_START_WEIGHTS);
   };
 
-  const handleTeamNextRound = () => {
-    const activeTeam = teams[activeTeamIndex];
-    if (!activeTeam.playerIds.every(pid => currentRoundResults[pid] && !isNaN(parseInt(currentRoundResults[pid])))) { 
-      alert("Bitte alle Gewichte eintragen."); 
-      return; 
+  const handleTeamNextStep = () => {
+    const sequence = getTeamAlternatingPlayerSequence(teams);
+    if (sequence.length === 0) return;
+
+    const stepItem = sequence[teamStepIndex];
+    const pid = stepItem?.playerId;
+
+    if (!pid || !currentRoundResults[pid] || isNaN(parseInt(currentRoundResults[pid]))) {
+      alert("Bitte Gewicht eintragen.");
+      return;
     }
 
-    if (activeTeamIndex < teams.length - 1) {
-      setActiveTeamIndex(activeTeamIndex + 1);
+    if (teamStepIndex < sequence.length - 1) {
+      setTeamStepIndex(teamStepIndex + 1);
       return;
     }
 
     // Evaluate whole round
     const updatedRounds = [...rounds];
     const currentRound = updatedRounds[updatedRounds.length - 1];
-    players.forEach(p => { currentRound.results[p.id] = parseInt(currentRoundResults[p.id]); });
+    players.forEach(p => {
+      currentRound.results[p.id] = parseInt(currentRoundResults[p.id]) || 0;
+    });
 
-    let maxAbsOffset = -1;
-    let losingTeamId = "";
-    teams.forEach(t => {
-      let teamOffset = 0;
-      t.playerIds.forEach(pid => {
-        teamOffset += (parseInt(currentRoundResults[pid]) - currentRound.targetWeight);
+    const targetWeight = currentRound.targetWeight;
+
+    const teamEval = teams.map(t => {
+      let rawOffsetSum = 0;
+      t.playerIds.forEach(pId => {
+        const val = currentRound.results[pId] || 0;
+        rawOffsetSum += (val - targetWeight);
       });
-      if (Math.abs(teamOffset) > maxAbsOffset) {
-        maxAbsOffset = Math.abs(teamOffset);
-        losingTeamId = t.id;
+      const absDist = Math.abs(rawOffsetSum);
+      return { team: t, rawOffsetSum, absDist };
+    });
+
+    const absDists = teamEval.map(e => e.absDist);
+    const isAllTie = teams.length > 1 && absDists.every(d => d === absDists[0]);
+    const bullseyeTeams = teamEval.filter(e => e.absDist === 0);
+
+    const penaltyPoints: Record<string, number> = {};
+    teams.forEach(t => { penaltyPoints[t.id] = 0; });
+    const eventMessages: string[] = [];
+
+    // 1. Gleichstand
+    if (isAllTie) {
+      eventMessages.push("🤝 Gleichstand! Keine Punkte in dieser Runde.");
+    } else {
+      // 2. Normaler Fall
+      const maxDist = Math.max(...absDists);
+      const worstTeams = teamEval.filter(e => e.absDist === maxDist);
+      worstTeams.forEach(wt => {
+        penaltyPoints[wt.team.id] += 1;
+        eventMessages.push(`🪨 ${wt.team.name} hat den größten Abstand (${wt.absDist}g) und erhält 1 Strafpunkt.`);
+      });
+
+      // 3. Volltreffer
+      if (bullseyeTeams.length > 0) {
+        bullseyeTeams.forEach(be => {
+          eventMessages.push(`🎯 ${be.team.name} trifft exakt! Alle anderen Teams erhalten 1 zusätzlichen Strafpunkt!`);
+        });
+        teamEval.forEach(e => {
+          if (e.absDist > 0) {
+            penaltyPoints[e.team.id] += 1;
+          }
+        });
+      }
+    }
+
+    // 4. Schnappszahl
+    teamEval.forEach(e => {
+      if (SPECIAL_NUMBERS.includes(e.absDist)) {
+        penaltyPoints[e.team.id] += 1;
+        eventMessages.push(`🥂 ${e.team.name} hat eine Schnappszahl als Abstand (${e.absDist}g)! +1 Strafpunkt.`);
       }
     });
 
-    const updatedTeams = teams.map(t => t.id === losingTeamId ? { ...t, points: t.points + 1 } : t);
+    const updatedTeams = teams.map(t => ({
+      ...t,
+      points: t.points + (penaltyPoints[t.id] || 0)
+    }));
+
     setTeams(updatedTeams);
-    setActiveTeamIndex(0);
-    
     setRounds(updatedRounds);
-    
+
     // Check for final round trigger
     const triggerThreshold = isShortMode ? 278 : 450;
     const minStart = Math.min(...players.map(p => p.startWeight));
@@ -1278,7 +1399,18 @@ const App: React.FC = () => {
       setTriggeringPlayers(triggers);
     }
 
-    setSummaryData({ furthestPlayers: [updatedTeams.find(t=>t.id===losingTeamId)?.name || ""], exactHits: [], specialHits: [], duplicates: [], pointsToAward: [] });
+    setAnnouncingPlayerIndex(prev => prev + 1);
+
+    setSummaryData({
+      isTeamSummary: true,
+      teamEval,
+      eventMessages,
+      furthestPlayers: [],
+      exactHits: [],
+      specialHits: [],
+      duplicates: [],
+      pointsToAward: []
+    });
     setShowSummary(true);
   };
 
@@ -1674,7 +1806,16 @@ const App: React.FC = () => {
 
         {gameState === GameState.TEAM_ROUND_TARGET && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
-            <h2 className="text-3xl font-black mb-6">Team-Ziel</h2>
+            <h2 className="text-3xl font-black mb-4">Team-Ziel</h2>
+            {(() => {
+              const activePlayers = players.filter(p => !p.isDisqualified);
+              const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
+              return currentAnnouncer ? (
+                <div className="mb-6 p-3 rounded-2xl border-2 font-black text-sm flex items-center justify-center space-x-2 shadow-sm" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` }}>
+                  <span>🎙️ {currentAnnouncer.name} sagt das Zielgewicht an</span>
+                </div>
+              ) : null;
+            })()}
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
             <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
               {players.map(p => (
@@ -1698,61 +1839,140 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {gameState === GameState.TEAM_GAMEPLAY && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl text-center">
-            <h2 className="text-2xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Runde {rounds.length}</h2>
-            <h3 className="text-4xl font-black mb-8 italic">{teams[activeTeamIndex].name}</h3>
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              {teams[activeTeamIndex].playerIds.map(pid => {
-                const p = players.find(px => px.id === pid);
-                const val = parseInt(currentRoundResults[pid]);
-                const target = rounds[rounds.length - 1].targetWeight;
-                const diff = !isNaN(val) ? val - target : null;
-                const currentWeight = rounds.length > 1 ? rounds[rounds.length - 2].results[pid] : p?.startWeight;
-                return (
-                  <div key={pid}>
-                    <label className="block text-xs font-bold opacity-50 uppercase mb-1">{p?.name}</label>
-                    <div className="text-[10px] opacity-40 mb-1 font-bold">Aktuell: {currentWeight}g</div>
-                    <input 
-                      type="number" 
-                      min="0" 
-                      max="999" 
-                      value={currentRoundResults[pid] || ''} 
-                      onChange={e => setCurrentRoundResults({...currentRoundResults, [pid]: e.target.value.slice(0, 3)})} 
-                      className="w-full p-4 rounded-xl border-2 bg-transparent text-center font-black text-2xl" 
-                      placeholder="g" 
-                    />
-                    {diff !== null && (
-                      <div className={`mt-1 font-black text-lg ${diff > 0 ? 'text-emerald-500' : diff < 0 ? 'text-red-500' : 'opacity-50'}`}>
-                        {diff > 0 ? `+${diff}` : diff}g
-                      </div>
-                    )}
+        {gameState === GameState.TEAM_GAMEPLAY && (() => {
+          const sequence = getTeamAlternatingPlayerSequence(teams);
+          if (sequence.length === 0) return null;
+          const safeStepIndex = Math.min(teamStepIndex, sequence.length - 1);
+          const stepItem = sequence[safeStepIndex];
+          const currentPlayer = players.find(p => p.id === stepItem.playerId);
+          const currentTeam = teams.find(t => t.id === stepItem.teamId);
+          const teamIdx = teams.findIndex(t => t.id === stepItem.teamId);
+          const teamColor = PLAYER_COLORS[teamIdx % PLAYER_COLORS.length];
+
+          const currentRound = rounds[rounds.length - 1];
+          const targetWeight = currentRound ? currentRound.targetWeight : 0;
+
+          let teamTotalOffset = 0;
+          if (currentTeam) {
+            currentTeam.playerIds.forEach(pid => {
+              const rawVal = currentRoundResults[pid];
+              if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
+                teamTotalOffset += (parseInt(rawVal) - targetWeight);
+              }
+            });
+          }
+
+          let prevMembersOffset = 0;
+          if (currentTeam && currentPlayer) {
+            currentTeam.playerIds.forEach(pid => {
+              if (pid !== currentPlayer.id) {
+                const rawVal = currentRoundResults[pid];
+                if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
+                  prevMembersOffset += (parseInt(rawVal) - targetWeight);
+                }
+              }
+            });
+          }
+          const compensationWeight = targetWeight - prevMembersOffset;
+
+          const currentWeight = rounds.length > 1
+            ? rounds[rounds.length - 2].results[currentPlayer?.id || '']
+            : currentPlayer?.startWeight;
+
+          return (
+            <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-lg text-center space-y-6">
+              {/* Standings bar (Zwischenstand) */}
+              <div className={`w-full p-3 rounded-2xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border flex items-center justify-around text-xs font-bold`}>
+                {teams.map((t, idx) => (
+                  <div key={t.id} className="flex items-center space-x-1.5">
+                    <span style={{ color: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}>{t.name}:</span>
+                    <span className="font-black text-amber-500">{t.points} Pkt</span>
                   </div>
-                );
-              })}
-            </div>
-            {(() => {
-              const target = rounds[rounds.length - 1].targetWeight;
-              const teamSumDiff = teams[activeTeamIndex].playerIds.reduce((acc, pid) => {
-                const val = parseInt(currentRoundResults[pid]);
-                return acc + (!isNaN(val) ? val - target : 0);
-              }, 0);
-              const allEntered = teams[activeTeamIndex].playerIds.every(pid => !isNaN(parseInt(currentRoundResults[pid])));
-              if (!allEntered && teamSumDiff === 0) return null;
-              return (
-                <div className={`mb-8 p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border-2 ${teamSumDiff > 0 ? 'border-emerald-500/30' : teamSumDiff < 0 ? 'border-red-500/30' : 'border-white/10'}`}>
-                  <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Team-Gesamtabstand</p>
-                  <p className={`text-3xl font-black ${teamSumDiff > 0 ? 'text-emerald-500' : teamSumDiff < 0 ? 'text-red-500' : ''}`}>
-                    {teamSumDiff > 0 ? `+${teamSumDiff}` : teamSumDiff}g
+                ))}
+              </div>
+
+              {/* Prominent Target Weight */}
+              <div>
+                <div className="text-xs font-black uppercase tracking-widest opacity-50 mb-1" style={{ color: BRAND_COLOR }}>
+                  Runde {rounds.length}
+                </div>
+                <div className="text-3xl font-black flex items-center justify-center space-x-2">
+                  <span>🎯 Zielgewicht:</span>
+                  <span style={{ color: BRAND_COLOR }}>{targetWeight}g</span>
+                </div>
+              </div>
+
+              {/* Current Step Input Card */}
+              <div className={`p-6 rounded-2xl border-2 text-left space-y-4 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`} style={{ borderColor: teamColor }}>
+                <div className="flex items-center justify-between">
+                  <span className="px-3 py-1 rounded-full text-xs font-black text-white" style={{ backgroundColor: teamColor }}>
+                    {currentTeam?.name}
+                  </span>
+                  <span className="text-xs opacity-50 font-bold">
+                    Schritt {safeStepIndex + 1} von {sequence.length}
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-black">{currentPlayer?.name}</h3>
+                  <p className="text-xs opacity-50 font-bold">Aktueller Füllstand: {currentWeight}g</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold opacity-50 uppercase mb-1">Gewicht eingeben (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    value={currentPlayer ? (currentRoundResults[currentPlayer.id] || '') : ''}
+                    onChange={e => {
+                      if (currentPlayer) {
+                        setCurrentRoundResults({ ...currentRoundResults, [currentPlayer.id]: e.target.value.slice(0, 3) });
+                      }
+                    }}
+                    className="w-full p-4 rounded-xl border-2 bg-transparent text-center font-black text-3xl"
+                    style={{ borderColor: BRAND_COLOR }}
+                    placeholder="g"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Current Team Total Distance */}
+                <div className={`p-3 rounded-xl ${darkMode ? 'bg-black/20' : 'bg-white/50'} text-center border`}>
+                  <p className="text-[10px] font-bold opacity-50 uppercase mb-0.5">Aktueller Team-Gesamtabstand</p>
+                  <p className={`text-xl font-black ${teamTotalOffset > 0 ? 'text-emerald-500' : teamTotalOffset < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                    {teamTotalOffset > 0 ? `+${teamTotalOffset}g` : teamTotalOffset < 0 ? `${teamTotalOffset}g` : '+0'}
                   </p>
                 </div>
-              );
-            })()}
-            <button onClick={handleTeamNextRound} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>
-              {activeTeamIndex < teams.length - 1 ? 'Nächstes Team' : 'Runde auswerten'}
-            </button>
-          </div>
-        )}
+
+                {/* Compensation Hint */}
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold text-xs flex items-center justify-center space-x-2">
+                  <span>💡 Um auszugleichen:</span>
+                  <span className="font-black text-sm">{compensationWeight}g</span>
+                </div>
+              </div>
+
+              {/* Navigation Buttons */}
+              <div className="flex space-x-3">
+                {safeStepIndex > 0 && (
+                  <button
+                    onClick={() => setTeamStepIndex(safeStepIndex - 1)}
+                    className="w-1/3 py-4 rounded-2xl border-2 font-bold opacity-70 active:scale-95 text-sm"
+                  >
+                    Zurück
+                  </button>
+                )}
+                <button
+                  onClick={handleTeamNextStep}
+                  className="flex-1 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 text-lg"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  {safeStepIndex < sequence.length - 1 ? 'Nächster Spieler' : 'Runde auswerten'}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* SPEEDWIEGEN SCREENS */}
         {gameState === GameState.SPEED_SETUP && (
@@ -1990,13 +2210,13 @@ const App: React.FC = () => {
                    <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
                      <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Team-Ranking</h3>
                      <table className="w-full text-left">
-                        <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Schnäpse</th></tr></thead>
+                        <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Strafpunkte</th></tr></thead>
                         <tbody>
-                          {teams.sort((a,b) => b.points - a.points).map((t, idx) => (
+                          {teams.slice().sort((a,b) => a.points - b.points).map((t, idx) => (
                             <tr key={t.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
-                              <td className="py-4 font-black">{idx+1}</td>
-                              <td className="py-4 font-black">{t.name}</td>
-                              <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{t.points}</td>
+                              <td className="py-4 font-black">{idx === 0 ? '🏆 #1' : `#${idx+1}`}</td>
+                              <td className="py-4 font-black" style={{ color: PLAYER_COLORS[teams.indexOf(t) % PLAYER_COLORS.length] }}>{t.name}</td>
+                              <td className="text-center font-black text-amber-500 text-lg">{t.points} Pkt</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2028,17 +2248,75 @@ const App: React.FC = () => {
                );
              })()}
 
-             {rounds.length > 0 && (
-               <div ref={roundsAreaRef} className="w-full">
-                 <h3 className="text-xl font-black mb-4 uppercase ml-2 flex items-center"><i className="fas fa-table mr-3 opacity-40"></i>Spieltabelle</h3>
-                 <GameTable 
-                   players={players} 
-                   rounds={rounds} 
-                   darkMode={darkMode} 
-                   currentRoundResults={currentRoundResults} 
-                   setCurrentRoundResults={setCurrentRoundResults} 
-                 />
+             {teams.length > 0 ? (
+               <div ref={roundsAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl w-full`}>
+                 <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-table mr-3 opacity-40"></i>Rundenübersicht pro Team</h3>
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left border-collapse">
+                     <thead>
+                       <tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}>
+                         <th className="pb-3 px-2">Runde</th>
+                         {teams.map((t, idx) => (
+                           <th key={t.id} className="pb-3 px-2 text-center" style={{ color: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}>
+                             {t.name}
+                           </th>
+                         ))}
+                       </tr>
+                     </thead>
+                     <tbody>
+                       {rounds.map((r, rIdx) => {
+                         const teamOffsets = teams.map(t => {
+                           let sum = 0;
+                           t.playerIds.forEach(pid => {
+                             const val = r.results[pid] || 0;
+                             const target = r.isFinal ? (r.individualTargets?.[pid] || 0) : r.targetWeight;
+                             sum += (val - target);
+                           });
+                           return { teamId: t.id, sum, absDist: Math.abs(sum) };
+                         });
+
+                         const absDists = teamOffsets.map(o => o.absDist);
+                         const isTieRound = teams.length > 1 && absDists.every(d => d === absDists[0]);
+
+                         return (
+                           <tr key={rIdx} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                             <td className="py-3 px-2 font-black text-sm opacity-70">
+                               {r.isFinal ? 'Finale' : `#${rIdx + 1}`}
+                             </td>
+                             {teamOffsets.map((o) => {
+                               const offsetStr = o.sum > 0 ? `+${o.sum}g` : `${o.sum}g`;
+                               const isBullseye = o.absDist === 0;
+                               const isSchnapps = SPECIAL_NUMBERS.includes(o.absDist);
+
+                               return (
+                                 <td key={o.teamId} className="py-3 px-2 text-center font-black text-sm whitespace-nowrap">
+                                   <span>{offsetStr}</span>
+                                   {isBullseye && <span className="ml-1" title="Volltreffer">🎯</span>}
+                                   {isSchnapps && <span className="ml-1" title="Schnappszahl">🥂</span>}
+                                   {isTieRound && <span className="ml-1" title="Gleichstand">🤝</span>}
+                                 </td>
+                               );
+                             })}
+                           </tr>
+                         );
+                       })}
+                     </tbody>
+                   </table>
+                 </div>
                </div>
+             ) : (
+               rounds.length > 0 && (
+                 <div ref={roundsAreaRef} className="w-full">
+                   <h3 className="text-xl font-black mb-4 uppercase ml-2 flex items-center"><i className="fas fa-table mr-3 opacity-40"></i>Spieltabelle</h3>
+                   <GameTable 
+                     players={players} 
+                     rounds={rounds} 
+                     darkMode={darkMode} 
+                     currentRoundResults={currentRoundResults} 
+                     setCurrentRoundResults={setCurrentRoundResults} 
+                   />
+                 </div>
+               )
              )}
 
               <div className="grid grid-cols-2 gap-3 px-2">
@@ -2094,34 +2372,110 @@ const App: React.FC = () => {
       </footer>
 
       {/* --- MODALS --- */}
+      {showStartPlayerModal && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-w-md w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
+            <div className="text-5xl mb-4 animate-bounce">🎲</div>
+            {(() => {
+              const active = players.filter(p => !p.isDisqualified);
+              const announcer = active.length > 0 ? active[announcingPlayerIndex % active.length] : null;
+              const announcerName = announcer ? announcer.name : 'Spieler';
+              return (
+                <>
+                  <h3 className="text-2xl font-black mb-2" style={{ color: BRAND_COLOR }}>
+                    {announcerName} fängt an!
+                  </h3>
+                  <p className="text-sm font-bold opacity-70 mb-8">
+                    {announcerName} bestimmt das erste Zielgewicht.
+                  </p>
+                </>
+              );
+            })()}
+            <button
+              onClick={() => {
+                setShowStartPlayerModal(false);
+                setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
+              }}
+              className="w-full text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 text-lg uppercase"
+              style={{ backgroundColor: BRAND_COLOR }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
       {showSummary && summaryData && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white'}`}>
-            <h3 className="text-3xl font-black mb-8 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenergebnis</h3>
-            <div className="space-y-4">
-              <div className="p-4 rounded-2xl border bg-red-500/10 flex items-center">
-                <i className="fas fa-skull text-red-500 mr-4 text-xl"></i>
-                <div><p className="text-[10px] font-bold opacity-50 uppercase">{teams.length ? 'Verlierer Team' : 'Größter Abstand'}</p><p className="text-lg font-black">{summaryData.furthestPlayers.join(' & ')}</p></div>
+          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
+            <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenergebnis</h3>
+
+            {summaryData.isTeamSummary ? (
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <p className="text-xs font-bold opacity-50 uppercase tracking-widest">Team-Ergebnisse dieser Runde</p>
+                  {summaryData.teamEval?.map((e: any, idx: number) => (
+                    <div key={e.team.id} className={`p-4 rounded-2xl border flex items-center justify-between ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                      <div>
+                        <span className="font-black text-sm" style={{ color: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}>{e.team.name}</span>
+                        <p className="text-xs opacity-60">Abstand: {e.rawOffsetSum > 0 ? `+${e.rawOffsetSum}` : e.rawOffsetSum}g</p>
+                      </div>
+                      <div className="text-right font-black text-lg">
+                        {e.absDist}g
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {summaryData.eventMessages && summaryData.eventMessages.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold opacity-50 uppercase tracking-widest">Ereignisse</p>
+                    {summaryData.eventMessages.map((msg: string, idx: number) => (
+                      <div key={idx} className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 font-bold text-sm flex items-center space-x-3">
+                        <span>{msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="p-4 rounded-2xl border bg-brand/10 border-brand/30">
+                  <p className="text-xs font-bold opacity-50 uppercase tracking-widest mb-2">Aktueller Punktestand (Strafpunkte)</p>
+                  <div className="grid grid-cols-2 gap-2 text-sm font-black">
+                    {teams.map((t, idx) => (
+                      <div key={t.id} className="flex justify-between items-center p-2 rounded-xl bg-black/10">
+                        <span style={{ color: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}>{t.name}</span>
+                        <span className="text-amber-500">{t.points} Pkt</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              {!teams.length && summaryData.exactHits.length > 0 && (
-                <div className="p-4 rounded-2xl border bg-emerald-500/10 flex items-center">
-                  <i className="fas fa-bullseye text-emerald-500 mr-4 text-xl"></i>
-                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Volltreffer!</p><p className="text-lg font-black">{summaryData.exactHits.join(', ')}</p></div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl border bg-red-500/10 flex items-center">
+                  <i className="fas fa-skull text-red-500 mr-4 text-xl"></i>
+                  <div><p className="text-[10px] font-bold opacity-50 uppercase">{teams.length ? 'Verlierer Team' : 'Größter Abstand'}</p><p className="text-lg font-black">{summaryData.furthestPlayers?.join(' & ')}</p></div>
                 </div>
-              )}
-              {!teams.length && summaryData.specialHits.length > 0 && (
-                <div className="p-4 rounded-2xl border bg-amber-500/10 flex items-center">
-                  <span className="text-2xl mr-4">🥂</span>
-                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Schnappszahl!</p><p className="text-sm font-black">{summaryData.specialHits.map((s:any)=>`${s.playerName} (${s.value}g)`).join(', ')}</p></div>
-                </div>
-              )}
-              {!teams.length && summaryData.duplicates.length > 0 && (
-                <div className="p-4 rounded-2xl border bg-indigo-500/10 flex items-center">
-                  <i className="fas fa-clone text-indigo-500 mr-4 text-xl"></i>
-                  <div><p className="text-[10px] font-bold opacity-50 uppercase">Wiegezwillinge!</p><p className="text-sm font-black">{summaryData.duplicates.map((d:any)=>`${d.playerNames.join(' & ')} (${d.weight}g)`).join(', ')}</p></div>
-                </div>
-              )}
-            </div>
+                {!teams.length && summaryData.exactHits?.length > 0 && (
+                  <div className="p-4 rounded-2xl border bg-emerald-500/10 flex items-center">
+                    <i className="fas fa-bullseye text-emerald-500 mr-4 text-xl"></i>
+                    <div><p className="text-[10px] font-bold opacity-50 uppercase">Volltreffer!</p><p className="text-lg font-black">{summaryData.exactHits.join(', ')}</p></div>
+                  </div>
+                )}
+                {!teams.length && summaryData.specialHits?.length > 0 && (
+                  <div className="p-4 rounded-2xl border bg-amber-500/10 flex items-center">
+                    <span className="text-2xl mr-4">🥂</span>
+                    <div><p className="text-[10px] font-bold opacity-50 uppercase">Schnappszahl!</p><p className="text-sm font-black">{summaryData.specialHits.map((s:any)=>`${s.playerName} (${s.value}g)`).join(', ')}</p></div>
+                  </div>
+                )}
+                {!teams.length && summaryData.duplicates?.length > 0 && (
+                  <div className="p-4 rounded-2xl border bg-indigo-500/10 flex items-center">
+                    <i className="fas fa-clone text-indigo-500 mr-4 text-xl"></i>
+                    <div><p className="text-[10px] font-bold opacity-50 uppercase">Wiegezwillinge!</p><p className="text-sm font-black">{summaryData.duplicates.map((d:any)=>`${d.playerNames.join(' & ')} (${d.weight}g)`).join(', ')}</p></div>
+                  </div>
+                )}
+              </div>
+            )}
             <button onClick={handleModalSequence} className="w-full mt-10 text-white font-black py-5 rounded-2xl shadow-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Weiter</button>
           </div>
         </div>

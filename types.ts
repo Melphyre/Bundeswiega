@@ -7,6 +7,33 @@ export interface Player {
   isDisqualified?: boolean;
 }
 
+export interface Achievement {
+  id: string;          // z.B. "sharpshooter"
+  title: string;       // z.B. "Scharfschütze"
+  description: string; // z.B. "3x hintereinander unter 5g Abstand"
+  icon: string;        // Emoji oder FontAwesome-Klasse
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  earnedBy: string[];  // Spielernamen die es bekommen haben
+  earnedTogether?: boolean; // true wenn als Gruppe/Zusammenspiel erlangt
+}
+
+export interface ParsedRecord {
+  gameMode: string;
+  playerName: string;
+  date: string;
+  avg: number;
+  schnaepse: number;
+  levels?: number;
+  achievements?: Array<{
+    id: string;
+    title: string;
+    icon: string;
+    rarity: string;
+    earnedBy: string[];
+    earnedTogether?: boolean;
+  }>;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -19,6 +46,7 @@ export interface Round {
   individualTargets?: Record<string, number>; // For the final round (estimated empty weights)
   results: Record<string, number>; // playerId -> weight in grams
   isFinal?: boolean;
+  announcingPlayerId?: string;
 }
 
 export enum GameState {

@@ -1,10 +1,510 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GameState, Player, Round, Team } from './types';
-import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS } from './utils';
+import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
+import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS } from './utils';
 
 /**
  * 1. BUNDESWIEGA - Das ultimative Wiegen-Spiel
  */
+
+export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  earnedTogether?: boolean;
+}> = [
+  // Präzision
+  { id: 'sharpshooter', title: 'Scharfschütze', description: '3x hintereinander unter 5g Abstand', icon: '🎯', rarity: 'rare' },
+  { id: 'bullseye_king', title: 'Volltreffer-König', description: '3x Volltreffer (exakt 0g Abstand) in einem Spiel', icon: '👑', rarity: 'epic' },
+  { id: 'millimeter', title: 'Millimeterarbeit', description: 'Durchschnittsabstand unter 3,5g', icon: '🔬', rarity: 'rare' },
+  { id: 'perfect_balance', title: 'Die Waage', description: 'Durchschnittsabstand exakt 0g (jede Runde Volltreffer)', icon: '⚖️', rarity: 'legendary' },
+  { id: 'drop_by_drop', title: 'Tropfen für Tropfen', description: 'Nie mehr als 5g Abstand in einer Runde gehabt', icon: '💧', rarity: 'rare' },
+  { id: 'perfectionist', title: 'Perfektionist', description: '0 Strafpunkte im gesamten Spiel', icon: '✨', rarity: 'epic' },
+  { id: 'poker_face', title: 'Poker Face', description: 'In 3 aufeinanderfolgenden Runden exakt denselben Abstand (±1g)', icon: '🃏', rarity: 'rare' },
+
+  // Straf-Achievements
+  { id: 'lead_hand', title: 'Bleihand', description: 'In jeder Runde den größten Abstand gehabt', icon: '🪨', rarity: 'common' },
+  { id: 'schnaepse_king', title: 'Schnäpse-König', description: 'Die meiste Strafpunkte im Spiel', icon: '🍺', rarity: 'common' },
+  { id: 'catastrophe', title: 'Katastrophe', description: 'Einmal mehr als 35g Abstand gehabt', icon: '💥', rarity: 'common' },
+  { id: 'consistently_bad', title: 'Noch kein Meister vom Himmel gefallen', description: 'Abstand in jeder Runde zwischen 15g und 25g', icon: '📉', rarity: 'common' },
+  { id: 'unlucky_bird', title: 'Unglücksvogel', description: 'Nie den größten Abstand, aber trotzdem ≥5 Strafpunkte', icon: '🐦', rarity: 'rare' },
+  { id: 'eternal_second', title: 'Ewiger Zweiter', description: 'In jeder Runde den zweitkleinsten Abstand gehabt', icon: '🥈', rarity: 'common' },
+
+  // Spezial-Achievements
+  { id: 'twins', title: 'Zwillinge', description: 'Zwei Spieler mit exakt demselben Gewicht in 3+ Runden', icon: '👯', rarity: 'rare', earnedTogether: true },
+  { id: 'doppelganger', title: 'Doppelgänger', description: 'Dasselbe Spielerpaar mit exakt demselben Gewicht in 3+ Runden', icon: '👤', rarity: 'epic', earnedTogether: true },
+  { id: 'schnapps_hunter', title: 'Schnappszahl-Jäger', description: 'In einem Spiel 2+ Schnappszahlen getroffen', icon: '🎯', rarity: 'rare' },
+  { id: 'triple_seven', title: '777', description: 'Exakt 77g in einer Runde getroffen', icon: '🎰', rarity: 'epic' },
+  { id: 'mirror_number', title: 'Spiegelzahl', description: 'Zwei Spieler mit gespiegelten Gewichten in einer Runde', icon: '🪞', rarity: 'epic', earnedTogether: true },
+  { id: 'round_number', title: 'Runde Sache', description: 'Exakt 100g, 200g oder 300g getroffen', icon: '🔵', rarity: 'common' },
+  { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common' },
+  { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare' },
+  { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedTogether: true },
+
+  // Verlaufs-Achievements
+  { id: 'rising_star', title: 'Aufsteiger', description: 'Abstand in jeder Runde kleiner als in der vorherigen', icon: '📈', rarity: 'rare' },
+  { id: 'falling_star', title: 'Absteiger', description: 'Abstand in jeder Runde größer als in der vorherigen', icon: '📉', rarity: 'common' },
+  { id: 'rollercoaster', title: 'Achterbahn', description: 'Abwechselnd bester und schlechtester Spieler in ≥4 Runden', icon: '🎢', rarity: 'rare' },
+  { id: 'sandbagging', title: 'Sandbagging', description: 'Erste 3 Runden der Schlechteste, am Ende Gesamtdurchschnitt < 5g', icon: '🎭', rarity: 'legendary' },
+
+  // Ergebnis-Achievements
+  { id: 'lucky_loser', title: 'Lucky Loser', description: 'Meiste Strafpunkte, aber niedrigster Gesamtscore aller Spieler', icon: '🍀', rarity: 'rare' },
+  { id: 'comeback', title: 'Comeback', description: 'Nach Runde 1 Letzter, am Ende das Spiel gewonnen', icon: '💪', rarity: 'epic' },
+  { id: 'equilibrium', title: 'Gleichgewicht', description: 'Alle Spieler in jeder Runde unter 5g Abstand', icon: '☯️', rarity: 'legendary', earnedTogether: true },
+
+  // Ansage-Achievements
+  { id: 'prophet', title: 'Hellseher', description: 'Zielgewicht angesagt und selbst einen Volltreffer gelandet', icon: '🔮', rarity: 'legendary' },
+  { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'epic' },
+  { id: 'calculator', title: 'Kopfrechner', description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)', icon: '🧮', rarity: 'epic' },
+  { id: 'thirsty', title: 'Durstiger', description: 'In einer Runde mehr als 20g unter dem Zielgewicht gelandet', icon: '🫗', rarity: 'common' },
+  { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common' },
+];
+
+export const checkAchievements = (
+  players: Player[],
+  rounds: Round[],
+  teams: Team[] = [],
+  isEndOfGame: boolean = false,
+  previouslyEarned: Achievement[] = []
+): Achievement[] => {
+  if (!players || players.length === 0 || !rounds || rounds.length === 0) {
+    return [];
+  }
+
+  const completedRounds = rounds.filter(r => r.results && Object.keys(r.results).length > 0);
+  if (completedRounds.length === 0) return [];
+
+  const achievementMap: Record<string, {
+    id: string;
+    title: string;
+    description: string;
+    icon: string;
+    rarity: 'common' | 'rare' | 'epic' | 'legendary';
+    earnedBy: Set<string>;
+  }> = {
+    // Präzision
+    sharpshooter: { id: 'sharpshooter', title: 'Scharfschütze', description: '3x hintereinander unter 5g Abstand', icon: '🎯', rarity: 'rare', earnedBy: new Set() },
+    bullseye_king: { id: 'bullseye_king', title: 'Volltreffer-König', description: '3x Volltreffer (exakt 0g Abstand) in einem Spiel', icon: '👑', rarity: 'epic', earnedBy: new Set() },
+    millimeter: { id: 'millimeter', title: 'Millimeterarbeit', description: 'Durchschnittsabstand unter 3,5g', icon: '🔬', rarity: 'rare', earnedBy: new Set() },
+    perfect_balance: { id: 'perfect_balance', title: 'Die Waage', description: 'Durchschnittsabstand exakt 0g (jede Runde Volltreffer)', icon: '⚖️', rarity: 'legendary', earnedBy: new Set() },
+    drop_by_drop: { id: 'drop_by_drop', title: 'Tropfen für Tropfen', description: 'Nie mehr als 5g Abstand in einer Runde gehabt', icon: '💧', rarity: 'rare', earnedBy: new Set() },
+    perfectionist: { id: 'perfectionist', title: 'Perfektionist', description: '0 Strafpunkte im gesamten Spiel', icon: '✨', rarity: 'epic', earnedBy: new Set() },
+    poker_face: { id: 'poker_face', title: 'Poker Face', description: 'In 3 aufeinanderfolgenden Runden exakt denselben Abstand (±1g)', icon: '🃏', rarity: 'rare', earnedBy: new Set() },
+
+    // Straf-Achievements
+    lead_hand: { id: 'lead_hand', title: 'Bleihand', description: 'In jeder Runde den größten Abstand gehabt', icon: '🪨', rarity: 'common', earnedBy: new Set() },
+    schnaepse_king: { id: 'schnaepse_king', title: 'Schnäpse-König', description: 'Die meisten Strafpunkte im Spiel', icon: '🍺', rarity: 'common', earnedBy: new Set() },
+    catastrophe: { id: 'catastrophe', title: 'Katastrophe', description: 'Einmal mehr als 35g Abstand gehabt', icon: '💥', rarity: 'common', earnedBy: new Set() },
+    consistently_bad: { id: 'consistently_bad', title: 'Noch kein Meister vom Himmel gefallen', description: 'Abstand in jeder Runde zwischen 15g und 25g', icon: '📉', rarity: 'common', earnedBy: new Set() },
+    unlucky_bird: { id: 'unlucky_bird', title: 'Unglücksvogel', description: 'Nie den größten Abstand, aber trotzdem ≥5 Strafpunkte', icon: '🐦', rarity: 'rare', earnedBy: new Set() },
+    eternal_second: { id: 'eternal_second', title: 'Ewiger Zweiter', description: 'In jeder Runde den zweitkleinsten Abstand gehabt', icon: '🥈', rarity: 'common', earnedBy: new Set() },
+
+    // Spezial-Achievements
+    twins: { id: 'twins', title: 'Zwillinge', description: 'Zwei Spieler mit exakt demselben Gewicht in 3+ Runden', icon: '👯', rarity: 'rare', earnedBy: new Set() },
+    doppelganger: { id: 'doppelganger', title: 'Doppelgänger', description: 'Dasselbe Spielerpaar mit exakt demselben Gewicht in 3+ Runden', icon: '👤', rarity: 'epic', earnedBy: new Set() },
+    schnapps_hunter: { id: 'schnapps_hunter', title: 'Schnappszahl-Jäger', description: 'In einem Spiel 2+ Schnappszahlen getroffen', icon: '🎯', rarity: 'rare', earnedBy: new Set() },
+    triple_seven: { id: 'triple_seven', title: '777', description: 'Exakt 77g in einer Runde getroffen', icon: '🎰', rarity: 'epic', earnedBy: new Set() },
+    mirror_number: { id: 'mirror_number', title: 'Spiegelzahl', description: 'Zwei Spieler mit gespiegelten Gewichten in einer Runde', icon: '🪞', rarity: 'epic', earnedBy: new Set() },
+    round_number: { id: 'round_number', title: 'Runde Sache', description: 'Exakt 100g, 200g oder 300g getroffen', icon: '🔵', rarity: 'common', earnedBy: new Set() },
+    so_close: { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common', earnedBy: new Set() },
+    outsider: { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare', earnedBy: new Set() },
+    shadow: { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedBy: new Set() },
+
+    // Verlaufs-Achievements
+    rising_star: { id: 'rising_star', title: 'Aufsteiger', description: 'Abstand in jeder Runde kleiner als in der vorherigen', icon: '📈', rarity: 'rare', earnedBy: new Set() },
+    falling_star: { id: 'falling_star', title: 'Absteiger', description: 'Abstand in jeder Runde größer als in der vorherigen', icon: '📉', rarity: 'common', earnedBy: new Set() },
+    rollercoaster: { id: 'rollercoaster', title: 'Achterbahn', description: 'Abwechselnd bester und schlechtester Spieler in ≥4 Runden', icon: '🎢', rarity: 'rare', earnedBy: new Set() },
+    sandbagging: { id: 'sandbagging', title: 'Sandbagging', description: 'Erste 3 Runden der Schlechteste, am Ende Gesamtdurchschnitt < 5g', icon: '🎭', rarity: 'legendary', earnedBy: new Set() },
+
+    // Ergebnis-Achievements
+    lucky_loser: { id: 'lucky_loser', title: 'Lucky Loser', description: 'Meiste Strafpunkte, aber niedrigster Gesamtscore aller Spieler', icon: '🍀', rarity: 'rare', earnedBy: new Set() },
+    comeback: { id: 'comeback', title: 'Comeback', description: 'Nach Runde 1 Letzter, am Ende das Spiel gewonnen', icon: '💪', rarity: 'epic', earnedBy: new Set() },
+    equilibrium: { id: 'equilibrium', title: 'Gleichgewicht', description: 'Alle Spieler in jeder Runde unter 5g Abstand', icon: '☯️', rarity: 'legendary', earnedBy: new Set() },
+
+    // Ansage-Achievements
+    prophet: { id: 'prophet', title: 'Hellseher', description: 'Zielgewicht angesagt und selbst einen Volltreffer gelandet', icon: '🔮', rarity: 'legendary', earnedBy: new Set() },
+    strategist: { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'epic', earnedBy: new Set() },
+    calculator: { id: 'calculator', title: 'Kopfrechner', description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)', icon: '🧮', rarity: 'epic', earnedBy: new Set() },
+    thirsty: { id: 'thirsty', title: 'Durstiger', description: 'In einer Runde mehr als 20g unter dem Zielgewicht gelandet', icon: '🫗', rarity: 'common', earnedBy: new Set() },
+    guzzler: { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common', earnedBy: new Set() },
+  };
+
+  const playerRoundData: Record<string, Array<{
+    roundIndex: number;
+    weight: number;
+    target: number;
+    dist: number;
+    isMinDistInRound: boolean;
+    isMaxDistInRound: boolean;
+    isSecondMinDistInRound: boolean;
+  }>> = {};
+
+  players.forEach(p => {
+    playerRoundData[p.id] = [];
+  });
+
+  completedRounds.forEach((r, rIdx) => {
+    const activePlayerIdsInRound = players
+      .filter(p => r.results[p.id] !== undefined)
+      .map(p => p.id);
+
+    if (activePlayerIdsInRound.length === 0) return;
+
+    const roundDistances: Record<string, number> = {};
+    activePlayerIdsInRound.forEach(pid => {
+      const w = r.results[pid];
+      const target = (r.isFinal && r.individualTargets) ? r.individualTargets[pid] : r.targetWeight;
+      roundDistances[pid] = Math.abs(w - target);
+    });
+
+    const distValues = Object.values(roundDistances);
+    const minDist = Math.min(...distValues);
+    const maxDist = Math.max(...distValues);
+
+    const sortedUniqueDists = Array.from(new Set(distValues)).sort((a, b) => a - b);
+    const secondMinDist = sortedUniqueDists.length > 1 ? sortedUniqueDists[1] : null;
+
+    activePlayerIdsInRound.forEach(pid => {
+      const w = r.results[pid];
+      const target = (r.isFinal && r.individualTargets) ? r.individualTargets[pid] : r.targetWeight;
+      const dist = roundDistances[pid];
+
+      playerRoundData[pid].push({
+        roundIndex: rIdx,
+        weight: w,
+        target,
+        dist,
+        isMinDistInRound: dist === minDist,
+        isMaxDistInRound: dist === maxDist,
+        isSecondMinDistInRound: secondMinDist !== null && dist === secondMinDist,
+      });
+    });
+  });
+
+  // Check player-specific achievements
+  players.forEach(p => {
+    const pData = playerRoundData[p.id] || [];
+    if (pData.length === 0) return;
+
+    // --- 1) Precision & Event Achievements (Counted for all players during their active rounds) ---
+    let currStreak = 0;
+    let maxStreak = 0;
+    pData.forEach(d => {
+      if (d.dist < 5) {
+        currStreak++;
+        if (currStreak > maxStreak) maxStreak = currStreak;
+      } else {
+        currStreak = 0;
+      }
+    });
+    if (maxStreak >= 3) achievementMap.sharpshooter.earnedBy.add(p.name);
+
+    const exactHitsCount = pData.filter(d => d.dist === 0).length;
+    if (exactHitsCount >= 3) achievementMap.bullseye_king.earnedBy.add(p.name);
+
+    for (let i = 0; i <= pData.length - 3; i++) {
+      const d1 = pData[i].dist;
+      const d2 = pData[i + 1].dist;
+      const d3 = pData[i + 2].dist;
+      if (Math.max(d1, d2, d3) - Math.min(d1, d2, d3) <= 1) {
+        achievementMap.poker_face.earnedBy.add(p.name);
+        break;
+      }
+    }
+
+    if (pData.some(d => d.dist > 35)) {
+      achievementMap.catastrophe.earnedBy.add(p.name);
+    }
+
+    const schnapsCount = pData.filter(d => SPECIAL_NUMBERS.includes(d.weight)).length;
+    if (schnapsCount >= 2) achievementMap.schnapps_hunter.earnedBy.add(p.name);
+
+    if (pData.some(d => d.weight === 77)) {
+      achievementMap.triple_seven.earnedBy.add(p.name);
+    }
+
+    if (pData.some(d => [100, 200, 300].includes(d.weight))) {
+      achievementMap.round_number.earnedBy.add(p.name);
+    }
+
+    const closeCount = pData.filter(d => d.dist === 1).length;
+    if (closeCount >= 2) achievementMap.so_close.earnedBy.add(p.name);
+
+    if (pData.some(d => d.weight < d.target - 20)) {
+      achievementMap.thirsty.earnedBy.add(p.name);
+    }
+
+    completedRounds.forEach(r => {
+      if (r.announcingPlayerId === p.id) {
+        const pWeight = r.results[p.id];
+        const pTarget = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
+        if (pWeight !== undefined && Math.abs(pWeight - pTarget) === 0) {
+          achievementMap.prophet.earnedBy.add(p.name);
+        }
+
+        const someoneElseExactHit = players.some(other => {
+          if (other.id === p.id) return false;
+          const ow = r.results[other.id];
+          if (ow === undefined) return false;
+          const ot = (r.isFinal && r.individualTargets) ? r.individualTargets[other.id] : r.targetWeight;
+          return Math.abs(ow - ot) === 0;
+        });
+
+        if (someoneElseExactHit) {
+          achievementMap.strategist.earnedBy.add(p.name);
+        }
+      }
+
+      if (r.isFinal && r.individualTargets && r.individualTargets[p.id] !== undefined && r.results[p.id] !== undefined) {
+        const estDist = Math.abs(r.results[p.id] - r.individualTargets[p.id]);
+        if (estDist === 0) {
+          achievementMap.calculator.earnedBy.add(p.name);
+        }
+      }
+    });
+
+    // --- 2) End-of-Game Precision Achievements (active rounds evaluated at end of game) ---
+    if (isEndOfGame) {
+      const avgDist = pData.reduce((acc, d) => acc + d.dist, 0) / pData.length;
+
+      // Korrektur 1: "Tropfen für Tropfen" (drop_by_drop)
+      // Checks if distance in EVERY round played by the player was <= 5g.
+      if (pData.length >= 1 && pData.every(d => d.dist <= 5)) {
+        achievementMap.drop_by_drop.earnedBy.add(p.name);
+      }
+
+      if (avgDist < 3.5) {
+        achievementMap.millimeter.earnedBy.add(p.name);
+      }
+
+      if (pData.every(d => d.dist === 0)) {
+        achievementMap.perfect_balance.earnedBy.add(p.name);
+      }
+
+      // --- 3) Full Game Achievements (EXCLUDE disqualified players) ---
+      if (!p.isDisqualified) {
+        if (p.schnaepse === 0) {
+          achievementMap.perfectionist.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length && pData.every(d => d.isMaxDistInRound)) {
+          achievementMap.lead_hand.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length && pData.every(d => d.dist >= 15 && d.dist <= 25)) {
+          achievementMap.consistently_bad.earnedBy.add(p.name);
+        }
+
+        if (p.schnaepse >= 5 && pData.every(d => !d.isMaxDistInRound)) {
+          achievementMap.unlucky_bird.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length && pData.every(d => d.isSecondMinDistInRound)) {
+          achievementMap.eternal_second.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length && pData.every(d => d.weight < d.target)) {
+          achievementMap.guzzler.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length) {
+          const isOutsiderInAll = completedRounds.every(r => {
+            const pW = r.results[p.id];
+            if (pW === undefined) return true;
+            return Object.entries(r.results).every(([otherId, otherW]) => {
+              if (otherId === p.id) return true;
+              return Math.abs(pW - otherW) >= 10;
+            });
+          });
+          if (isOutsiderInAll) {
+            achievementMap.outsider.earnedBy.add(p.name);
+          }
+        }
+
+        if (pData.length === completedRounds.length && pData.length >= 2) {
+          let isRising = true;
+          for (let i = 1; i < pData.length; i++) {
+            if (pData[i].dist >= pData[i - 1].dist) {
+              isRising = false;
+              break;
+            }
+          }
+          if (isRising) achievementMap.rising_star.earnedBy.add(p.name);
+        }
+
+        if (pData.length === completedRounds.length && pData.length >= 2) {
+          let isFalling = true;
+          for (let i = 1; i < pData.length; i++) {
+            if (pData[i].dist <= pData[i - 1].dist) {
+              isFalling = false;
+              break;
+            }
+          }
+          if (isFalling) achievementMap.falling_star.earnedBy.add(p.name);
+        }
+
+        if (pData.length >= 4) {
+          for (let i = 0; i <= pData.length - 4; i++) {
+            const slice = pData.slice(i, i + 4);
+            const isBW = slice[0].isMinDistInRound && slice[1].isMaxDistInRound && slice[2].isMinDistInRound && slice[3].isMaxDistInRound;
+            const isWB = slice[0].isMaxDistInRound && slice[1].isMinDistInRound && slice[2].isMaxDistInRound && slice[3].isMinDistInRound;
+            if (isBW || isWB) {
+              achievementMap.rollercoaster.earnedBy.add(p.name);
+              break;
+            }
+          }
+        }
+
+        if (pData.length >= 3 && pData[0].isMaxDistInRound && pData[1].isMaxDistInRound && pData[2].isMaxDistInRound && avgDist < 5.0) {
+          achievementMap.sandbagging.earnedBy.add(p.name);
+        }
+      }
+    }
+  });
+
+  // Pairwise achievements (Zwillinge, Doppelgänger, Spiegelzahl, Schatten)
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const p1 = players[i];
+      const p2 = players[j];
+
+      let sameWeightRoundsCount = 0;
+      completedRounds.forEach(r => {
+        if (r.results[p1.id] !== undefined && r.results[p2.id] !== undefined) {
+          if (r.results[p1.id] === r.results[p2.id]) {
+            sameWeightRoundsCount++;
+          }
+        }
+      });
+
+      if (sameWeightRoundsCount >= 3) {
+        achievementMap.twins.earnedBy.add(p1.name);
+        achievementMap.twins.earnedBy.add(p2.name);
+        achievementMap.doppelganger.earnedBy.add(p1.name);
+        achievementMap.doppelganger.earnedBy.add(p2.name);
+      }
+
+      completedRounds.forEach(r => {
+        const w1 = r.results[p1.id];
+        const w2 = r.results[p2.id];
+        if (w1 !== undefined && w2 !== undefined) {
+          const s1 = String(w1);
+          const s2 = String(w2);
+          if (s1.length > 1 && s1 !== s2 && s1 === s2.split('').reverse().join('')) {
+            achievementMap.mirror_number.earnedBy.add(p1.name);
+            achievementMap.mirror_number.earnedBy.add(p2.name);
+          }
+        }
+      });
+
+      if (isEndOfGame && !p1.isDisqualified && !p2.isDisqualified && completedRounds.length >= 1) {
+        const isShadowAll = completedRounds.every(r => {
+          const w1 = r.results[p1.id];
+          const w2 = r.results[p2.id];
+          if (w1 === undefined || w2 === undefined) return false;
+          return Math.abs(w1 - w2) <= 2;
+        });
+        if (isShadowAll) {
+          achievementMap.shadow.earnedBy.add(p1.name);
+          achievementMap.shadow.earnedBy.add(p2.name);
+        }
+      }
+    }
+  }
+
+  // End of game group achievements (Schnäpse-König, Lucky Loser, Comeback, Gleichgewicht)
+  if (isEndOfGame) {
+    const nonDisqualifiedPlayers = players.filter(p => !p.isDisqualified);
+    const candidatePlayers = nonDisqualifiedPlayers.length > 0 ? nonDisqualifiedPlayers : players;
+
+    const maxSchnaepse = Math.max(...candidatePlayers.map(p => p.schnaepse));
+    if (maxSchnaepse > 0) {
+      candidatePlayers.filter(p => p.schnaepse === maxSchnaepse).forEach(p => {
+        achievementMap.schnaepse_king.earnedBy.add(p.name);
+      });
+    }
+
+    const playerTotalScores = candidatePlayers.map(p => {
+      const pData = playerRoundData[p.id] || [];
+      const avg = pData.length > 0 ? pData.reduce((acc, d) => acc + d.dist, 0) / pData.length : 0;
+      return {
+        id: p.id,
+        name: p.name,
+        avgDist: avg,
+        schnaepse: p.schnaepse,
+        totalScore: avg + p.schnaepse,
+      };
+    });
+
+    if (playerTotalScores.length > 0) {
+      const minTotalScore = Math.min(...playerTotalScores.map(p => p.totalScore));
+
+      if (maxSchnaepse > 0) {
+        playerTotalScores.forEach(p => {
+          if (p.schnaepse === maxSchnaepse && p.totalScore === minTotalScore) {
+            achievementMap.lucky_loser.earnedBy.add(p.name);
+          }
+        });
+      }
+
+      const round1Dists = candidatePlayers.map(p => {
+        const d0 = playerRoundData[p.id]?.[0];
+        return { name: p.name, isMax: d0 ? d0.isMaxDistInRound : false };
+      });
+      const worstInRound1Names = round1Dists.filter(x => x.isMax).map(x => x.name);
+
+      playerTotalScores.forEach(p => {
+        if (p.totalScore === minTotalScore && worstInRound1Names.includes(p.name)) {
+          achievementMap.comeback.earnedBy.add(p.name);
+        }
+      });
+    }
+
+    const allRoundsUnder5g = completedRounds.every(r => {
+      return Object.entries(r.results).every(([pid, w]) => {
+        const target = (r.isFinal && r.individualTargets) ? r.individualTargets[pid] : r.targetWeight;
+        return Math.abs(w - target) < 5;
+      });
+    });
+
+    if (allRoundsUnder5g) {
+      candidatePlayers.forEach(p => {
+        achievementMap.equilibrium.earnedBy.add(p.name);
+      });
+    }
+  }
+
+  const newlyUnlockedAchievements: Achievement[] = [];
+
+  Object.values(achievementMap).forEach(def => {
+    if (def.earnedBy.size === 0) return;
+
+    const alreadyEarnedNames = new Set<string>();
+    previouslyEarned.forEach(prev => {
+      if (prev.id === def.id && prev.earnedBy) {
+        prev.earnedBy.forEach(name => alreadyEarnedNames.add(name));
+      }
+    });
+
+    const brandNewEarnedNames = Array.from(def.earnedBy).filter(name => !alreadyEarnedNames.has(name));
+
+    if (brandNewEarnedNames.length > 0) {
+      const isTogether = TOGETHER_ACHIEVEMENT_IDS.includes(def.id);
+      newlyUnlockedAchievements.push({
+        id: def.id,
+        title: def.title,
+        description: def.description,
+        icon: def.icon,
+        rarity: def.rarity,
+        earnedBy: brandNewEarnedNames,
+        ...(isTogether ? { earnedTogether: true } : {})
+      });
+    }
+  });
+
+  return newlyUnlockedAchievements;
+};
 
 declare const html2canvas: any;
 
@@ -19,6 +519,47 @@ const PLAYER_COLORS = [
   '#238183', '#6366f1', '#f43f5e', '#f59e0b', '#06b6d4', 
   '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'
 ];
+
+const getPlayerColor = (name: string, playersList: Player[] = []): string => {
+  if (!name) return PLAYER_COLORS[0];
+  const pIdx = playersList.findIndex(p => p.name.trim().toLowerCase() === name.trim().toLowerCase());
+  if (pIdx !== -1) {
+    return PLAYER_COLORS[pIdx % PLAYER_COLORS.length];
+  }
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const idx = Math.abs(hash) % PLAYER_COLORS.length;
+  return PLAYER_COLORS[idx];
+};
+
+const PlayerBadges: React.FC<{
+  earnedBy: string[];
+  playersList?: Player[];
+  darkMode: boolean;
+}> = ({ earnedBy, playersList = [], darkMode }) => {
+  if (!earnedBy || earnedBy.length === 0) return null;
+
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+      {earnedBy.map((name, i) => {
+        const color = getPlayerColor(name, playersList);
+        return (
+          <span
+            key={i}
+            className={`inline-flex items-center space-x-1 text-[11px] font-black px-2.5 py-1 rounded-full border shadow-sm ${
+              darkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-white border-black/10 text-gray-900'
+            }`}
+          >
+            <span className="opacity-70 text-[10px]">👤</span>
+            <span style={{ color }}>{name}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+};
 
 const VerticalText: React.FC<{ text: string }> = ({ text }) => (
   <div className="flex flex-col items-center justify-center leading-[0.9] py-1 font-black text-[10px] md:text-xs select-none">
@@ -100,15 +641,6 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
     );
   };
 
-interface ParsedRecord {
-  gameMode: string;
-  playerName: string;
-  date: string;
-  avg: number;
-  schnaepse: number;
-  levels?: number;
-}
-
 const parseRecords = (data: any[][]): ParsedRecord[] => {
   if (!data || data.length < 2) return [];
   const list: ParsedRecord[] = [];
@@ -123,7 +655,34 @@ const parseRecords = (data: any[][]): ParsedRecord[] => {
     const playerName = row[2];
     const avgVal = row[3] !== undefined && row[3] !== null ? Number(row[3]) : 0;
     const schnaepseVal = row[4] !== undefined && row[4] !== null ? Number(row[4]) : 0;
-    const levelsVal = row[5] !== undefined && row[5] !== null && row[5] !== "" ? Number(row[5]) : undefined;
+    const levelsVal = row[5] !== undefined && row[5] !== null && row[5] !== "" && !isNaN(Number(row[5])) ? Number(row[5]) : undefined;
+
+    let achievementsVal: ParsedRecord['achievements'] = undefined;
+    const rawAch = row[6] || (row[5] && (row[5].startsWith('%5B') || row[5].startsWith('[')) ? row[5] : undefined);
+    if (rawAch) {
+      try {
+        const decoded = rawAch.startsWith('%') ? decodeURIComponent(rawAch) : rawAch;
+        const parsed = JSON.parse(decoded);
+        if (Array.isArray(parsed)) {
+          achievementsVal = parsed.map((a: any) => {
+            const isTogether = typeof a.earnedTogether === 'boolean'
+              ? a.earnedTogether
+              : (TOGETHER_ACHIEVEMENT_IDS.includes(a.id) ? true : undefined);
+
+            return {
+              id: String(a.id || ''),
+              title: String(a.title || ''),
+              icon: String(a.icon || ''),
+              rarity: String(a.rarity || 'common'),
+              earnedBy: Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy.map(String) : [String(playerName)],
+              ...(isTogether ? { earnedTogether: true } : {})
+            };
+          });
+        }
+      } catch (e) {
+        console.warn("Could not parse achievements column from CSV:", e);
+      }
+    }
 
     if (dateVal && playerName) {
       list.push({
@@ -133,6 +692,7 @@ const parseRecords = (data: any[][]): ParsedRecord[] => {
         avg: avgVal,
         schnaepse: schnaepseVal,
         levels: levelsVal,
+        achievements: achievementsVal,
       });
     }
   }
@@ -169,12 +729,20 @@ const App: React.FC = () => {
   const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState<string>('');
   
+  // Achievement States
+  const [earnedAchievements, setEarnedAchievements] = useState<Achievement[]>([]);
+  const [showAchievements, setShowAchievements] = useState<boolean>(false);
+  const [newlyEarnedAchievements, setNewlyEarnedAchievements] = useState<Achievement[]>([]);
+
+  // Announcer State
+  const [announcingPlayerIndex, setAnnouncingPlayerIndex] = useState<number>(0);
+
   // Records States
   const [showRecords, setShowRecords] = useState(false);
   const [recordsData, setRecordsData] = useState<any[][] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
-  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Standardspiel');
+  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Standardspiel');
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
@@ -258,6 +826,7 @@ const App: React.FC = () => {
     setTournamentMode(true);
     setUploadState('idle');
     setUploadMessage('');
+    setAnnouncingPlayerIndex(0);
   };
 
   const startTeamwiegen = () => {
@@ -270,6 +839,7 @@ const App: React.FC = () => {
     setIsShortMode(false);
     setUploadState('idle');
     setUploadMessage('');
+    setAnnouncingPlayerIndex(0);
   };
 
   const startSpeedwiegen = () => {
@@ -293,6 +863,7 @@ const App: React.FC = () => {
     setShowResetConfirm(false);
     setUploadState('idle');
     setUploadMessage('');
+    setAnnouncingPlayerIndex(0);
   };
 
   const handlePlayerCountConfirm = () => {
@@ -305,6 +876,7 @@ const App: React.FC = () => {
     }));
     setPlayers(initialPlayers);
     setGameState(GameState.PLAYER_NAMES);
+    setAnnouncingPlayerIndex(0);
   };
 
   const handlePlayerNamesConfirm = () => {
@@ -361,7 +933,9 @@ const App: React.FC = () => {
         }
     }
 
-    setRounds([...rounds, { targetWeight: target, results: {} }]);
+    const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
+
+    setRounds([...rounds, { targetWeight: target, results: {}, announcingPlayerId: currentAnnouncer?.id }]);
     setCurrentRoundResults({});
     setNextTargetInput('');
     setGameState(teams.length > 0 ? GameState.TEAM_GAMEPLAY : GameState.GAMEPLAY);
@@ -405,37 +979,67 @@ const App: React.FC = () => {
     const minStart = Math.min(...updatedPlayers.map(p => p.startWeight));
     const triggers: any[] = [];
     
-    if (!currentRound.isFinal) {
-      updatedPlayers.forEach(p => {
-        if (currentRound.results[p.id] < minStart - triggerThreshold) {
-          triggers.push({ name: p.name, weight: currentRound.results[p.id], limit: minStart - triggerThreshold });
-        }
-      });
+    const allDisqualified = tournamentMode && updatedPlayers.length > 0 && updatedPlayers.every(p => p.isDisqualified);
 
-      if (triggers.length > 0) {
-        setFinalTriggered(true);
-        setTriggeringPlayers(triggers);
+    if (!currentRound.isFinal) {
+      if (allDisqualified) {
+        setFinalTriggered(false);
         setShowAutoTargetModal(null);
       } else {
-        const active = updatedPlayers.filter(p => !p.isDisqualified);
-        const weights = active.map(p => currentRound.results[p.id]);
-        const minW = Math.min(...weights);
-        const maxW = Math.max(...weights);
-        
-        // Auto-target if range size < 10
-        // Range is [maxW - 100, minW - 10]
-        // Size is (minW - 10) - (maxW - 100) = minW - maxW + 90
-        if (active.length > 0 && (minW - maxW + 90 < 10)) {
-          setShowAutoTargetModal({ 
-            target: Math.round(minW - 10), 
-            reason: "Automatisches Zielgewicht gesetzt, da der berechnete Bereich für das Zielgewicht kleiner als 10 Gramm ist." 
-          });
-        } else {
+        updatedPlayers.forEach(p => {
+          if (currentRound.results[p.id] < minStart - triggerThreshold) {
+            triggers.push({ name: p.name, weight: currentRound.results[p.id], limit: minStart - triggerThreshold });
+          }
+        });
+
+        if (triggers.length > 0) {
+          setFinalTriggered(true);
+          setTriggeringPlayers(triggers);
           setShowAutoTargetModal(null);
+        } else {
+          const active = updatedPlayers.filter(p => !p.isDisqualified);
+          const weights = active.map(p => currentRound.results[p.id]);
+          const minW = Math.min(...weights);
+          const maxW = Math.max(...weights);
+          
+          // Auto-target if range size < 10
+          // Range is [maxW - 100, minW - 10]
+          // Size is (minW - 10) - (maxW - 100) = minW - maxW + 90
+          if (active.length > 0 && (minW - maxW + 90 < 10)) {
+            setShowAutoTargetModal({ 
+              target: Math.round(minW - 10), 
+              reason: "Automatisches Zielgewicht gesetzt, da der berechnete Bereich für das Zielgewicht kleiner als 10 Gramm ist." 
+            });
+          } else {
+            setShowAutoTargetModal(null);
+          }
         }
       }
     }
 
+    // Check achievements for intermediate round
+    const newAch = checkAchievements(updatedPlayers, updatedRounds, teams, currentRound.isFinal || false, earnedAchievements);
+    if (newAch && newAch.length > 0) {
+      setNewlyEarnedAchievements(newAch);
+      setEarnedAchievements(prev => {
+        const updated = [...prev];
+        newAch.forEach(ach => {
+          const existing = updated.find(a => a.id === ach.id);
+          if (existing) {
+            ach.earnedBy.forEach(name => {
+              if (!existing.earnedBy.includes(name)) {
+                existing.earnedBy.push(name);
+              }
+            });
+          } else {
+            updated.push({ ...ach });
+          }
+        });
+        return updated;
+      });
+    }
+
+    setAnnouncingPlayerIndex(prev => prev + 1);
     setPlayers(updatedPlayers);
     setSummaryData(summary);
     setRounds(updatedRounds);
@@ -444,17 +1048,53 @@ const App: React.FC = () => {
   };
 
   const handleModalSequence = () => {
-    setShowSummary(false);
+    if (showSummary) {
+      setShowSummary(false);
+      if (newlyEarnedAchievements.length > 0) {
+        setShowAchievements(true);
+        return;
+      }
+    }
+
+    if (showAchievements) {
+      setShowAchievements(false);
+      setNewlyEarnedAchievements([]);
+    }
+
     if (rounds.length > 0 && rounds[rounds.length - 1].isFinal) {
       setGameState(GameState.RESULT_SCREEN);
-    } else if (disqualifiedNotice) {
-      setDisqualifiedNotice(null);
-    } else {
+      const finalAch = checkAchievements(players, rounds, teams, true, earnedAchievements);
+      if (finalAch && finalAch.length > 0) {
+        setNewlyEarnedAchievements(finalAch);
+        setEarnedAchievements(prev => {
+          const updated = [...prev];
+          finalAch.forEach(ach => {
+            const existing = updated.find(a => a.id === ach.id);
+            if (existing) {
+              ach.earnedBy.forEach(name => {
+                if (!existing.earnedBy.includes(name)) {
+                  existing.earnedBy.push(name);
+                }
+              });
+            } else {
+              updated.push({ ...ach });
+            }
+          });
+          return updated;
+        });
+        setShowAchievements(true);
+      }
+    } else if (!disqualifiedNotice) {
       triggerNextStep();
     }
   };
 
   const triggerNextStep = () => {
+    const allDisqualified = tournamentMode && players.length > 0 && players.every(p => p.isDisqualified);
+    if (allDisqualified) {
+      setGameState(GameState.RESULT_SCREEN);
+      return;
+    }
     if (showAutoTargetModal) {
       handleTargetWeightConfirm(showAutoTargetModal.target);
       setShowAutoTargetModal(null);
@@ -475,7 +1115,8 @@ const App: React.FC = () => {
     if (!active.every(p => currentRoundTargets[p.id])) { alert("Alle Leergewichte schätzen."); return; }
     const indTargets: Record<string, number> = {};
     active.forEach(p => indTargets[p.id] = parseInt(currentRoundTargets[p.id]));
-    setRounds([...rounds, { targetWeight: 0, individualTargets: indTargets, results: {}, isFinal: true }]);
+    const currentAnnouncer = active.length > 0 ? active[announcingPlayerIndex % active.length] : null;
+    setRounds([...rounds, { targetWeight: 0, individualTargets: indTargets, results: {}, isFinal: true, announcingPlayerId: currentAnnouncer?.id }]);
     setCurrentRoundResults({});
     setGameState(GameState.FINAL_ROUND_RESULTS);
   };
@@ -744,7 +1385,7 @@ const App: React.FC = () => {
         return;
       }
 
-      console.log("Uploading to backend:", { gameMode, results: resultsToUpload, date: today });
+      console.log("Uploading to backend:", { gameMode, results: resultsToUpload, date: today, achievements: earnedAchievements });
       const response = await fetch('/api/upload', {
         method: 'POST',
         headers: {
@@ -753,7 +1394,8 @@ const App: React.FC = () => {
         body: JSON.stringify({
           gameMode,
           results: resultsToUpload,
-          date: today
+          date: today,
+          achievements: earnedAchievements
         })
       });
 
@@ -895,7 +1537,18 @@ const App: React.FC = () => {
         {/* ROUND_TARGET SCREEN */}
         {gameState === GameState.ROUND_TARGET && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
-            <h2 className="text-3xl font-black mb-6">Zielgewicht</h2>
+            <h2 className="text-3xl font-black mb-4">Zielgewicht</h2>
+
+            {(() => {
+              const activePlayers = players.filter(p => !p.isDisqualified);
+              const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
+              return currentAnnouncer ? (
+                <div className="mb-6 p-3 rounded-2xl border-2 font-black text-sm flex items-center justify-center space-x-2 shadow-sm" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` }}>
+                  <span>🎙️ {currentAnnouncer.name} sagt das Zielgewicht an</span>
+                </div>
+              ) : null;
+            })()}
+
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
             <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
               {players.map(p => (
@@ -1254,8 +1907,9 @@ const App: React.FC = () => {
               <button onClick={() => captureElement(rankingAreaRef, `Speed_Result_${speedPlayerName}`)} className="py-4 rounded-2xl border-2 font-black text-xs shadow-md"><i className="fas fa-image mr-2"></i>Screenshot</button>
               <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
               <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
-              <button onClick={resetToStart} className="py-4 rounded-2xl border-2 font-bold uppercase">Hauptmenü</button>
+              <button onClick={() => setShowAchievements(true)} className="py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg"><i className="fas fa-trophy mr-2"></i>Achievements ({earnedAchievements.length})</button>
             </div>
+            <button onClick={resetToStart} className="w-full py-4 rounded-2xl border-2 font-bold uppercase mb-4">Hauptmenü</button>
 
             <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
               <button 
@@ -1314,43 +1968,65 @@ const App: React.FC = () => {
           <div className="w-full space-y-8 pb-20 animate-in fade-in duration-500 overflow-y-auto max-h-screen">
              <h2 className="text-4xl font-black text-center uppercase" style={{ color: BRAND_COLOR }}>Endergebnis</h2>
              
-             {teams.length > 0 ? (
-               <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
-                 <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Team-Ranking</h3>
-                 <table className="w-full text-left">
-                    <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Schnäpse</th></tr></thead>
-                    <tbody>
-                      {teams.sort((a,b) => b.points - a.points).map((t, idx) => (
-                        <tr key={t.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
-                          <td className="py-4 font-black">{idx+1}</td>
-                          <td className="py-4 font-black">{t.name}</td>
-                          <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{t.points}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                 </table>
-               </div>
-             ) : (
-               <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
-                 <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Ranking</h3>
-                 <table className="w-full text-left">
-                    <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Spieler</th><th className="text-center pb-2">Ø Abst.</th><th className="text-center pb-2">S.</th><th className="text-center pb-2">Total</th></tr></thead>
-                    <tbody>
-                      {players.map(p => ({...p, avg: calculateAverageDistance(p.id, rounds), tot: calculateAverageDistance(p.id, rounds) + p.schnaepse}))
-                        .sort((a,b)=> (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.tot - b.tot))
-                        .map((p, idx) => (
-                          <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
-                            <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
-                            <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>{p.name}</td>
-                            <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(2)}g</td>
-                            <td className="text-center font-bold">{p.schnaepse}</td>
-                            <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                 </table>
-               </div>
-             )}
+             {(() => {
+               const allDisqualified = players.length > 0 && players.every(p => p.isDisqualified);
+
+               if (allDisqualified) {
+                 return (
+                   <div ref={rankingAreaRef} className={`p-8 rounded-3xl ${darkMode ? 'bg-slate-900/90 border-red-500/30' : 'bg-red-500/5 border-red-500/20'} border-2 shadow-xl text-center space-y-3`}>
+                     <div className="text-5xl animate-bounce">💀</div>
+                     <h3 className="text-2xl font-black uppercase text-red-500 tracking-tight">
+                       Alle Spieler ausgeschieden!
+                     </h3>
+                     <p className="text-sm font-bold opacity-80" style={{ color: BRAND_COLOR }}>
+                       Niemand hat das Zielgewicht getroffen.
+                     </p>
+                   </div>
+                 );
+               }
+
+               if (teams.length > 0) {
+                 return (
+                   <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
+                     <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Team-Ranking</h3>
+                     <table className="w-full text-left">
+                        <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Schnäpse</th></tr></thead>
+                        <tbody>
+                          {teams.sort((a,b) => b.points - a.points).map((t, idx) => (
+                            <tr key={t.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                              <td className="py-4 font-black">{idx+1}</td>
+                              <td className="py-4 font-black">{t.name}</td>
+                              <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{t.points}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                     </table>
+                   </div>
+                 );
+               }
+
+               return (
+                 <div ref={rankingAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl`}>
+                   <h3 className="text-xl font-black mb-6 uppercase flex items-center"><i className="fas fa-trophy mr-3 text-yellow-500"></i>Ranking</h3>
+                   <table className="w-full text-left">
+                      <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Spieler</th><th className="text-center pb-2">Ø Abst.</th><th className="text-center pb-2">S.</th><th className="text-center pb-2">Total</th></tr></thead>
+                      <tbody>
+                        {players.map(p => ({...p, avg: calculateAverageDistance(p.id, rounds), tot: calculateAverageDistance(p.id, rounds) + p.schnaepse}))
+                          .sort((a,b)=> (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.tot - b.tot))
+                          .map((p, idx) => (
+                            <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                              <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
+                              <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>{p.name}</td>
+                              <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(2)}g</td>
+                              <td className="text-center font-bold">{p.schnaepse}</td>
+                              <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                   </table>
+                 </div>
+               );
+             })()}
 
              {rounds.length > 0 && (
                <div ref={roundsAreaRef} className="w-full">
@@ -1371,6 +2047,7 @@ const App: React.FC = () => {
                 <button onClick={() => captureElement(rankingAreaRef, 'Ranking')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-image mr-2"></i>Screenshot Ranking</button>
                 <button onClick={() => captureElement(roundsAreaRef, 'Tabelle')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-table mr-2"></i>Screenshot Tabelle</button>
               </div>
+              <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
               <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
                 <button 
                   onClick={handleUploadResults} 
@@ -1446,6 +2123,64 @@ const App: React.FC = () => {
               )}
             </div>
             <button onClick={handleModalSequence} className="w-full mt-10 text-white font-black py-5 rounded-2xl shadow-xl uppercase active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Weiter</button>
+          </div>
+        </div>
+      )}
+
+      {showAchievements && (
+        <div className="fixed inset-0 z-[450] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900'}`}>
+            <div className="flex items-center justify-center space-x-3 mb-6">
+              <i className="fas fa-trophy text-3xl text-amber-500 animate-bounce"></i>
+              <h3 className="text-3xl font-black uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>
+                {newlyEarnedAchievements.length > 0 ? "Achievement Freigeschaltet!" : "Achievements"}
+              </h3>
+            </div>
+
+            {(newlyEarnedAchievements.length > 0 ? newlyEarnedAchievements : earnedAchievements).length === 0 ? (
+              <div className="p-8 text-center opacity-60">
+                <i className="fas fa-lock text-4xl mb-4 block"></i>
+                <p className="font-bold">Noch keine Achievements freigeschaltet.</p>
+                <p className="text-xs mt-2">Spiele weiter und meistere die Herausforderungen!</p>
+              </div>
+            ) : (
+              <div className="space-y-4 my-6">
+                {(newlyEarnedAchievements.length > 0 ? newlyEarnedAchievements : earnedAchievements).map((ach) => {
+                  const rarityBadge = {
+                    common: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+                    rare: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+                    epic: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+                    legendary: "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                  }[ach.rarity] || "bg-gray-500/20 text-gray-400";
+
+                  return (
+                    <div key={ach.id} className={`p-4 rounded-2xl border flex items-start space-x-4 ${darkMode ? 'bg-slate-900/50 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className="text-4xl p-2 rounded-xl bg-black/10 flex items-center justify-center min-w-[56px]">
+                        {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-black text-lg">{ach.title}</h4>
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${rarityBadge}`}>
+                            {ach.rarity}
+                          </span>
+                        </div>
+                        <p className="text-xs opacity-70 mt-1">{ach.description}</p>
+                        <PlayerBadges earnedBy={ach.earnedBy} playersList={players} darkMode={darkMode} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={handleModalSequence}
+              className="w-full mt-6 text-white font-black py-5 rounded-2xl shadow-xl uppercase active:scale-95"
+              style={{ backgroundColor: BRAND_COLOR }}
+            >
+              Weiter
+            </button>
           </div>
         </div>
       )}
@@ -1564,7 +2299,7 @@ const App: React.FC = () => {
               <div>
                 {/* Mode Tabs */}
                 <div className="flex space-x-2 mb-6 border-b border-gray-500/10 pb-4 overflow-x-auto">
-                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen'] as const).map(tab => (
+                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Achievements'] as const).map(tab => (
                     <button
                       key={tab}
                       onClick={() => setActiveRecordsTab(tab)}
@@ -1583,6 +2318,259 @@ const App: React.FC = () => {
                 {/* Main Records viewport */}
                 {(() => {
                   const list = parseRecords(recordsData || []);
+
+                  if (activeRecordsTab === 'Achievements') {
+                    // Aggregation structure for achievements
+                    const achGroupMap: Record<string, {
+                      id: string;
+                      title: string;
+                      description: string;
+                      icon: string;
+                      rarity: string;
+                      earnedTogether: boolean;
+                      awards: Array<{ date: string; players: string[]; earnedTogether: boolean }>;
+                    }> = {};
+
+                    // Initialize with all master definitions so unlocked/locked status can be tracked
+                    MASTER_ACHIEVEMENTS_DEFINITIONS.forEach(def => {
+                      achGroupMap[def.id] = {
+                        id: def.id,
+                        title: def.title,
+                        description: def.description,
+                        icon: def.icon,
+                        rarity: def.rarity,
+                        earnedTogether: !!def.earnedTogether,
+                        awards: []
+                      };
+                    });
+
+                    const seenKeys: Record<string, Set<string>> = {};
+
+                    const addAward = (ach: any, date: string, fallbackPlayerName: string) => {
+                      const achId = ach.id;
+                      if (!achId) return;
+
+                      if (!achGroupMap[achId]) {
+                        achGroupMap[achId] = {
+                          id: achId,
+                          title: ach.title || achId,
+                          description: ach.description || '',
+                          icon: ach.icon || '🏆',
+                          rarity: ach.rarity || 'common',
+                          earnedTogether: typeof ach.earnedTogether === 'boolean' ? ach.earnedTogether : TOGETHER_ACHIEVEMENT_IDS.includes(achId),
+                          awards: []
+                        };
+                      }
+
+                      if (!seenKeys[achId]) {
+                        seenKeys[achId] = new Set();
+                      }
+
+                      const isTogether = typeof ach.earnedTogether === 'boolean'
+                        ? ach.earnedTogether
+                        : TOGETHER_ACHIEVEMENT_IDS.includes(achId);
+
+                      const earnedByPlayers = Array.isArray(ach.earnedBy) && ach.earnedBy.length > 0
+                        ? ach.earnedBy
+                        : (fallbackPlayerName ? [fallbackPlayerName] : []);
+
+                      if (earnedByPlayers.length === 0) return;
+
+                      if (isTogether) {
+                        const sortedPlayers = [...earnedByPlayers].sort();
+                        const dedupKey = `${date}|${sortedPlayers.join(',')}`;
+                        if (!seenKeys[achId].has(dedupKey)) {
+                          seenKeys[achId].add(dedupKey);
+                          achGroupMap[achId].awards.push({
+                            date,
+                            players: sortedPlayers,
+                            earnedTogether: true
+                          });
+                        }
+                      } else {
+                        earnedByPlayers.forEach((pName: string) => {
+                          const dedupKey = `${date}|${pName}`;
+                          if (!seenKeys[achId].has(dedupKey)) {
+                            seenKeys[achId].add(dedupKey);
+                            achGroupMap[achId].awards.push({
+                              date,
+                              players: [pName],
+                              earnedTogether: false
+                            });
+                          }
+                        });
+                      }
+                    };
+
+                    // 1. Current Session
+                    const todayStr = new Date().toLocaleDateString('de-DE');
+                    earnedAchievements.forEach(ach => {
+                      addAward(ach, todayStr, '');
+                    });
+
+                    // 2. CSV Records
+                    list.forEach(item => {
+                      if (item.achievements && Array.isArray(item.achievements)) {
+                        item.achievements.forEach(ach => {
+                          addAward(ach, item.date, item.playerName);
+                        });
+                      }
+                    });
+
+                    const allGroups = Object.values(achGroupMap);
+                    const unlockedGroups = allGroups.filter(g => g.awards.length > 0);
+                    const totalUniqueUnlocked = unlockedGroups.length;
+
+                    // Player stats
+                    const playerCounts: Record<string, number> = {};
+                    let mostFrequentAch: { title: string; icon: string; count: number } | null = null;
+                    let maxAchCount = 0;
+
+                    unlockedGroups.forEach(g => {
+                      const countForThisAch = g.awards.length;
+                      if (countForThisAch > maxAchCount) {
+                        maxAchCount = countForThisAch;
+                        mostFrequentAch = { title: g.title, icon: g.icon, count: countForThisAch };
+                      }
+
+                      g.awards.forEach(aw => {
+                        aw.players.forEach(p => {
+                          playerCounts[p] = (playerCounts[p] || 0) + 1;
+                        });
+                      });
+                    });
+
+                    let topPlayerName = '';
+                    let topPlayerCount = 0;
+                    Object.entries(playerCounts).forEach(([name, cnt]) => {
+                      if (cnt > topPlayerCount) {
+                        topPlayerCount = cnt;
+                        topPlayerName = name;
+                      } else if (cnt === topPlayerCount && cnt > 0) {
+                        topPlayerName += `, ${name}`;
+                      }
+                    });
+
+                    // Sort: Unlocked first (by number of awards descending), then locked
+                    const sortedGroups = [...allGroups].sort((a, b) => {
+                      if (a.awards.length > 0 && b.awards.length === 0) return -1;
+                      if (a.awards.length === 0 && b.awards.length > 0) return 1;
+                      return b.awards.length - a.awards.length;
+                    });
+
+                    return (
+                      <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+                        {/* Summary Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className={`p-3.5 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                            <div className="text-[11px] uppercase tracking-wider font-bold opacity-60 mb-1">Unterschiedliche Achievements</div>
+                            <div className="text-xl font-black flex items-center justify-center gap-1.5" style={{ color: BRAND_COLOR }}>
+                              <i className="fas fa-trophy text-amber-500"></i>
+                              {totalUniqueUnlocked} / {MASTER_ACHIEVEMENTS_DEFINITIONS.length}
+                            </div>
+                          </div>
+
+                          <div className={`p-3.5 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                            <div className="text-[11px] uppercase tracking-wider font-bold opacity-60 mb-1">Top-Sammler</div>
+                            <div className="text-xl font-black truncate" style={{ color: BRAND_COLOR }}>
+                              {topPlayerName ? (
+                                <span>👑 {topPlayerName} <span className="text-xs opacity-70">({topPlayerCount}x)</span></span>
+                              ) : (
+                                <span className="opacity-40 text-sm">-</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className={`p-3.5 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                            <div className="text-[11px] uppercase tracking-wider font-bold opacity-60 mb-1">Häufigstes Achievement</div>
+                            <div className="text-xl font-black truncate" style={{ color: BRAND_COLOR }}>
+                              {mostFrequentAch ? (
+                                <span>{mostFrequentAch.icon} {mostFrequentAch.title} <span className="text-xs opacity-70">({mostFrequentAch.count}x)</span></span>
+                              ) : (
+                                <span className="opacity-40 text-sm">-</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Achievements Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {sortedGroups.map(ach => {
+                            const isUnlocked = ach.awards.length > 0;
+                            const rarityBadge = {
+                              common: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+                              rare: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+                              epic: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+                              legendary: "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                            }[ach.rarity] || "bg-gray-500/20 text-gray-400 border-gray-500/30";
+
+                            return (
+                              <div 
+                                key={ach.id} 
+                                className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
+                                  isUnlocked 
+                                    ? (darkMode ? 'bg-slate-900/70 border-slate-700' : 'bg-gray-50 border-gray-200')
+                                    : (darkMode ? 'bg-slate-900/20 border-slate-800 opacity-50' : 'bg-gray-100/50 border-gray-200 opacity-50')
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-start space-x-3">
+                                    <div className="text-3xl p-3 rounded-xl bg-black/10 flex items-center justify-center min-w-[50px]">
+                                      {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <h4 className="font-black text-sm">{ach.title}</h4>
+                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${rarityBadge}`}>
+                                          {ach.rarity}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs opacity-70 mt-1">{ach.description}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* List of Awards */}
+                                  {isUnlocked ? (
+                                    <div className="mt-3 pt-3 border-t border-gray-500/10 space-y-1.5">
+                                      <div className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Erhalten von:</div>
+                                      {ach.awards.map((aw, awIdx) => (
+                                        <div key={awIdx} className="flex items-center justify-between text-xs font-semibold bg-black/5 dark:bg-white/5 px-2.5 py-1.5 rounded-lg">
+                                          <div className="flex items-center space-x-1.5 flex-wrap">
+                                            <span className="opacity-70 text-xs">{aw.earnedTogether ? '👥' : '👤'}</span>
+                                            {aw.players.map((pName, pIdx) => (
+                                              <React.Fragment key={pIdx}>
+                                                {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
+                                                <span 
+                                                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold shadow-sm"
+                                                  style={{
+                                                    backgroundColor: `${getPlayerColor(pName, players)}25`,
+                                                    color: getPlayerColor(pName, players),
+                                                    border: `1px solid ${getPlayerColor(pName, players)}50`
+                                                  }}
+                                                >
+                                                  {pName}
+                                                </span>
+                                              </React.Fragment>
+                                            ))}
+                                          </div>
+                                          <span className="text-[11px] opacity-60 font-mono ml-2">{aw.date}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-3 pt-2 border-t border-gray-500/10 text-[11px] opacity-40 italic flex items-center gap-1">
+                                      <i className="fas fa-lock text-[10px]"></i> Noch nicht freigeschaltet
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   let filtered: any[] = [];
                   if (activeRecordsTab === 'Standardspiel') {
                     if (standardspielSizeTab === '500ml') {

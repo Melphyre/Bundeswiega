@@ -288,6 +288,10 @@ export const checkAchievements = (
 
     completedRounds.forEach(r => {
       if (r.announcingPlayerId === p.id) {
+        // RÜCKWÄRTSKOMPATIBILITÄT / FINALE AUSSCHLIESSEN:
+        // Hellseher (prophet) und Stratege (strategist) werden im Finale nicht vergeben.
+        if (r.isFinal) return;
+
         const pWeight = r.results[p.id];
         const pTarget = (r.isFinal && r.individualTargets) ? r.individualTargets[p.id] : r.targetWeight;
         if (pWeight !== undefined && Math.abs(pWeight - pTarget) === 0) {
@@ -963,6 +967,43 @@ const PlayerBadges: React.FC<{
   );
 };
 
+const ExpandableDates: React.FC<{ dates: string[] }> = ({ dates }) => {
+  const [showAll, setShowAll] = useState(false);
+
+  if (!dates || dates.length === 0) return null;
+
+  if (dates.length <= 3) {
+    return <span className="opacity-60 text-[10px] font-mono">{dates.join(' • ')}</span>;
+  }
+
+  if (showAll) {
+    return (
+      <span className="opacity-75 text-[10px] font-mono flex flex-wrap items-center gap-1">
+        <span>{dates.join(' • ')}</span>
+        <button
+          onClick={() => setShowAll(false)}
+          className="text-indigo-400 underline font-bold text-[10px] cursor-pointer hover:opacity-80 ml-1"
+        >
+          weniger
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="opacity-60 text-[10px] font-mono inline-flex items-center gap-1">
+      <span>{dates.slice(0, 3).join(' • ')}</span>
+      <button
+        onClick={() => setShowAll(true)}
+        className="text-indigo-400 font-bold hover:underline cursor-pointer ml-1"
+        title={dates.join(' • ')}
+      >
+        +{dates.length - 3} weitere
+      </button>
+    </span>
+  );
+};
+
 const VerticalText: React.FC<{ text: string }> = ({ text }) => (
   <div className="flex flex-col items-center justify-center leading-[0.9] py-1 font-black text-[10px] md:text-xs select-none">
     {text.split('').map((char, i) => (
@@ -1167,6 +1208,7 @@ const App: React.FC = () => {
   const [mergeMessage, setMergeMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
+  const [speedwiegenSizeTab, setSpeedwiegenSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
   const [activePlayerNameTab, setActivePlayerNameTab] = useState<string | null>(null);
   const [schnaepseSortMode, setSchnaepseSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
@@ -1187,6 +1229,8 @@ const App: React.FC = () => {
 
   // Save Results Modal States
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [resultsSaved, setResultsSaved] = useState(false);
+  const [showExitWithoutSaveConfirm, setShowExitWithoutSaveConfirm] = useState(false);
   const [csvNames, setCsvNames] = useState<string[]>([]);
   const [saveModalLoadingCsv, setSaveModalLoadingCsv] = useState(false);
   const [saveModalCsvError, setSaveModalCsvError] = useState<string | null>(null);
@@ -1214,7 +1258,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (gameState !== GameState.START) {
+      const isResultScreen = gameState === GameState.RESULT_SCREEN || gameState === GameState.SPEED_RESULT;
+      const shouldWarn = (gameState !== GameState.START && !isResultScreen) || (isResultScreen && !resultsSaved);
+
+      if (shouldWarn) {
         e.preventDefault();
         e.returnValue = '';
         return '';
@@ -1224,7 +1271,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [gameState]);
+  }, [gameState, resultsSaved]);
 
   useEffect(() => {
     let interval: any;
@@ -1268,6 +1315,7 @@ const App: React.FC = () => {
 
   const startGame = () => {
     setGameState(GameState.PLAYER_COUNT);
+    setResultsSaved(false);
     setRounds([]);
     setPlayers([]);
     setTeams([]);
@@ -1281,6 +1329,7 @@ const App: React.FC = () => {
 
   const startTeamwiegen = () => {
     setGameState(GameState.TEAM_SETUP);
+    setResultsSaved(false);
     setTeamCount(2);
     setTeamSizes({ 1: 2, 2: 2 });
     setRounds([]);
@@ -1294,6 +1343,7 @@ const App: React.FC = () => {
 
   const startSpeedwiegen = () => {
     setGameState(GameState.SPEED_SETUP);
+    setResultsSaved(false);
     setSpeedPlayerName('');
     setSpeedLevels('3');
     setSpeedIsShortMode(false);
@@ -1308,6 +1358,8 @@ const App: React.FC = () => {
 
   const resetToStart = () => {
     setGameState(GameState.START);
+    setResultsSaved(false);
+    setShowExitWithoutSaveConfirm(false);
     setRounds([]);
     setPlayers([]);
     setTeams([]);
@@ -1315,6 +1367,14 @@ const App: React.FC = () => {
     setUploadState('idle');
     setUploadMessage('');
     setAnnouncingPlayerIndex(0);
+  };
+
+  const handleExitToMainMenu = () => {
+    if (resultsSaved) {
+      resetToStart();
+    } else {
+      setShowExitWithoutSaveConfirm(true);
+    }
   };
 
   const handlePlayerCountConfirm = () => {
@@ -1964,7 +2024,7 @@ const App: React.FC = () => {
       let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number; levels?: number }> = [];
 
       if (gameState === GameState.SPEED_RESULT) {
-        gameMode = 'Speedwiegen';
+        gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
         const totalLevels = parseInt(speedLevels) || 1;
         let totalDiff = 0;
         Array.from({ length: totalLevels }).forEach((_, i) => {
@@ -2040,6 +2100,7 @@ const App: React.FC = () => {
       if (response.ok) {
         setUploadState('success');
         setUploadMessage(data.message || 'Ergebnisse erfolgreich hochgeladen!');
+        setResultsSaved(true);
       } else {
         setUploadState('error');
         setUploadMessage(data.error || 'Fehler beim Hochladen der Ergebnisse.');
@@ -2180,7 +2241,7 @@ const App: React.FC = () => {
       const today = new Date().toLocaleDateString('de-DE');
       let gameMode = 'Standardspiel';
       if (gameState === GameState.SPEED_RESULT) {
-        gameMode = 'Speedwiegen';
+        gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
       } else if (gameState === GameState.RESULT_SCREEN) {
         if (teams.length > 0) {
           gameMode = 'Teamwiegen';
@@ -2213,14 +2274,16 @@ const App: React.FC = () => {
       if (saveAchievementsChecked) {
         achievementsToUpload = earnedAchievements.map(ach => {
           const remappedEarnedBy = ach.earnedBy.map(originalName => {
-            const matchItem = items.find(i => i.name === originalName);
+            // Finde den Item dessen Name mit originalName übereinstimmt
+            const matchItem = items.find(i => i.name.trim().toLowerCase() === originalName.trim().toLowerCase());
             if (matchItem) {
               const mapping = saveModalMappings[matchItem.id];
+              // Wenn ein bestehender Name gewählt wurde, diesen verwenden
               if (mapping && mapping !== '__NEW__') {
-                return mapping;
+                return mapping; // ← zugeordneter Name
               }
             }
-            return originalName;
+            return originalName; // ← ursprünglicher Name wenn kein Mapping
           });
           return {
             ...ach,
@@ -2243,6 +2306,7 @@ const App: React.FC = () => {
       const data = await response.json();
       if (response.ok) {
         setSaveModalSuccess(true);
+        setResultsSaved(true);
         setTimeout(() => {
           setShowSaveModal(false);
           setSaveModalSuccess(false);
@@ -2982,7 +3046,7 @@ const App: React.FC = () => {
               <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
               <button onClick={() => setShowAchievements(true)} className="py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg"><i className="fas fa-trophy mr-2"></i>Achievements ({earnedAchievements.length})</button>
             </div>
-            <button onClick={resetToStart} className="w-full py-4 rounded-2xl border-2 font-bold uppercase mb-4">Hauptmenü</button>
+            <button onClick={handleExitToMainMenu} className="w-full py-4 rounded-2xl border-2 font-bold uppercase mb-4">Hauptmenü</button>
 
             <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
               <button 
@@ -2993,6 +3057,17 @@ const App: React.FC = () => {
                 <i className="fas fa-save mr-2"></i>
                 <span>Ergebnisse speichern</span>
               </button>
+              <div className="text-xs font-bold text-center">
+                {resultsSaved ? (
+                  <span className="text-emerald-500 flex items-center justify-center gap-1">
+                    <span>✅</span> Ergebnisse gespeichert
+                  </span>
+                ) : (
+                  <span className="text-amber-500 flex items-center justify-center gap-1">
+                    <span>⚠️</span> Ergebnisse noch nicht gespeichert
+                  </span>
+                )}
+              </div>
               {uploadMessage && (
                 <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
                   {uploadMessage}
@@ -3184,6 +3259,17 @@ const App: React.FC = () => {
                   <i className="fas fa-save mr-2"></i>
                   <span>Ergebnisse speichern</span>
                 </button>
+                <div className="text-xs font-bold text-center">
+                  {resultsSaved ? (
+                    <span className="text-emerald-500 flex items-center justify-center gap-1">
+                      <span>✅</span> Ergebnisse gespeichert
+                    </span>
+                  ) : (
+                    <span className="text-amber-500 flex items-center justify-center gap-1">
+                      <span>⚠️</span> Ergebnisse noch nicht gespeichert
+                    </span>
+                  )}
+                </div>
                 {uploadMessage && (
                   <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
                     {uploadMessage}
@@ -3191,7 +3277,7 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              <button onClick={resetToStart} className={`w-full py-5 rounded-2xl border-2 font-black opacity-60 uppercase tracking-widest mt-4 ${darkMode ? 'border-white/20' : 'border-black/20'}`}>zurück zum Hauptmenü</button>
+              <button onClick={handleExitToMainMenu} className={`w-full py-5 rounded-2xl border-2 font-black opacity-60 uppercase tracking-widest mt-4 ${darkMode ? 'border-white/20' : 'border-black/20'}`}>zurück zum Hauptmenü</button>
           </div>
         )}
       </main>
@@ -3217,6 +3303,71 @@ const App: React.FC = () => {
       </footer>
 
       {/* --- MODALS --- */}
+      {showExitWithoutSaveConfirm && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 ${
+            darkMode ? 'bg-slate-900 border-amber-500/40 text-white' : 'bg-white border-amber-500/40 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-amber-500/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-amber-500">
+                <span className="mr-2.5 text-2xl">⚠️</span>
+                <span>Ergebnisse nicht gespeichert</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowExitWithoutSaveConfirm(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="space-y-3 text-center">
+              <p className="text-sm font-bold opacity-90 leading-relaxed">
+                Möchtest du wirklich zum Hauptmenü zurückkehren,<br className="hidden sm:inline" /> ohne die Ergebnisse zu speichern?
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExitWithoutSaveConfirm(false);
+                  openSaveModal();
+                }}
+                className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                <i className="fas fa-save"></i>
+                <span>Ergebnisse speichern</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExitWithoutSaveConfirm(false);
+                  resetToStart();
+                }}
+                className="w-full py-3.5 rounded-2xl text-red-500 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-2"
+              >
+                <i className="fas fa-sign-out-alt"></i>
+                <span>Trotzdem verlassen</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowExitWithoutSaveConfirm(false)}
+                className={`w-full py-3 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-colors ${
+                  darkMode ? 'border-gray-700 text-gray-300 hover:bg-white/5' : 'border-gray-300 text-gray-600 hover:bg-black/5'
+                }`}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSaveModal && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 space-y-6 max-h-[90vh] overflow-y-auto ${
@@ -3685,7 +3836,10 @@ const App: React.FC = () => {
                   {(['Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Achievements'] as const).map(tab => (
                     <button
                       key={tab}
-                      onClick={() => setActiveRecordsTab(tab)}
+                      onClick={() => {
+                        setActiveRecordsTab(tab);
+                        setSpeedwiegenSizeTab('500ml');
+                      }}
                       className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap ${
                         activeRecordsTab === tab 
                           ? 'text-white shadow-md' 
@@ -3954,31 +4108,105 @@ const App: React.FC = () => {
                                     </div>
 
                                     {/* List of Awards */}
-                                    <div className="mt-3 pt-3 border-t border-gray-500/10 space-y-1.5">
+                                    <div className="mt-3 pt-3 border-t border-gray-500/10 space-y-2">
                                       <div className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Erhalten von:</div>
-                                      {ach.awards.map((aw, awIdx) => (
-                                        <div key={awIdx} className="flex items-center justify-between text-xs font-semibold bg-black/5 dark:bg-white/5 px-2.5 py-1.5 rounded-lg">
-                                          <div className="flex items-center space-x-1.5 flex-wrap">
-                                            <span className="opacity-70 text-xs">{aw.earnedTogether ? '👥' : '👤'}</span>
-                                            {aw.players.map((pName, pIdx) => (
-                                              <React.Fragment key={pIdx}>
-                                                {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
-                                                <span 
-                                                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold shadow-sm"
-                                                  style={{
-                                                    backgroundColor: `${getPlayerColor(pName, players)}25`,
-                                                    color: getPlayerColor(pName, players),
-                                                    border: `1px solid ${getPlayerColor(pName, players)}50`
-                                                  }}
-                                                >
-                                                  {pName}
+                                      {(() => {
+                                        const isTeamAch = ach.id.startsWith('team_') || (ach.awards.length > 0 && ach.awards[0].players.some(p => p.startsWith('Team ')));
+                                        const isTogetherAch = !isTeamAch && (ach.earnedTogether || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id) || (ach.awards.length > 0 && ach.awards[0].earnedTogether));
+
+                                        if (isTeamAch) {
+                                          const teamGroups: Record<string, { count: number; dates: string[]; players: string[] }> = {};
+                                          ach.awards.forEach(aw => {
+                                            const sortedPlayers = [...aw.players].sort();
+                                            const key = sortedPlayers.join('|');
+                                            if (!teamGroups[key]) teamGroups[key] = { count: 0, dates: [], players: sortedPlayers };
+                                            teamGroups[key].count++;
+                                            teamGroups[key].dates.push(aw.date);
+                                          });
+
+                                          return Object.entries(teamGroups).map(([key, group], gIdx) => (
+                                            <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
+                                              <div className="flex items-center justify-between text-xs font-bold">
+                                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                                  <span className="text-xs">🏆</span>
+                                                  {group.players.map((pName, pIdx) => (
+                                                    <React.Fragment key={pIdx}>
+                                                      {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
+                                                      <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
+                                                    </React.Fragment>
+                                                  ))}
+                                                </div>
+                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/30">
+                                                  ×{group.count}
                                                 </span>
-                                              </React.Fragment>
-                                            ))}
+                                              </div>
+                                              <div className="pl-5">
+                                                <ExpandableDates dates={group.dates} />
+                                              </div>
+                                            </div>
+                                          ));
+                                        }
+
+                                        if (isTogetherAch) {
+                                          const togetherGroups: Record<string, { count: number; dates: string[]; players: string[] }> = {};
+                                          ach.awards.forEach(aw => {
+                                            const sortedPlayers = [...aw.players].sort();
+                                            const key = sortedPlayers.join('|');
+                                            if (!togetherGroups[key]) togetherGroups[key] = { count: 0, dates: [], players: sortedPlayers };
+                                            togetherGroups[key].count++;
+                                            togetherGroups[key].dates.push(aw.date);
+                                          });
+
+                                          return Object.entries(togetherGroups).map(([key, group], gIdx) => (
+                                            <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
+                                              <div className="flex items-center justify-between text-xs font-bold">
+                                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                                  <span className="text-xs">👥</span>
+                                                  {group.players.map((pName, pIdx) => (
+                                                    <React.Fragment key={pIdx}>
+                                                      {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
+                                                      <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
+                                                    </React.Fragment>
+                                                  ))}
+                                                </div>
+                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                                  ×{group.count}
+                                                </span>
+                                              </div>
+                                              <div className="pl-5">
+                                                <ExpandableDates dates={group.dates} />
+                                              </div>
+                                            </div>
+                                          ));
+                                        }
+
+                                        // Für Solo-Achievements: gruppieren nach Spielername
+                                        const playerGroups: Record<string, { count: number; dates: string[] }> = {};
+                                        ach.awards.forEach(aw => {
+                                          aw.players.forEach(pName => {
+                                            if (!playerGroups[pName]) playerGroups[pName] = { count: 0, dates: [] };
+                                            playerGroups[pName].count++;
+                                            playerGroups[pName].dates.push(aw.date);
+                                          });
+                                        });
+
+                                        return Object.entries(playerGroups).map(([pName, group], gIdx) => (
+                                          <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
+                                            <div className="flex items-center justify-between text-xs font-bold">
+                                              <div className="flex items-center space-x-1.5">
+                                                <span className="text-xs">👤</span>
+                                                <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
+                                              </div>
+                                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand/20 text-brand border border-brand/30">
+                                                ×{group.count}
+                                              </span>
+                                            </div>
+                                            <div className="pl-5">
+                                              <ExpandableDates dates={group.dates} />
+                                            </div>
                                           </div>
-                                          <span className="text-[11px] opacity-60 font-mono ml-2">{aw.date}</span>
-                                        </div>
-                                      ))}
+                                        ));
+                                      })()}
                                     </div>
                                   </div>
                                 </div>
@@ -3998,18 +4226,63 @@ const App: React.FC = () => {
                       filtered = list.filter(r => r.gameMode === 'Standardspiel (0,33L)');
                     }
                   } else if (activeRecordsTab === 'Speedwiegen') {
-                    filtered = list.filter(r => r.gameMode === 'Speedwiegen' || r.gameMode === 'Speedwiegen (500ml)' || r.gameMode === 'Speedwiegen (0,33L)' || r.gameMode.startsWith('Speedwiegen'));
+                    // RÜCKWÄRTSKOMPATIBILITÄT:
+                    // Alle Speedwiegen-Einträge die vor der Einführung des 0,33L Modus gespeichert wurden
+                    // haben gameMode === 'Speedwiegen' (ohne Modusangabe).
+                    // Diese werden automatisch dem 500ml Modus zugeordnet.
+                    // Neue Einträge werden explizit als 'Speedwiegen (500ml)' oder 'Speedwiegen (0,33L)' gespeichert.
+                    if (speedwiegenSizeTab === '500ml') {
+                      filtered = list.filter(r =>
+                        r.gameMode === 'Speedwiegen (500ml)' ||
+                        r.gameMode === 'Speedwiegen'
+                      );
+                    } else {
+                      filtered = list.filter(r =>
+                        r.gameMode === 'Speedwiegen (0,33L)'
+                      );
+                    }
                   } else {
                     filtered = list.filter(r => r.gameMode === activeRecordsTab);
                   }
 
-                  if (activeRecordsTab !== 'Standardspiel' && filtered.length === 0) {
-                    return (
-                      <div className="text-center py-16 opacity-55">
-                        <i className="fas fa-info-circle text-4xl mb-4"></i>
-                        <p className="font-bold text-sm">Keine Einträge für {activeRecordsTab} gefunden.</p>
-                      </div>
-                    );
+                  if (filtered.length === 0) {
+                    if (activeRecordsTab === 'Speedwiegen') {
+                      return (
+                        <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+                          <div className="flex flex-col space-y-1">
+                            <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
+                            <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
+                              {(['500ml', '0,33L'] as const).map(size => (
+                                <button
+                                  key={size}
+                                  onClick={() => setSpeedwiegenSizeTab(size)}
+                                  className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
+                                    speedwiegenSizeTab === size
+                                      ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                      : 'opacity-60 hover:opacity-100'
+                                  }`}
+                                >
+                                  {size === '500ml' ? '500 ml' : '0,33 L'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="text-center py-12 opacity-55">
+                            <i className="fas fa-stopwatch text-4xl mb-3 text-amber-500"></i>
+                            <p className="font-bold text-sm">Keine Einträge für den {speedwiegenSizeTab === '500ml' ? '500 ml Modus' : '0,33 L Modus'} im Speedwiegen gefunden.</p>
+                            <p className="text-[10px] opacity-75 mt-1">Spiele eine Runde Speedwiegen im entsprechenden Format und lade dein Ergebnis hoch!</p>
+                          </div>
+                        </div>
+                      );
+                    } else if (activeRecordsTab !== 'Standardspiel') {
+                      return (
+                        <div className="text-center py-16 opacity-55">
+                          <i className="fas fa-info-circle text-4xl mb-4"></i>
+                          <p className="font-bold text-sm">Keine Einträge für {activeRecordsTab} gefunden.</p>
+                        </div>
+                      );
+                    }
                   }
 
                   // 1. Leaderboard of Best Averages (Lowest first) or Best overall achievements
@@ -4586,6 +4859,27 @@ const App: React.FC = () => {
 
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
+                      {activeRecordsTab === 'Speedwiegen' && (
+                        <div className="flex flex-col space-y-1">
+                          <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
+                          <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
+                            {(['500ml', '0,33L'] as const).map(size => (
+                              <button
+                                key={size}
+                                onClick={() => setSpeedwiegenSizeTab(size)}
+                                className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
+                                  speedwiegenSizeTab === size
+                                    ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                    : 'opacity-60 hover:opacity-100'
+                                }`}
+                              >
+                                {size === '500ml' ? '500 ml' : '0,33 L'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Averages Section */}
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>

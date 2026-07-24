@@ -8,7 +8,21 @@ export const TOGETHER_ACHIEVEMENT_IDS = [
   'doppelganger',   // Doppelgänger
   'mirror_number',  // Spiegelzahl
   'shadow',         // Schatten
-  'equilibrium'     // Gleichgewicht
+  'equilibrium',    // Gleichgewicht
+  'team_traumteam',
+  'team_perfekt',
+  'team_ausgleich',
+  'team_synchron',
+  'team_rueckendeckung',
+  'team_taktiker',
+  'team_underdog',
+  'team_champions',
+  'team_nerven',
+  'team_schnapps',
+  'team_spiegel',
+  'team_gleichstand',
+  'team_unschlagbar',
+  'team_pechvoegel'
 ];
 
 export function calculateAverageDistance(playerId: string, rounds: Round[]): number {

@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import uploadHandler from "./api/upload";
 import recordsHandler from "./api/records";
+import renameHandler from "./api/admin/rename";
 
 // Setup express app
 const app = express();
@@ -13,6 +14,7 @@ app.use(express.json());
 // API routes mapped from the modular handlers
 app.post("/api/upload", uploadHandler);
 app.get("/api/records", recordsHandler);
+app.post("/api/admin/rename", renameHandler);
 
 // Serve frontend assets
 async function startServer() {

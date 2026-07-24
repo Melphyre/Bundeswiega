@@ -20,7 +20,7 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'millimeter', title: 'Millimeterarbeit', description: 'Durchschnittsabstand unter 3,5g', icon: '🔬', rarity: 'rare' },
   { id: 'perfect_balance', title: 'Die Waage', description: 'Durchschnittsabstand exakt 0g (jede Runde Volltreffer)', icon: '⚖️', rarity: 'legendary' },
   { id: 'drop_by_drop', title: 'Tropfen für Tropfen', description: 'Nie mehr als 5g Abstand in einer Runde gehabt', icon: '💧', rarity: 'rare' },
-  { id: 'perfectionist', title: 'Perfektionist', description: '0 Strafpunkte im gesamten Spiel', icon: '✨', rarity: 'epic' },
+  { id: 'perfectionist', title: 'Jungfrau', description: 'Das Spiel mit 0 Strafpunkten beendet', icon: '✨', rarity: 'epic' },
   { id: 'poker_face', title: 'Poker Face', description: 'In 3 aufeinanderfolgenden Runden exakt denselben Abstand (±1g)', icon: '🃏', rarity: 'rare' },
 
   // Straf-Achievements
@@ -59,6 +59,39 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'calculator', title: 'Kopfrechner', description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)', icon: '🧮', rarity: 'epic' },
   { id: 'thirsty', title: 'Durstiger', description: 'In einer Runde mehr als 20g unter dem Zielgewicht gelandet', icon: '🫗', rarity: 'common' },
   { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common' },
+
+  // Speedwiegen Achievements
+  { id: 'speed_blitzpraezise', title: 'Blitzpräzise', description: 'Unter 3g Durchschnitt UND unter 90 Sekunden Gesamtzeit', icon: '⚡', rarity: 'epic' },
+  { id: 'speed_zeitlos', title: 'Zeitlos', description: 'Alle Stufen unter 2g Abstand, unabhängig von der Zeit', icon: '🎯', rarity: 'rare' },
+  { id: 'speed_stufenmeister', title: 'Stufen-Meister', description: 'Jede Stufe hatte einen kleineren oder gleichen Abstand als die vorherige', icon: '📈', rarity: 'rare' },
+  { id: 'speed_steigerungsmeister', title: 'Steigerungs-Meister', description: 'Jede aufeinanderfolgende Stufe hatte einen strikt kleineren Abstand als die vorherige', icon: '🚀', rarity: 'epic' },
+  { id: 'speed_nullsumme', title: 'Nullsumme', description: 'Mindestens 2 Volltreffer (exakt 0g Abstand) in einer Speed-Runde', icon: '🎰', rarity: 'epic' },
+  { id: 'speed_roboter', title: 'Roboter', description: 'In jeder Stufe unter 3g Abstand', icon: '🤖', rarity: 'legendary' },
+  { id: 'speed_speedstar', title: 'Speedstar', description: 'Gesamtzeit unter 60 Sekunden', icon: '⭐', rarity: 'rare' },
+  { id: 'speed_hastig', title: 'Hastig', description: 'Gesamtzeit unter 50 Sekunden (unabhängig von Präzision)', icon: '💨', rarity: 'common' },
+  { id: 'speed_gemuetlich', title: 'Gemütlich', description: 'Trotz über 150 Sekunden Gesamtzeit unter 5g Durchschnitt', icon: '🛋️', rarity: 'rare' },
+  { id: 'speed_warmup', title: 'Warm-up', description: 'Erste Stufe war die schlechteste, letzte Stufe war die beste (strikt)', icon: '🔥', rarity: 'common' },
+  { id: 'speed_kaltstart', title: 'Kaltstart', description: 'Erste Stufe war die beste, letzte Stufe war die schlechteste (strikt)', icon: '❄️', rarity: 'common' },
+  { id: 'speed_spiegellaeufer', title: 'Spiegelläufer', description: 'Zwei aufeinanderfolgende Stufen hatten gespiegelte Abstände (z.B. 12g & 21g)', icon: '🪞', rarity: 'epic' },
+  { id: 'speed_gleichlauf', title: 'Gleichlauf', description: 'Alle Stufen hatten exakt denselben Abstand zum Zielgewicht', icon: '🔄', rarity: 'rare' },
+  { id: 'speed_schnappsstufe', title: 'Schnappsstufe', description: 'Mindestens 2 mal einen Abstand mit einer Schnappszahl auf einer Stufe getroffen', icon: '🥂', rarity: 'rare' },
+  { id: 'speed_maxattack', title: 'Max-Attack', description: 'Auf allen Stufen exakt das Zielgewicht getroffen (0g Abstand auf jeder Stufe)', icon: '👑', rarity: 'legendary' },
+
+  // Teamwiegen Achievements
+  { id: 'team_traumteam', title: 'Traumteam', description: 'Alle Teammitglieder eines Teams lagen in einer Runde unter 5g Abstand vom Zielgewicht', icon: '🌟', rarity: 'rare', earnedTogether: true },
+  { id: 'team_perfekt', title: 'Perfektes Team', description: 'Ein Team erreicht in einer Runde einen Gesamtabstand von exakt 0g', icon: '🎯', rarity: 'epic', earnedTogether: true },
+  { id: 'team_ausgleich', title: 'Ausgleichskünstler', description: 'Nachdem alle Teammitglieder eines Teams eingegeben haben, wurde das Zielgewicht als Teamgesamtabstand exakt erreicht (0g)', icon: '⚖️', rarity: 'epic', earnedTogether: true },
+  { id: 'team_synchron', title: 'Synchronschwimmer', description: 'Alle Teammitglieder eines Teams treffen in einer Runde exakt dasselbe Gewicht', icon: '🏊', rarity: 'legendary', earnedTogether: true },
+  { id: 'team_rueckendeckung', title: 'Rückendeckung', description: 'Ein Teammitglied hatte über 20g Abstand vom Ziel, und die anderen Teammitglieder haben die Abweichung gemeinsam komplett ausgeglichen (Gesamtabstand = 0g)', icon: '💪', rarity: 'epic', earnedTogether: true },
+  { id: 'team_taktiker', title: 'Taktiker', description: 'Ein Team gewinnt das Spiel ohne je in einer Runde den niedrigsten Einzelabstand aller Spieler gehabt zu haben', icon: '🧠', rarity: 'epic', earnedTogether: true },
+  { id: 'team_underdog', title: 'Underdog-Team', description: 'Nach der Hälfte der Runden auf dem letzten Platz (meiste Strafpunkte) und am Ende trotzdem gewonnen', icon: '🐾', rarity: 'legendary', earnedTogether: true },
+  { id: 'team_champions', title: 'Championswieg-Team', description: 'Der Team-Gesamtabstand weicht in keiner Runde mehr als 5g vom eigenen Durchschnitt ab', icon: '🏆', rarity: 'epic', earnedTogether: true },
+  { id: 'team_nerven', title: 'Nerven aus Stahl', description: 'In der letzten Runde vom letzten Platz auf den ersten Platz gekommen', icon: '🔩', rarity: 'legendary', earnedTogether: true },
+  { id: 'team_schnapps', title: 'Schnappsteam', description: 'Ein Team hat in 2 aufeinanderfolgenden Runden einen Gesamtabstand mit einer Schnappszahl erreicht', icon: '🥂', rarity: 'rare', earnedTogether: true },
+  { id: 'team_spiegel', title: 'Spiegelteams', description: 'Zwei Teams haben in einer Runde gespiegelte Gesamtabstände (z.B. 12g & 21g)', icon: '🪞', rarity: 'epic', earnedTogether: true },
+  { id: 'team_gleichstand', title: 'Gleichstand-Könige', description: 'Ein Team hatte in 3 aufeinanderfolgenden Runden Gleichstand mit mindestens einem anderen Team', icon: '👑', rarity: 'rare', earnedTogether: true },
+  { id: 'team_unschlagbar', title: 'Mehr Jungfrauen', description: 'Ein Team bekommt im gesamten Spiel keinen einzigen Strafpunkt', icon: '😇', rarity: 'legendary', earnedTogether: true },
+  { id: 'team_pechvoegel', title: 'Pechvögel', description: 'Ein Team hat 3 mal im Spiel eine Schnappszahl als Gesamtabstand erreicht und dadurch Strafpunkte erhalten', icon: '🐦', rarity: 'common', earnedTogether: true },
 ];
 
 export function getTeamAlternatingPlayerSequence(teams: Team[]): Array<{ playerId: string; teamId: string }> {
@@ -107,7 +140,7 @@ export const checkAchievements = (
     millimeter: { id: 'millimeter', title: 'Millimeterarbeit', description: 'Durchschnittsabstand unter 3,5g', icon: '🔬', rarity: 'rare', earnedBy: new Set() },
     perfect_balance: { id: 'perfect_balance', title: 'Die Waage', description: 'Durchschnittsabstand exakt 0g (jede Runde Volltreffer)', icon: '⚖️', rarity: 'legendary', earnedBy: new Set() },
     drop_by_drop: { id: 'drop_by_drop', title: 'Tropfen für Tropfen', description: 'Nie mehr als 5g Abstand in einer Runde gehabt', icon: '💧', rarity: 'rare', earnedBy: new Set() },
-    perfectionist: { id: 'perfectionist', title: 'Perfektionist', description: '0 Strafpunkte im gesamten Spiel', icon: '✨', rarity: 'epic', earnedBy: new Set() },
+    perfectionist: { id: 'perfectionist', title: 'Jungfrau', description: 'Das Spiel mit 0 Strafpunkten beendet', icon: '✨', rarity: 'epic', earnedBy: new Set() },
     poker_face: { id: 'poker_face', title: 'Poker Face', description: 'In 3 aufeinanderfolgenden Runden exakt denselben Abstand (±1g)', icon: '🃏', rarity: 'rare', earnedBy: new Set() },
 
     // Straf-Achievements
@@ -524,6 +557,354 @@ export const checkAchievements = (
   return newlyUnlockedAchievements;
 };
 
+export const checkSpeedAchievements = (
+  playerName: string,
+  levels: number,
+  speedTargets: Record<number, string>,
+  speedResults: Record<number, string>,
+  startTime: number | null,
+  endTime: number | null,
+  previouslyEarned: Achievement[] = []
+): Achievement[] => {
+  if (!startTime || !endTime || levels <= 0) return [];
+  const totalSeconds = (endTime - startTime) / 1000;
+
+  const levelKeys = Array.from({ length: levels }, (_, i) => i + 1);
+  const diffs: number[] = [];
+  let totalDiff = 0;
+
+  for (const k of levelKeys) {
+    const target = parseInt(speedTargets[k]) || 0;
+    const result = parseInt(speedResults[k]) || 0;
+    const diff = Math.abs(result - target);
+    diffs.push(diff);
+    totalDiff += diff;
+  }
+
+  const avgDiff = totalDiff / levels;
+  const earnedSet = new Set<string>();
+
+  // 1. speed_blitzpraezise
+  if (avgDiff < 3 && totalSeconds < 90) earnedSet.add('speed_blitzpraezise');
+
+  // 2. speed_zeitlos
+  if (diffs.every(d => d < 2)) earnedSet.add('speed_zeitlos');
+
+  // 3. speed_stufenmeister
+  if (diffs.length > 1 && diffs.every((d, i) => i === 0 || d <= diffs[i - 1])) {
+    earnedSet.add('speed_stufenmeister');
+  }
+
+  // 4. speed_steigerungsmeister
+  if (diffs.length > 1 && diffs.every((d, i) => i === 0 || d < diffs[i - 1])) {
+    earnedSet.add('speed_steigerungsmeister');
+  }
+
+  // 5. speed_nullsumme
+  if (diffs.filter(d => d === 0).length >= 2) earnedSet.add('speed_nullsumme');
+
+  // 6. speed_roboter
+  if (diffs.every(d => d < 3)) earnedSet.add('speed_roboter');
+
+  // 7. speed_speedstar
+  if (totalSeconds < 60) earnedSet.add('speed_speedstar');
+
+  // 8. speed_hastig
+  if (totalSeconds < 50) earnedSet.add('speed_hastig');
+
+  // 9. speed_gemuetlich
+  if (totalSeconds > 150 && avgDiff < 5) earnedSet.add('speed_gemuetlich');
+
+  // 10. speed_warmup
+  if (diffs.length >= 2) {
+    const maxDiff = Math.max(...diffs);
+    const minDiff = Math.min(...diffs);
+    if (diffs[0] === maxDiff && diffs[diffs.length - 1] === minDiff && diffs[0] > diffs[diffs.length - 1]) {
+      earnedSet.add('speed_warmup');
+    }
+  }
+
+  // 11. speed_kaltstart
+  if (diffs.length >= 2) {
+    const maxDiff = Math.max(...diffs);
+    const minDiff = Math.min(...diffs);
+    if (diffs[0] === minDiff && diffs[diffs.length - 1] === maxDiff && diffs[0] < diffs[diffs.length - 1]) {
+      earnedSet.add('speed_kaltstart');
+    }
+  }
+
+  // 12. speed_spiegellaeufer
+  for (let i = 1; i < diffs.length; i++) {
+    const d1 = diffs[i - 1];
+    const d2 = diffs[i];
+    if (d1 >= 10 && d2 >= 10 && d1 !== d2) {
+      const s1 = d1.toString();
+      const s2Rev = d2.toString().split('').reverse().join('');
+      if (s1 === s2Rev) {
+        earnedSet.add('speed_spiegellaeufer');
+        break;
+      }
+    }
+  }
+
+  // 13. speed_gleichlauf
+  if (diffs.length > 1 && diffs.every(d => d === diffs[0])) {
+    earnedSet.add('speed_gleichlauf');
+  }
+
+  // 14. speed_schnappsstufe
+  if (diffs.filter(d => SPECIAL_NUMBERS.includes(d)).length >= 2) {
+    earnedSet.add('speed_schnappsstufe');
+  }
+
+  // 15. speed_maxattack
+  if (diffs.every(d => d === 0)) earnedSet.add('speed_maxattack');
+
+  const brandNew: Achievement[] = [];
+  earnedSet.forEach(id => {
+    const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(a => a.id === id);
+    if (!def) return;
+    const alreadyEarned = previouslyEarned.some(p => p.id === id && p.earnedBy?.includes(playerName));
+    if (!alreadyEarned) {
+      brandNew.push({
+        id: def.id,
+        title: def.title,
+        description: def.description,
+        icon: def.icon,
+        rarity: def.rarity as any,
+        earnedBy: [playerName]
+      });
+    }
+  });
+
+  return brandNew;
+};
+
+export const checkTeamAchievements = (
+  teams: Team[],
+  players: Player[],
+  rounds: Round[],
+  isEndOfGame: boolean = false,
+  previouslyEarned: Achievement[] = []
+): Achievement[] => {
+  if (!teams || teams.length === 0 || !rounds || rounds.length === 0) return [];
+
+  const completedRounds = rounds.filter(r => r.results && Object.keys(r.results).length > 0);
+  if (completedRounds.length === 0) return [];
+
+  const teamEarnedMap: Record<string, Set<string>> = {};
+  teams.forEach(t => { teamEarnedMap[t.id] = new Set<string>(); });
+
+  const playerMap = new Map<string, string>();
+  players.forEach(p => playerMap.set(p.id, p.name));
+
+  const teamRoundStats: Array<Record<string, { rawOffsetSum: number; absDist: number; playerDiffs: number[] }>> = [];
+
+  completedRounds.forEach(r => {
+    const statsThisRound: Record<string, { rawOffsetSum: number; absDist: number; playerDiffs: number[] }> = {};
+    teams.forEach(t => {
+      let rawSum = 0;
+      const pDiffs: number[] = [];
+      t.playerIds.forEach(pid => {
+        const val = r.results[pid] || 0;
+        const diff = val - r.targetWeight;
+        rawSum += diff;
+        pDiffs.push(Math.abs(diff));
+      });
+      statsThisRound[t.id] = {
+        rawOffsetSum: rawSum,
+        absDist: Math.abs(rawSum),
+        playerDiffs: pDiffs
+      };
+    });
+    teamRoundStats.push(statsThisRound);
+  });
+
+  teams.forEach(t => {
+    const tSet = teamEarnedMap[t.id];
+
+    // 1. team_traumteam
+    const hasTraumteam = teamRoundStats.some(s => s[t.id] && s[t.id].playerDiffs.every(d => d < 5));
+    if (hasTraumteam) tSet.add('team_traumteam');
+
+    // 2. team_perfekt
+    const hasPerfekt = teamRoundStats.some(s => s[t.id] && s[t.id].absDist === 0);
+    if (hasPerfekt) tSet.add('team_perfekt');
+
+    // 3. team_ausgleich
+    if (hasPerfekt) tSet.add('team_ausgleich');
+
+    // 4. team_synchron
+    const hasSynchron = completedRounds.some(r => {
+      const vals = t.playerIds.map(pid => r.results[pid]);
+      return vals.length > 0 && vals.every(v => v === vals[0]);
+    });
+    if (hasSynchron) tSet.add('team_synchron');
+
+    // 5. team_rueckendeckung
+    const hasRueckendeckung = teamRoundStats.some(s => {
+      const st = s[t.id];
+      if (!st) return false;
+      return st.absDist === 0 && st.playerDiffs.some(d => d > 20);
+    });
+    if (hasRueckendeckung) tSet.add('team_rueckendeckung');
+
+    // 8. team_champions
+    const allAbsDists = teamRoundStats.map(s => s[t.id]?.absDist || 0);
+    if (allAbsDists.length > 0) {
+      const avgDist = allAbsDists.reduce((sum, d) => sum + d, 0) / allAbsDists.length;
+      if (allAbsDists.every(d => Math.abs(d - avgDist) <= 5)) {
+        tSet.add('team_champions');
+      }
+    }
+
+    // 10. team_schnapps
+    for (let rIdx = 1; rIdx < teamRoundStats.length; rIdx++) {
+      const d1 = teamRoundStats[rIdx - 1][t.id]?.absDist;
+      const d2 = teamRoundStats[rIdx][t.id]?.absDist;
+      if (d1 !== undefined && d2 !== undefined && SPECIAL_NUMBERS.includes(d1) && SPECIAL_NUMBERS.includes(d2)) {
+        tSet.add('team_schnapps');
+        break;
+      }
+    }
+
+    // 12. team_gleichstand
+    if (teams.length > 1 && teamRoundStats.length >= 3) {
+      for (let rIdx = 2; rIdx < teamRoundStats.length; rIdx++) {
+        const checkRound = (idx: number) => {
+          const myDist = teamRoundStats[idx][t.id]?.absDist;
+          return teams.some(otherT => otherT.id !== t.id && teamRoundStats[idx][otherT.id]?.absDist === myDist);
+        };
+        if (checkRound(rIdx - 2) && checkRound(rIdx - 1) && checkRound(rIdx)) {
+          tSet.add('team_gleichstand');
+          break;
+        }
+      }
+    }
+
+    // 14. team_pechvoegel
+    const schnappsCount = allAbsDists.filter(d => SPECIAL_NUMBERS.includes(d)).length;
+    if (schnappsCount >= 3) tSet.add('team_pechvoegel');
+
+    if (isEndOfGame) {
+      const sortedTeams = [...teams].sort((a, b) => a.points - b.points);
+      const isWinner = sortedTeams[0]?.id === t.id;
+
+      // 6. team_taktiker
+      if (isWinner) {
+        const hadLowestSingleInAnyRound = completedRounds.some(r => {
+          const allPlayerDiffsInRound: number[] = [];
+          players.forEach(p => {
+            allPlayerDiffsInRound.push(Math.abs((r.results[p.id] || 0) - r.targetWeight));
+          });
+          const minSingleDiff = Math.min(...allPlayerDiffsInRound);
+          const tMemberDiffs = t.playerIds.map(pid => Math.abs((r.results[pid] || 0) - r.targetWeight));
+          return tMemberDiffs.includes(minSingleDiff);
+        });
+        if (!hadLowestSingleInAnyRound) tSet.add('team_taktiker');
+      }
+
+      // 7. team_underdog
+      if (isWinner && teamRoundStats.length >= 2) {
+        const halfRounds = Math.floor(teamRoundStats.length / 2);
+        const pointsAtHalf: Record<string, number> = {};
+        teams.forEach(tm => { pointsAtHalf[tm.id] = 0; });
+
+        for (let rIdx = 0; rIdx < halfRounds; rIdx++) {
+          const stats = teamRoundStats[rIdx];
+          const dists = teams.map(tm => stats[tm.id]?.absDist || 0);
+          const maxD = Math.max(...dists);
+          teams.forEach(tm => {
+            if (stats[tm.id]?.absDist === maxD) pointsAtHalf[tm.id] += 1;
+            if (SPECIAL_NUMBERS.includes(stats[tm.id]?.absDist || -1)) pointsAtHalf[tm.id] += 1;
+          });
+        }
+        const sortedByPointsAtHalf = [...teams].sort((a, b) => pointsAtHalf[b.id] - pointsAtHalf[a.id]);
+        if (sortedByPointsAtHalf[0]?.id === t.id) {
+          tSet.add('team_underdog');
+        }
+      }
+
+      // 9. team_nerven
+      if (isWinner && teamRoundStats.length >= 2) {
+        const pointsBeforeLast: Record<string, number> = {};
+        teams.forEach(tm => { pointsBeforeLast[tm.id] = 0; });
+        for (let rIdx = 0; rIdx < teamRoundStats.length - 1; rIdx++) {
+          const stats = teamRoundStats[rIdx];
+          const dists = teams.map(tm => stats[tm.id]?.absDist || 0);
+          const maxD = Math.max(...dists);
+          teams.forEach(tm => {
+            if (stats[tm.id]?.absDist === maxD) pointsBeforeLast[tm.id] += 1;
+            if (SPECIAL_NUMBERS.includes(stats[tm.id]?.absDist || -1)) pointsBeforeLast[tm.id] += 1;
+          });
+        }
+        const sortedBeforeLast = [...teams].sort((a, b) => pointsBeforeLast[b.id] - pointsBeforeLast[a.id]);
+        if (sortedBeforeLast[0]?.id === t.id) {
+          tSet.add('team_nerven');
+        }
+      }
+
+      // 13. team_unschlagbar
+      if (t.points === 0) tSet.add('team_unschlagbar');
+    }
+  });
+
+  // 11. team_spiegel
+  if (teams.length >= 2) {
+    teamRoundStats.forEach(stats => {
+      const teamIds = teams.map(tm => tm.id);
+      for (let i = 0; i < teamIds.length; i++) {
+        for (let j = i + 1; j < teamIds.length; j++) {
+          const d1 = stats[teamIds[i]]?.absDist;
+          const d2 = stats[teamIds[j]]?.absDist;
+          if (d1 !== undefined && d2 !== undefined && d1 >= 10 && d2 >= 10 && d1 !== d2) {
+            const s1 = d1.toString();
+            const s2Rev = d2.toString().split('').reverse().join('');
+            if (s1 === s2Rev) {
+              teamEarnedMap[teamIds[i]].add('team_spiegel');
+              teamEarnedMap[teamIds[j]].add('team_spiegel');
+            }
+          }
+        }
+      }
+    });
+  }
+
+  const brandNew: Achievement[] = [];
+
+  teams.forEach(t => {
+    const tSet = teamEarnedMap[t.id];
+    const memberNames = t.playerIds.map(pid => playerMap.get(pid) || pid).filter(Boolean);
+
+    tSet.forEach(achId => {
+      const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(a => a.id === achId);
+      if (!def) return;
+
+      const alreadyEarned = previouslyEarned.some(p => p.id === achId && memberNames.every(m => p.earnedBy?.includes(m)));
+      if (!alreadyEarned) {
+        const existingInBrandNew = brandNew.find(b => b.id === achId);
+        if (existingInBrandNew) {
+          memberNames.forEach(m => {
+            if (!existingInBrandNew.earnedBy.includes(m)) existingInBrandNew.earnedBy.push(m);
+          });
+        } else {
+          brandNew.push({
+            id: def.id,
+            title: def.title,
+            description: def.description,
+            icon: def.icon,
+            rarity: def.rarity as any,
+            earnedBy: [...memberNames],
+            earnedTogether: true
+          });
+        }
+      }
+    });
+  });
+
+  return brandNew;
+};
+
 declare const html2canvas: any;
 
 const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
@@ -532,6 +913,9 @@ const INSTAGRAM_URL = "https://www.instagram.com/bundeswiega/";
 const BRAND_COLOR = "#238183";
 const GOLD_COLOR = "#D4AF37";
 const DARK_GRAY = "#374151";
+
+// Optionen-Button temporär ausgeblendet – auf true setzen um ihn wieder anzuzeigen
+const SHOW_OPTIONS_BUTTON = false;
 
 const PLAYER_COLORS = [
   '#238183', '#6366f1', '#f43f5e', '#f59e0b', '#06b6d4', 
@@ -761,6 +1145,13 @@ const App: React.FC = () => {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Standardspiel');
+  const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Alle');
+  const [showAdminOptionsModal, setShowAdminOptionsModal] = useState(false);
+  const [mergeOldName, setMergeOldName] = useState('');
+  const [mergeNewName, setMergeNewName] = useState('');
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
+  const [mergeSubmitting, setMergeSubmitting] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
@@ -778,6 +1169,18 @@ const App: React.FC = () => {
   const [speedStartTime, setSpeedStartTime] = useState<number | null>(null);
   const [speedEndTime, setSpeedEndTime] = useState<number | null>(null);
   const [speedCurrentTime, setSpeedCurrentTime] = useState<number>(0);
+
+  // Save Results Modal States
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [csvNames, setCsvNames] = useState<string[]>([]);
+  const [saveModalLoadingCsv, setSaveModalLoadingCsv] = useState(false);
+  const [saveModalCsvError, setSaveModalCsvError] = useState<string | null>(null);
+  const [saveModalChecked, setSaveModalChecked] = useState<Record<string, boolean>>({});
+  const [saveModalMappings, setSaveModalMappings] = useState<Record<string, string>>({});
+  const [saveAchievementsChecked, setSaveAchievementsChecked] = useState(true);
+  const [saveModalSubmitting, setSaveModalSubmitting] = useState(false);
+  const [saveModalSuccess, setSaveModalSuccess] = useState(false);
+  const [saveModalError, setSaveModalError] = useState<string | null>(null);
 
   // Teamwiegen States
   const [teamCount, setTeamCount] = useState(2);
@@ -1266,8 +1669,39 @@ const App: React.FC = () => {
     for (let i = 1; i <= levels; i++) {
       if (!speedResults[i]) { alert("Bitte alle Ergebnisse eintragen."); return; }
     }
-    setSpeedEndTime(Date.now());
+    const end = Date.now();
+    setSpeedEndTime(end);
     setGameState(GameState.SPEED_RESULT);
+
+    const speedAch = checkSpeedAchievements(
+      speedPlayerName || 'Gast',
+      levels,
+      speedTargets,
+      speedResults,
+      speedStartTime,
+      end,
+      earnedAchievements
+    );
+
+    if (speedAch && speedAch.length > 0) {
+      setNewlyEarnedAchievements(speedAch);
+      setEarnedAchievements(prev => {
+        const updated = [...prev];
+        speedAch.forEach(ach => {
+          const existing = updated.find(a => a.id === ach.id);
+          if (existing) {
+            ach.earnedBy.forEach(name => {
+              if (!existing.earnedBy.includes(name)) {
+                existing.earnedBy.push(name);
+              }
+            });
+          } else {
+            updated.push({ ...ach });
+          }
+        });
+        return updated;
+      });
+    }
   };
 
   // Teamwiegen Handlers
@@ -1300,19 +1734,25 @@ const App: React.FC = () => {
   };
 
   const handleTeamNextStep = () => {
-    const sequence = getTeamAlternatingPlayerSequence(teams);
-    if (sequence.length === 0) return;
+    if (teams.length === 0) return;
+    const maxTeamSize = Math.max(...teams.map(t => t.playerIds.length));
+    const safeRowIndex = Math.min(teamStepIndex, maxTeamSize - 1);
 
-    const stepItem = sequence[teamStepIndex];
-    const pid = stepItem?.playerId;
+    // Find all player IDs present in row safeRowIndex
+    const activeRowPlayerIds = teams
+      .map(t => t.playerIds[safeRowIndex])
+      .filter((pid): pid is string => Boolean(pid));
 
-    if (!pid || !currentRoundResults[pid] || isNaN(parseInt(currentRoundResults[pid]))) {
-      alert("Bitte Gewicht eintragen.");
+    const missing = activeRowPlayerIds.some(
+      pid => !currentRoundResults[pid] || currentRoundResults[pid] === '' || isNaN(parseInt(currentRoundResults[pid]))
+    );
+    if (missing) {
+      alert("Bitte die Gewichte für alle Mitglieder dieser Reihe eintragen.");
       return;
     }
 
-    if (teamStepIndex < sequence.length - 1) {
-      setTeamStepIndex(teamStepIndex + 1);
+    if (safeRowIndex < maxTeamSize - 1) {
+      setTeamStepIndex(safeRowIndex + 1);
       return;
     }
 
@@ -1397,6 +1837,34 @@ const App: React.FC = () => {
     if (triggers.length > 0) {
       setFinalTriggered(true);
       setTriggeringPlayers(triggers);
+    }
+
+    const teamAch = checkTeamAchievements(
+      updatedTeams,
+      players,
+      updatedRounds,
+      triggers.length > 0,
+      earnedAchievements
+    );
+
+    if (teamAch && teamAch.length > 0) {
+      setNewlyEarnedAchievements(teamAch);
+      setEarnedAchievements(prev => {
+        const updated = [...prev];
+        teamAch.forEach(ach => {
+          const existing = updated.find(a => a.id === ach.id);
+          if (existing) {
+            ach.earnedBy.forEach(name => {
+              if (!existing.earnedBy.includes(name)) {
+                existing.earnedBy.push(name);
+              }
+            });
+          } else {
+            updated.push({ ...ach });
+          }
+        });
+        return updated;
+      });
     }
 
     setAnnouncingPlayerIndex(prev => prev + 1);
@@ -1543,6 +2011,213 @@ const App: React.FC = () => {
       console.error("Error calling upload API:", err);
       setUploadState('error');
       setUploadMessage(err.message || 'Netzwerkfehler beim Hochladen.');
+    }
+  };
+
+  const getParticipatingItems = () => {
+    let items: Array<{ id: string; name: string; avg: number; schnaepse: number; levels?: number }> = [];
+    if (gameState === GameState.SPEED_RESULT) {
+      const totalLevels = parseInt(speedLevels) || 1;
+      let totalDiff = 0;
+      Array.from({ length: totalLevels }).forEach((_, i) => {
+        const target = parseInt(speedTargets[i+1]) || 0;
+        const result = parseInt(speedResults[i+1]) || 0;
+        totalDiff += Math.abs(result - target);
+      });
+      const avg = Number((totalDiff / totalLevels).toFixed(2));
+      const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+      items = [{
+        id: 'speed_player',
+        name: speedPlayerName || 'Gast',
+        avg,
+        schnaepse: timeSec,
+        levels: totalLevels
+      }];
+    } else if (gameState === GameState.RESULT_SCREEN) {
+      if (teams.length > 0) {
+        items = teams.map(t => {
+          let totalOffset = 0;
+          let roundsCount = 0;
+          rounds.forEach(r => {
+            let roundOffset = 0;
+            let playersCount = 0;
+            t.playerIds.forEach(pid => {
+              const val = r.results[pid];
+              if (val !== undefined && val !== null) {
+                roundOffset += Math.abs(val - r.targetWeight);
+                playersCount++;
+              }
+            });
+            if (playersCount > 0) {
+              totalOffset += (roundOffset / playersCount);
+              roundsCount++;
+            }
+          });
+          const avg = roundsCount > 0 ? (totalOffset / roundsCount) : 0;
+          return {
+            id: t.id,
+            name: t.name,
+            avg: Number(avg.toFixed(2)),
+            schnaepse: t.points
+          };
+        });
+      } else {
+        items = players.map(p => ({
+          id: p.id,
+          name: p.name,
+          avg: Number(calculateAverageDistance(p.id, rounds).toFixed(2)),
+          schnaepse: p.schnaepse
+        }));
+      }
+    }
+    return items;
+  };
+
+  const openSaveModal = async () => {
+    setShowSaveModal(true);
+    setSaveModalLoadingCsv(true);
+    setSaveModalCsvError(null);
+    setSaveModalSuccess(false);
+    setSaveModalError(null);
+    setSaveAchievementsChecked(true);
+
+    const items = getParticipatingItems();
+    const initialChecked: Record<string, boolean> = {};
+    items.forEach(it => { initialChecked[it.id] = true; });
+    setSaveModalChecked(initialChecked);
+
+    try {
+      const res = await fetch('/api/records');
+      const json = await res.json();
+      if (res.ok && json.data) {
+        const isTeamMode = (gameState === GameState.RESULT_SCREEN && teams.length > 0);
+        const namesSet = new Set<string>();
+        json.data.slice(1).forEach((row: string[]) => {
+          if (row && row[2] && row[2].trim()) {
+            const rowMode = row[1] ? row[1].trim() : '';
+            if (isTeamMode) {
+              if (rowMode === 'Teamwiegen') {
+                namesSet.add(row[2].trim());
+              }
+            } else {
+              if (rowMode !== 'Teamwiegen') {
+                namesSet.add(row[2].trim());
+              }
+            }
+          }
+        });
+        const sorted = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+        setCsvNames(sorted);
+
+        const initialMappings: Record<string, string> = {};
+        items.forEach(it => {
+          const match = sorted.find(c => c.trim().toLowerCase() === it.name.trim().toLowerCase());
+          initialMappings[it.id] = match || '__NEW__';
+        });
+        setSaveModalMappings(initialMappings);
+      } else {
+        setSaveModalCsvError('CSV-Namen konnten nicht geladen werden.');
+        setCsvNames([]);
+        const initialMappings: Record<string, string> = {};
+        items.forEach(it => { initialMappings[it.id] = '__NEW__'; });
+        setSaveModalMappings(initialMappings);
+      }
+    } catch (err) {
+      console.error('Error fetching records for save modal:', err);
+      setSaveModalCsvError('CSV-Namen konnten nicht geladen werden.');
+      setCsvNames([]);
+      const initialMappings: Record<string, string> = {};
+      items.forEach(it => { initialMappings[it.id] = '__NEW__'; });
+      setSaveModalMappings(initialMappings);
+    } finally {
+      setSaveModalLoadingCsv(false);
+    }
+  };
+
+  const handleSaveResultsModalSubmit = async () => {
+    setSaveModalSubmitting(true);
+    setSaveModalError(null);
+    setSaveModalSuccess(false);
+
+    try {
+      const today = new Date().toLocaleDateString('de-DE');
+      let gameMode = 'Standardspiel';
+      if (gameState === GameState.SPEED_RESULT) {
+        gameMode = 'Speedwiegen';
+      } else if (gameState === GameState.RESULT_SCREEN) {
+        if (teams.length > 0) {
+          gameMode = 'Teamwiegen';
+        } else {
+          gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
+        }
+      }
+
+      const items = getParticipatingItems();
+      const selectedItems = items.filter(it => saveModalChecked[it.id]);
+
+      if (selectedItems.length === 0 && !saveAchievementsChecked) {
+        setSaveModalError('Bitte mindestens einen Spieler oder Achievements auswählen.');
+        setSaveModalSubmitting(false);
+        return;
+      }
+
+      const resultsToUpload = selectedItems.map(it => {
+        const mapping = saveModalMappings[it.id];
+        const finalName = (mapping && mapping !== '__NEW__') ? mapping : it.name;
+        return {
+          name: finalName,
+          avg: it.avg,
+          schnaepse: it.schnaepse,
+          ...(it.levels !== undefined ? { levels: it.levels } : {})
+        };
+      });
+
+      let achievementsToUpload: Achievement[] = [];
+      if (saveAchievementsChecked) {
+        achievementsToUpload = earnedAchievements.map(ach => {
+          const remappedEarnedBy = ach.earnedBy.map(originalName => {
+            const matchItem = items.find(i => i.name === originalName);
+            if (matchItem) {
+              const mapping = saveModalMappings[matchItem.id];
+              if (mapping && mapping !== '__NEW__') {
+                return mapping;
+              }
+            }
+            return originalName;
+          });
+          return {
+            ...ach,
+            earnedBy: remappedEarnedBy
+          };
+        });
+      }
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameMode,
+          results: resultsToUpload,
+          date: today,
+          achievements: achievementsToUpload
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSaveModalSuccess(true);
+        setTimeout(() => {
+          setShowSaveModal(false);
+          setSaveModalSuccess(false);
+        }, 2000);
+      } else {
+        setSaveModalError(data.error || 'Fehler beim Speichern der Ergebnisse.');
+      }
+    } catch (err: any) {
+      console.error('Error in save results submit:', err);
+      setSaveModalError(err.message || 'Netzwerkfehler beim Speichern.');
+    } finally {
+      setSaveModalSubmitting(false);
     }
   };
 
@@ -1840,49 +2515,17 @@ const App: React.FC = () => {
         )}
 
         {gameState === GameState.TEAM_GAMEPLAY && (() => {
-          const sequence = getTeamAlternatingPlayerSequence(teams);
-          if (sequence.length === 0) return null;
-          const safeStepIndex = Math.min(teamStepIndex, sequence.length - 1);
-          const stepItem = sequence[safeStepIndex];
-          const currentPlayer = players.find(p => p.id === stepItem.playerId);
-          const currentTeam = teams.find(t => t.id === stepItem.teamId);
-          const teamIdx = teams.findIndex(t => t.id === stepItem.teamId);
-          const teamColor = PLAYER_COLORS[teamIdx % PLAYER_COLORS.length];
+          if (!teams || teams.length === 0) return null;
+          const maxTeamSize = Math.max(...teams.map(t => t.playerIds.length));
+          const safeRowIndex = Math.min(teamStepIndex, maxTeamSize - 1);
 
           const currentRound = rounds[rounds.length - 1];
           const targetWeight = currentRound ? currentRound.targetWeight : 0;
 
-          let teamTotalOffset = 0;
-          if (currentTeam) {
-            currentTeam.playerIds.forEach(pid => {
-              const rawVal = currentRoundResults[pid];
-              if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
-                teamTotalOffset += (parseInt(rawVal) - targetWeight);
-              }
-            });
-          }
-
-          let prevMembersOffset = 0;
-          if (currentTeam && currentPlayer) {
-            currentTeam.playerIds.forEach(pid => {
-              if (pid !== currentPlayer.id) {
-                const rawVal = currentRoundResults[pid];
-                if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
-                  prevMembersOffset += (parseInt(rawVal) - targetWeight);
-                }
-              }
-            });
-          }
-          const compensationWeight = targetWeight - prevMembersOffset;
-
-          const currentWeight = rounds.length > 1
-            ? rounds[rounds.length - 2].results[currentPlayer?.id || '']
-            : currentPlayer?.startWeight;
-
           return (
-            <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-lg text-center space-y-6">
+            <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center space-y-6">
               {/* Standings bar (Zwischenstand) */}
-              <div className={`w-full p-3 rounded-2xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border flex items-center justify-around text-xs font-bold`}>
+              <div className={`w-full p-3 rounded-2xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border flex items-center justify-around text-xs font-bold flex-wrap gap-2`}>
                 {teams.map((t, idx) => (
                   <div key={t.id} className="flex items-center space-x-1.5">
                     <span style={{ color: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}>{t.name}:</span>
@@ -1894,7 +2537,7 @@ const App: React.FC = () => {
               {/* Prominent Target Weight */}
               <div>
                 <div className="text-xs font-black uppercase tracking-widest opacity-50 mb-1" style={{ color: BRAND_COLOR }}>
-                  Runde {rounds.length}
+                  Runde {rounds.length} • Mitglied {safeRowIndex + 1} von {maxTeamSize}
                 </div>
                 <div className="text-3xl font-black flex items-center justify-center space-x-2">
                   <span>🎯 Zielgewicht:</span>
@@ -1902,72 +2545,134 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Current Step Input Card */}
-              <div className={`p-6 rounded-2xl border-2 text-left space-y-4 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`} style={{ borderColor: teamColor }}>
-                <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 rounded-full text-xs font-black text-white" style={{ backgroundColor: teamColor }}>
-                    {currentTeam?.name}
-                  </span>
-                  <span className="text-xs opacity-50 font-bold">
-                    Schritt {safeStepIndex + 1} von {sequence.length}
-                  </span>
-                </div>
+              {/* Grid of Teams for Member Row safeRowIndex */}
+              <div className={`grid gap-4 ${teams.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                {teams.map((team, teamIdx) => {
+                  const teamColor = PLAYER_COLORS[teamIdx % PLAYER_COLORS.length];
+                  const hasMember = safeRowIndex < team.playerIds.length;
+                  const playerId = hasMember ? team.playerIds[safeRowIndex] : null;
+                  const player = playerId ? players.find(p => p.id === playerId) : null;
 
-                <div>
-                  <h3 className="text-2xl font-black">{currentPlayer?.name}</h3>
-                  <p className="text-xs opacity-50 font-bold">Aktueller Füllstand: {currentWeight}g</p>
-                </div>
+                  // Calculate current team total distance so far
+                  let teamTotalOffset = 0;
+                  team.playerIds.forEach(pid => {
+                    const rawVal = currentRoundResults[pid];
+                    if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
+                      teamTotalOffset += (parseInt(rawVal) - targetWeight);
+                    }
+                  });
 
-                <div>
-                  <label className="block text-xs font-bold opacity-50 uppercase mb-1">Gewicht eingeben (g)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="999"
-                    value={currentPlayer ? (currentRoundResults[currentPlayer.id] || '') : ''}
-                    onChange={e => {
-                      if (currentPlayer) {
-                        setCurrentRoundResults({ ...currentRoundResults, [currentPlayer.id]: e.target.value.slice(0, 3) });
-                      }
-                    }}
-                    className="w-full p-4 rounded-xl border-2 bg-transparent text-center font-black text-3xl"
-                    style={{ borderColor: BRAND_COLOR }}
-                    placeholder="g"
-                    autoFocus
-                  />
-                </div>
+                  if (!hasMember || !playerId || !player) {
+                    return (
+                      <div
+                        key={team.id}
+                        className={`p-5 rounded-2xl border-2 text-left space-y-3 opacity-40 border-gray-500/30 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="px-3 py-1 rounded-full text-xs font-black bg-gray-500 text-white">
+                            {team.name}
+                          </span>
+                          <span className="text-xs opacity-50 font-bold">Mitglied {safeRowIndex + 1}</span>
+                        </div>
 
-                {/* Current Team Total Distance */}
-                <div className={`p-3 rounded-xl ${darkMode ? 'bg-black/20' : 'bg-white/50'} text-center border`}>
-                  <p className="text-[10px] font-bold opacity-50 uppercase mb-0.5">Aktueller Team-Gesamtabstand</p>
-                  <p className={`text-xl font-black ${teamTotalOffset > 0 ? 'text-emerald-500' : teamTotalOffset < 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                    {teamTotalOffset > 0 ? `+${teamTotalOffset}g` : teamTotalOffset < 0 ? `${teamTotalOffset}g` : '+0'}
-                  </p>
-                </div>
+                        <div className="py-4 text-center">
+                          <p className="text-sm font-bold opacity-70">Kein Mitglied auf dieser Position</p>
+                        </div>
 
-                {/* Compensation Hint */}
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold text-xs flex items-center justify-center space-x-2">
-                  <span>💡 Um auszugleichen:</span>
-                  <span className="font-black text-sm">{compensationWeight}g</span>
-                </div>
+                        {/* Current Team Total Distance */}
+                        <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-black/20' : 'bg-white/50'} text-center border text-xs`}>
+                          <span className="opacity-60 font-bold">Team-Gesamtabstand: </span>
+                          <span className={`font-black ${teamTotalOffset > 0 ? 'text-emerald-500' : teamTotalOffset < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                            {teamTotalOffset > 0 ? `+${teamTotalOffset}g` : `${teamTotalOffset}g`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Member exists
+                  const currentWeight = rounds.length > 1
+                    ? rounds[rounds.length - 2].results[player.id]
+                    : player.startWeight;
+
+                  // Calculate compensation weight
+                  let prevMembersOffset = 0;
+                  team.playerIds.slice(0, safeRowIndex).forEach(pid => {
+                    const rawVal = currentRoundResults[pid];
+                    if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
+                      prevMembersOffset += (parseInt(rawVal) - targetWeight);
+                    }
+                  });
+                  const compensationWeight = targetWeight - prevMembersOffset;
+
+                  return (
+                    <div
+                      key={team.id}
+                      className={`p-5 rounded-2xl border-2 text-left space-y-3 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}
+                      style={{ borderColor: teamColor }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="px-3 py-1 rounded-full text-xs font-black text-white" style={{ backgroundColor: teamColor }}>
+                          {team.name}
+                        </span>
+                        <span className="text-xs opacity-50 font-bold">Mitglied {safeRowIndex + 1}</span>
+                      </div>
+
+                      <div>
+                        <h3 className="text-xl font-black">{player.name}</h3>
+                        <p className="text-xs opacity-50 font-bold">Aktueller Füllstand: {currentWeight}g</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold opacity-50 uppercase mb-1">Gewicht eingeben (g)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={currentRoundResults[player.id] || ''}
+                          onChange={e => setCurrentRoundResults({ ...currentRoundResults, [player.id]: e.target.value.slice(0, 3) })}
+                          className="w-full p-3 rounded-xl border-2 bg-transparent text-center font-black text-2xl"
+                          style={{ borderColor: BRAND_COLOR }}
+                          placeholder="g"
+                        />
+                      </div>
+
+                      {/* Current Team Total Distance */}
+                      <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-black/20' : 'bg-white/50'} text-center border text-xs`}>
+                        <span className="opacity-60 font-bold">Team-Gesamtabstand: </span>
+                        <span className={`font-black ${teamTotalOffset > 0 ? 'text-emerald-500' : teamTotalOffset < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                          {teamTotalOffset > 0 ? `+${teamTotalOffset}g` : `${teamTotalOffset}g`}
+                        </span>
+                      </div>
+
+                      {/* Compensation Hint */}
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold text-xs flex items-center justify-center space-x-2">
+                        <span>💡 Um auszugleichen:</span>
+                        <span className="font-black">{compensationWeight}g</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Navigation Buttons */}
-              <div className="flex space-x-3">
-                {safeStepIndex > 0 && (
+              <div className="flex space-x-3 pt-2">
+                {safeRowIndex > 0 && (
                   <button
-                    onClick={() => setTeamStepIndex(safeStepIndex - 1)}
+                    type="button"
+                    onClick={() => setTeamStepIndex(safeRowIndex - 1)}
                     className="w-1/3 py-4 rounded-2xl border-2 font-bold opacity-70 active:scale-95 text-sm"
                   >
                     Zurück
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={handleTeamNextStep}
                   className="flex-1 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 text-lg"
                   style={{ backgroundColor: BRAND_COLOR }}
                 >
-                  {safeStepIndex < sequence.length - 1 ? 'Nächster Spieler' : 'Runde auswerten'}
+                  {safeRowIndex < maxTeamSize - 1 ? 'Nächste Reihe' : 'Runde auswerten'}
                 </button>
               </div>
             </div>
@@ -2133,16 +2838,12 @@ const App: React.FC = () => {
 
             <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
               <button 
-                onClick={handleUploadResults} 
-                disabled={uploadState === 'loading'}
-                className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black shadow-lg flex items-center justify-center space-x-2 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-sm"
+                onClick={openSaveModal} 
+                className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
+                style={{ backgroundColor: BRAND_COLOR }}
               >
-                {uploadState === 'loading' ? (
-                  <i className="fas fa-spinner animate-spin"></i>
-                ) : (
-                  <i className="fas fa-cloud-upload-alt mr-2"></i>
-                )}
-                <span>Ergebnisse hochladen</span>
+                <i className="fas fa-save mr-2"></i>
+                <span>Ergebnisse speichern</span>
               </button>
               {uploadMessage && (
                 <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
@@ -2328,16 +3029,12 @@ const App: React.FC = () => {
               <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
               <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
                 <button 
-                  onClick={handleUploadResults} 
-                  disabled={uploadState === 'loading'}
-                  className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black shadow-lg flex items-center justify-center space-x-2 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-sm"
+                  onClick={openSaveModal} 
+                  className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
+                  style={{ backgroundColor: BRAND_COLOR }}
                 >
-                  {uploadState === 'loading' ? (
-                    <i className="fas fa-spinner animate-spin"></i>
-                  ) : (
-                    <i className="fas fa-cloud-upload-alt mr-2"></i>
-                  )}
-                  <span>Ergebnisse hochladen</span>
+                  <i className="fas fa-save mr-2"></i>
+                  <span>Ergebnisse speichern</span>
                 </button>
                 {uploadMessage && (
                   <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
@@ -2372,6 +3069,179 @@ const App: React.FC = () => {
       </footer>
 
       {/* --- MODALS --- */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 space-y-6 max-h-[90vh] overflow-y-auto ${
+            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-gray-500/20">
+              <h3 className="text-2xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
+                <i className="fas fa-save mr-3 text-2xl"></i>
+                <span>Ergebnisse speichern</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {saveModalLoadingCsv ? (
+              <div className="py-8 text-center space-y-3">
+                <i className="fas fa-spinner animate-spin text-3xl" style={{ color: BRAND_COLOR }}></i>
+                <p className="text-sm font-bold opacity-70">Lade Spielernamen aus CSV...</p>
+              </div>
+            ) : (
+              <>
+                {saveModalCsvError && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-bold flex items-center">
+                    <i className="fas fa-exclamation-triangle mr-2 text-sm"></i>
+                    <span>{saveModalCsvError} Es wird "➕ Neuer Name" verwendet.</span>
+                  </div>
+                )}
+
+                {/* Table of participating players / items */}
+                <div className="overflow-x-auto rounded-2xl border border-gray-500/20">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                      <tr className={`border-b opacity-60 text-xs font-black uppercase ${
+                        darkMode ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
+                      }`}>
+                        <th className="py-3 px-3 text-center w-12">
+                          <i className="fas fa-check-double text-xs opacity-60"></i>
+                        </th>
+                        <th className="py-3 px-3">{(gameState === GameState.RESULT_SCREEN && teams.length > 0) ? 'Team' : 'Spieler'}</th>
+                        <th className="py-3 px-3">Zuordnung</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getParticipatingItems().map(item => {
+                        const isChecked = saveModalChecked[item.id] !== false;
+                        return (
+                          <tr key={item.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-200/50'}`}>
+                            <td className="py-3 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setSaveModalChecked(prev => ({ ...prev, [item.id]: !isChecked }))}
+                                className="inline-flex items-center justify-center focus:outline-none"
+                              >
+                                <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                  isChecked
+                                    ? 'bg-[#238183] border-[#238183] text-white shadow-sm'
+                                    : darkMode ? 'border-white/30 bg-slate-800' : 'border-gray-300 bg-gray-100'
+                                }`}>
+                                  {isChecked && <i className="fas fa-check text-xs"></i>}
+                                </div>
+                              </button>
+                            </td>
+                            <td className="py-3 px-3 font-bold text-xs md:text-sm">
+                              {item.name}
+                            </td>
+                            <td className="py-3 px-3">
+                              <select
+                                value={saveModalMappings[item.id] || '__NEW__'}
+                                onChange={e => setSaveModalMappings(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                disabled={!isChecked}
+                                className={`w-full p-2.5 rounded-xl border-2 font-bold text-xs transition-all focus:outline-none ${
+                                  !isChecked
+                                    ? 'opacity-30 cursor-not-allowed bg-gray-500/10 border-transparent'
+                                    : darkMode
+                                      ? 'bg-slate-800 border-slate-600 text-white focus:border-[#238183]'
+                                      : 'bg-white border-gray-300 text-gray-900 focus:border-[#238183]'
+                                }`}
+                              >
+                                <option value="__NEW__">➕ {(gameState === GameState.RESULT_SCREEN && teams.length > 0) ? 'Neues Team' : 'Neuer Name'} ({item.name})</option>
+                                {csvNames.map(cName => (
+                                  <option key={cName} value={cName}>
+                                    {cName}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Final Row: Achievements */}
+                      <tr className={`border-t-2 ${darkMode ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-black/5'}`}>
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSaveAchievementsChecked(!saveAchievementsChecked)}
+                            className="inline-flex items-center justify-center focus:outline-none"
+                          >
+                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                              saveAchievementsChecked
+                                ? 'bg-[#238183] border-[#238183] text-white shadow-sm'
+                                : darkMode ? 'border-white/30 bg-slate-800' : 'border-gray-300 bg-gray-100'
+                            }`}>
+                              {saveAchievementsChecked && <i className="fas fa-check text-xs"></i>}
+                            </div>
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 font-black text-xs md:text-sm">
+                          Achievements speichern
+                        </td>
+                        <td className="py-3 px-3 text-center font-black opacity-40">
+                          –
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {saveModalError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
+                    {saveModalError}
+                  </div>
+                )}
+
+                {saveModalSuccess ? (
+                  <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-black text-center space-y-2 animate-in zoom-in-95">
+                    <i className="fas fa-check-circle text-3xl block"></i>
+                    <p className="text-base">Ergebnisse erfolgreich gespeichert!</p>
+                  </div>
+                ) : (
+                  <div className="flex space-x-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSaveModal(false)}
+                      disabled={saveModalSubmitting}
+                      className={`w-1/2 py-3.5 rounded-2xl font-bold border-2 transition-all active:scale-95 text-sm ${
+                        darkMode ? 'border-white/20 text-white hover:bg-white/10' : 'border-black/20 text-gray-800 hover:bg-black/5'
+                      }`}
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveResultsModalSubmit}
+                      disabled={saveModalSubmitting}
+                      className="w-1/2 py-3.5 rounded-2xl font-black text-white shadow-lg transition-all active:scale-95 text-sm flex items-center justify-center space-x-2 disabled:opacity-50"
+                      style={{ backgroundColor: BRAND_COLOR }}
+                    >
+                      {saveModalSubmitting ? (
+                        <>
+                          <i className="fas fa-spinner animate-spin"></i>
+                          <span>Speichern...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-save"></i>
+                          <span>Speichern</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {showStartPlayerModal && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className={`rounded-3xl p-8 max-w-md w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
@@ -2630,12 +3500,23 @@ const App: React.FC = () => {
               <h3 className="text-2xl font-black uppercase flex items-center" style={{ color: BRAND_COLOR }}>
                 <i className="fas fa-trophy mr-3 text-yellow-500"></i>Rekorde & Statistiken
               </h3>
-              <button 
-                onClick={() => { setShowRecords(false); setRecordsData(null); }}
-                className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-2">
+                {SHOW_OPTIONS_BUTTON && (
+                  <button
+                    onClick={() => { setShowAdminOptionsModal(true); setMergeMessage(null); }}
+                    className="px-3 py-1.5 rounded-xl border border-gray-500/30 text-xs font-bold hover:bg-black/10 flex items-center space-x-1.5"
+                  >
+                    <i className="fas fa-cog text-gray-400"></i>
+                    <span>Optionen</span>
+                  </button>
+                )}
+                <button 
+                  onClick={() => { setShowRecords(false); setRecordsData(null); }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {recordsLoading ? (
@@ -2772,7 +3653,30 @@ const App: React.FC = () => {
                     });
 
                     const allGroups = Object.values(achGroupMap);
-                    const unlockedGroups = allGroups.filter(g => g.awards.length > 0);
+
+                    const filteredGroups = allGroups.filter(g => {
+                      if (activeAchSubTab === 'Standardspiel') {
+                        return !g.id.startsWith('speed_') && !g.id.startsWith('team_');
+                      }
+                      if (activeAchSubTab === 'Speedwiegen') {
+                        return g.id.startsWith('speed_');
+                      }
+                      if (activeAchSubTab === 'Teamwiegen') {
+                        return g.id.startsWith('team_');
+                      }
+                      return true;
+                    });
+
+                    let totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.length;
+                    if (activeAchSubTab === 'Standardspiel') {
+                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => !a.id.startsWith('speed_') && !a.id.startsWith('team_')).length;
+                    } else if (activeAchSubTab === 'Speedwiegen') {
+                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => a.id.startsWith('speed_')).length;
+                    } else if (activeAchSubTab === 'Teamwiegen') {
+                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => a.id.startsWith('team_')).length;
+                    }
+
+                    const unlockedGroups = filteredGroups.filter(g => g.awards.length > 0);
                     const totalUniqueUnlocked = unlockedGroups.length;
 
                     // Player stats
@@ -2810,13 +3714,31 @@ const App: React.FC = () => {
 
                     return (
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+                        {/* Sub-tabs bar */}
+                        <div className="flex space-x-2 border-b border-gray-500/10 pb-3 overflow-x-auto">
+                          {(['Alle', 'Standardspiel', 'Speedwiegen', 'Teamwiegen'] as const).map(sub => (
+                            <button
+                              key={sub}
+                              onClick={() => setActiveAchSubTab(sub)}
+                              className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all whitespace-nowrap ${
+                                activeAchSubTab === sub
+                                  ? 'text-white shadow-md'
+                                  : darkMode ? 'bg-slate-700/50 text-gray-300 hover:bg-slate-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              }`}
+                              style={{ backgroundColor: activeAchSubTab === sub ? BRAND_COLOR : undefined }}
+                            >
+                              {sub}
+                            </button>
+                          ))}
+                        </div>
+
                         {/* Summary Cards */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className={`p-3.5 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                             <div className="text-[11px] uppercase tracking-wider font-bold opacity-60 mb-1">Unterschiedliche Achievements</div>
                             <div className="text-xl font-black flex items-center justify-center gap-1.5" style={{ color: BRAND_COLOR }}>
                               <i className="fas fa-trophy text-amber-500"></i>
-                              {totalUniqueUnlocked} / {MASTER_ACHIEVEMENTS_DEFINITIONS.length}
+                              {totalUniqueUnlocked} / {totalDefsForSubTab}
                             </div>
                           </div>
 
@@ -3687,6 +4609,154 @@ const App: React.FC = () => {
             >
               Schließen
             </button>
+          </div>
+        </div>
+      )}
+
+      {showAdminOptionsModal && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 ${
+            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-gray-500/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
+                <i className="fas fa-cog mr-3 text-xl"></i>
+                <span>Optionen / Namen zusammenführen</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAdminOptionsModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <p className="text-xs opacity-70 leading-relaxed">
+              Führe zwei Spielernamen oder Teamnamen in allen bisher gespeicherten CSV-Einträgen zusammen. Alle Achievements und Statistiken von <strong>Alter Name</strong> werden auf <strong>Neuer Name</strong> übertragen.
+            </p>
+
+            {mergeMessage && (
+              <div className={`p-3 rounded-xl border text-xs font-bold ${
+                mergeMessage.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-red-500/10 border-red-500/30 text-red-500'
+              }`}>
+                {mergeMessage.text}
+              </div>
+            )}
+
+            {(() => {
+              const allNamesFromRecords = new Set<string>();
+              if (recordsData) {
+                recordsData.slice(1).forEach(row => {
+                  if (row && row[2] && row[2].trim()) {
+                    allNamesFromRecords.add(row[2].trim());
+                  }
+                });
+              }
+              const sortedAllNames = Array.from(allNamesFromRecords).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Alter Name (wird ersetzt):</label>
+                    <select
+                      value={mergeOldName}
+                      onChange={e => setMergeOldName(e.target.value)}
+                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                    >
+                      <option value="">-- Alter Name wählen --</option>
+                      {sortedAllNames.map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Neuer Zielname:</label>
+                    <input
+                      type="text"
+                      value={mergeNewName}
+                      onChange={e => setMergeNewName(e.target.value)}
+                      placeholder="Neuen oder bestehenden Namen eingeben..."
+                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                    />
+                    <div className="mt-2 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                      {sortedAllNames.map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setMergeNewName(n)}
+                          className="text-[10px] px-2 py-0.5 rounded-md bg-gray-500/20 hover:bg-gray-500/30 font-semibold"
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    {!showMergeConfirm ? (
+                      <button
+                        type="button"
+                        disabled={!mergeOldName.trim() || !mergeNewName.trim() || mergeOldName.trim() === mergeNewName.trim()}
+                        onClick={() => setShowMergeConfirm(true)}
+                        className="w-full py-3.5 rounded-2xl text-white font-black shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ backgroundColor: BRAND_COLOR }}
+                      >
+                        Namen zusammenführen
+                      </button>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+                        <p className="text-xs font-bold text-amber-500 text-center">
+                          Bist du sicher? Alle Einträge für "{mergeOldName}" werden in "{mergeNewName}" umbenannt.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={mergeSubmitting}
+                            onClick={async () => {
+                              setMergeSubmitting(true);
+                              setMergeMessage(null);
+                              try {
+                                const res = await fetch('/api/admin/rename', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ oldName: mergeOldName.trim(), newName: mergeNewName.trim() })
+                                });
+                                const json = await res.json();
+                                if (res.ok) {
+                                  setMergeMessage({ type: 'success', text: json.message || 'Erfolgreich zusammengeführt!' });
+                                  setShowMergeConfirm(false);
+                                  setMergeOldName('');
+                                  setMergeNewName('');
+                                  fetchRecords();
+                                } else {
+                                  setMergeMessage({ type: 'error', text: json.error || 'Fehler beim Zusammenführen.' });
+                                }
+                              } catch (err: any) {
+                                setMergeMessage({ type: 'error', text: 'Netzwerkfehler.' });
+                              } finally {
+                                setMergeSubmitting(false);
+                              }
+                            }}
+                            className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-black text-xs uppercase shadow-md flex items-center justify-center"
+                          >
+                            {mergeSubmitting ? <i className="fas fa-spinner animate-spin"></i> : 'Ja, Zusammenführen'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowMergeConfirm(false)}
+                            className="px-4 py-3 rounded-xl border border-gray-500/30 text-xs font-bold"
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

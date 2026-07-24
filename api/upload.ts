@@ -5,7 +5,7 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
-  const { gameMode, results, date } = req.body;
+  const { gameMode, results, date, achievements } = req.body;
 
   if (!gameMode || !results || !Array.isArray(results) || !date) {
     return res.status(400).json({ error: "Invalid request payload. Must include gameMode, results array, and date." });
@@ -48,17 +48,45 @@ export default async function handler(req: any, res: any) {
     lines = lines.filter(line => line.trim() !== "");
 
     // If empty or doesn't have the header, initialize header
-    const header = "Datum;Modus;Name;Avg;Schnaepse";
+    const header = "Datum;Modus;Name;Avg;Schnaepse;Levels;Achievements";
     if (lines.length === 0 || !lines[0].startsWith("Datum;Modus;Name")) {
       lines = [header];
     }
 
     // Append new records
-    results.forEach((item: { name: string; avg: number; schnaepse: number; levels?: number }) => {
-      let line = `${date};${gameMode};${item.name};${item.avg};${item.schnaepse}`;
-      if (item.levels !== undefined) {
-        line += `;${item.levels}`;
-      }
+    const TOGETHER_ACHIEVEMENT_IDS = ['twins', 'doppelganger', 'mirror_number', 'shadow', 'equilibrium'];
+
+    results.forEach((item: { name: string; avg: number; schnaepse: number; levels?: number; achievements?: any[] }) => {
+      const rawPlayerAch = item.achievements && item.achievements.length > 0
+        ? item.achievements
+        : (achievements && Array.isArray(achievements)
+            ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.includes(item.name))
+            : []);
+
+      const formattedAch = rawPlayerAch.map((a: any) => {
+        const isTogether = typeof a.earnedTogether === 'boolean'
+          ? a.earnedTogether
+          : TOGETHER_ACHIEVEMENT_IDS.includes(a.id);
+
+        const achObj: any = {
+          id: a.id,
+          title: a.title,
+          icon: a.icon,
+          rarity: a.rarity,
+          earnedBy: Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy : [item.name]
+        };
+
+        if (isTogether) {
+          achObj.earnedTogether = true;
+        }
+
+        return achObj;
+      });
+
+      const achievementsStr = formattedAch.length > 0 ? encodeURIComponent(JSON.stringify(formattedAch)) : "";
+      const levelsStr = item.levels !== undefined ? String(item.levels) : "";
+
+      let line = `${date};${gameMode};${item.name};${item.avg};${item.schnaepse};${levelsStr};${achievementsStr}`;
       lines.push(line);
     });
 

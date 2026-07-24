@@ -1101,6 +1101,19 @@ const parseRecords = (data: any[][]): ParsedRecord[] => {
   return list;
 };
 
+const KLASSISCH_TARGETS: Record<number, string> = {
+  1: '480',
+  2: '420',
+  3: '369',
+  4: '332',
+  5: '250',
+  6: '222',
+  7: '169',
+  8: '123',
+  9: '69',
+  10: '0'
+};
+
 const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
@@ -1163,6 +1176,8 @@ const App: React.FC = () => {
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
   const [speedLevels, setSpeedLevels] = useState<string>('3');
+  const [speedIsShortMode, setSpeedIsShortMode] = useState<boolean>(false);
+  const [showSpeedKlassischModal, setShowSpeedKlassischModal] = useState<boolean>(false);
   const [speedTargets, setSpeedTargets] = useState<Record<number, string>>({});
   const [speedResults, setSpeedResults] = useState<Record<number, string>>({});
   const [speedCountdown, setSpeedCountdown] = useState<string | number>(3);
@@ -1221,6 +1236,18 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [gameState, speedStartTime]);
 
+  useEffect(() => {
+    if (gameState === GameState.SPEED_CONFIG) {
+      const lastLevel = parseInt(speedLevels);
+      setSpeedTargets(prev => {
+        if (prev[lastLevel] !== '0') {
+          return { ...prev, [lastLevel]: '0' };
+        }
+        return prev;
+      });
+    }
+  }, [gameState, speedLevels]);
+
   const captureElement = async (ref: React.RefObject<HTMLDivElement>, filename: string) => {
     if (!ref.current) return;
     try {
@@ -1269,6 +1296,7 @@ const App: React.FC = () => {
     setGameState(GameState.SPEED_SETUP);
     setSpeedPlayerName('');
     setSpeedLevels('3');
+    setSpeedIsShortMode(false);
     setSpeedTargets({});
     setSpeedResults({});
     setSpeedStartTime(null);
@@ -1639,14 +1667,12 @@ const App: React.FC = () => {
   // Speedwiegen Handlers
   const handleSpeedSetupConfirm = () => {
     if (!speedPlayerName.trim()) { alert("Bitte Namen eingeben."); return; }
+    const lastLevel = parseInt(speedLevels);
+    setSpeedTargets(prev => ({ ...prev, [lastLevel]: '0' }));
     setGameState(GameState.SPEED_CONFIG);
   };
 
-  const handleSpeedConfigConfirm = () => {
-    const levels = parseInt(speedLevels);
-    for (let i = 1; i <= levels; i++) {
-      if (!speedTargets[i]) { alert("Bitte alle Zielgewichte ausfüllen."); return; }
-    }
+  const startSpeedCountdown = () => {
     setGameState(GameState.SPEED_COUNTDOWN);
     setSpeedCountdown(3);
     const interval = setInterval(() => {
@@ -1662,6 +1688,17 @@ const App: React.FC = () => {
         return prev;
       });
     }, 1000);
+  };
+
+  const handleSpeedConfigConfirm = () => {
+    const lastLevel = parseInt(speedLevels);
+    if (speedTargets[lastLevel] !== '0') {
+      speedTargets[lastLevel] = '0'; // automatisch korrigieren
+    }
+    for (let i = 1; i <= lastLevel; i++) {
+      if (!speedTargets[i] && speedTargets[i] !== '0') { alert("Bitte alle Zielgewichte ausfüllen."); return; }
+    }
+    startSpeedCountdown();
   };
 
   const handleSpeedGameplayConfirm = () => {
@@ -2682,12 +2719,94 @@ const App: React.FC = () => {
         {/* SPEEDWIEGEN SCREENS */}
         {gameState === GameState.SPEED_SETUP && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
-            <h2 className="text-2xl font-black mb-8">Speedwiegen Setup</h2>
-            <input type="text" value={speedPlayerName} onChange={e => setSpeedPlayerName(e.target.value)} className="w-full p-4 rounded-xl border-2 mb-4 bg-transparent font-bold" placeholder="Dein Name" />
-            <select value={speedLevels} onChange={e => setSpeedLevels(e.target.value)} className="w-full p-4 rounded-xl border-2 mb-8 bg-transparent font-bold">
-              {[3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} Stufen</option>)}
-            </select>
-            <button onClick={handleSpeedSetupConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Ziele definieren</button>
+            <h2 className="text-2xl font-black mb-6">Speedwiegen Setup</h2>
+            
+            <input 
+              type="text" 
+              value={speedPlayerName} 
+              onChange={e => setSpeedPlayerName(e.target.value)} 
+              className="w-full p-4 rounded-xl border-2 mb-6 bg-transparent font-bold text-center" 
+              placeholder="Dein Name" 
+            />
+
+            {/* Becher-Format Toggle */}
+            <div className="mb-6 text-left">
+              <label className="block text-xs font-bold uppercase opacity-50 mb-2">Becher-Format</label>
+              <div className={`flex p-1 rounded-xl border ${darkMode ? 'bg-slate-900/60 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpeedIsShortMode(false);
+                    const lvl = parseInt(speedLevels);
+                    if (lvl < 5 || lvl > 15) {
+                      setSpeedLevels('5');
+                    }
+                  }}
+                  className={`flex-1 py-2 rounded-lg font-black text-xs transition-all cursor-pointer ${
+                    !speedIsShortMode
+                      ? 'text-white shadow'
+                      : 'opacity-60 hover:opacity-100'
+                  }`}
+                  style={{ backgroundColor: !speedIsShortMode ? BRAND_COLOR : 'transparent' }}
+                >
+                  500 ml
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpeedIsShortMode(true);
+                    const lvl = parseInt(speedLevels);
+                    if (lvl < 3 || lvl > 10) {
+                      setSpeedLevels('3');
+                    }
+                  }}
+                  className={`flex-1 py-2 rounded-lg font-black text-xs transition-all cursor-pointer ${
+                    speedIsShortMode
+                      ? 'text-white shadow'
+                      : 'opacity-60 hover:opacity-100'
+                  }`}
+                  style={{ backgroundColor: speedIsShortMode ? BRAND_COLOR : 'transparent' }}
+                >
+                  0,33 L
+                </button>
+              </div>
+            </div>
+
+            {/* Stufen Selector */}
+            <div className="mb-8 text-left">
+              <label className="block text-xs font-bold uppercase opacity-50 mb-2">Anzahl Stufen</label>
+              <select 
+                value={speedLevels} 
+                onChange={e => setSpeedLevels(e.target.value)} 
+                className={`w-full p-4 rounded-xl border-2 bg-transparent font-bold text-center ${darkMode ? 'bg-slate-800' : 'bg-white'}`}
+              >
+                {(speedIsShortMode 
+                  ? [3, 4, 5, 6, 7, 8, 9, 10] 
+                  : [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+                ).map(n => (
+                  <option key={n} value={n}>{n} Stufen</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-3">
+              <button 
+                onClick={handleSpeedSetupConfirm} 
+                className="w-full text-white font-black py-4 rounded-2xl shadow-lg hover:opacity-90 active:scale-95 transition-all cursor-pointer" 
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                Ziele definieren
+              </button>
+
+              <button 
+                onClick={() => setShowSpeedKlassischModal(true)} 
+                className="w-full text-white font-black py-4 rounded-2xl shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                style={{ backgroundColor: '#D4AF37' }}
+              >
+                <i className="fas fa-crown text-yellow-200"></i>
+                <span>Speedwiegen Klassisch</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -2695,14 +2814,43 @@ const App: React.FC = () => {
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl overflow-y-auto max-h-[80vh]">
             <h2 className="text-2xl font-black mb-8 text-center">Zielgewichte festlegen</h2>
             <div className="grid grid-cols-2 gap-4 mb-8">
-              {Array.from({ length: parseInt(speedLevels) }).map((_, i) => (
-                <div key={i+1}>
-                  <label className="text-xs font-bold opacity-50 uppercase">Stufe {i+1}</label>
-                  <input type="number" min="0" max="999" value={speedTargets[i+1] || ''} onChange={e => setSpeedTargets({...speedTargets, [i+1]: e.target.value.slice(0, 3)})} className="w-full p-3 rounded-xl border-2 bg-transparent text-center font-bold" placeholder="g" />
-                </div>
-              ))}
+              {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
+                const levelNum = i + 1;
+                const isLastLevel = levelNum === parseInt(speedLevels);
+                return (
+                  <div key={levelNum}>
+                    <label className="text-xs font-bold opacity-50 uppercase block mb-1">Stufe {levelNum}</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="999" 
+                      disabled={isLastLevel}
+                      value={isLastLevel ? '0' : (speedTargets[levelNum] || '')} 
+                      onChange={e => {
+                        if (isLastLevel) return;
+                        setSpeedTargets({
+                          ...speedTargets, 
+                          [levelNum]: e.target.value.slice(0, 3),
+                          [parseInt(speedLevels)]: '0'
+                        });
+                      }} 
+                      className={`w-full p-3 rounded-xl border-2 text-center font-bold transition-all ${
+                        isLastLevel 
+                          ? (darkMode ? 'bg-slate-800/40 border-slate-700/40 text-gray-400 cursor-not-allowed opacity-60' : 'bg-gray-200/60 border-gray-300 text-gray-500 cursor-not-allowed opacity-60')
+                          : 'bg-transparent border-gray-500/30'
+                      }`} 
+                      placeholder="g" 
+                    />
+                    {isLastLevel && (
+                      <span className="text-[10px] text-emerald-500 font-bold block mt-1">
+                        Die letzte Stufe ist immer 0g
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Countdown starten</button>
+            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg hover:opacity-90 active:scale-95 transition-all cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Countdown starten</button>
           </div>
         )}
 
@@ -3849,6 +3997,8 @@ const App: React.FC = () => {
                     } else {
                       filtered = list.filter(r => r.gameMode === 'Standardspiel (0,33L)');
                     }
+                  } else if (activeRecordsTab === 'Speedwiegen') {
+                    filtered = list.filter(r => r.gameMode === 'Speedwiegen' || r.gameMode === 'Speedwiegen (500ml)' || r.gameMode === 'Speedwiegen (0,33L)' || r.gameMode.startsWith('Speedwiegen'));
                   } else {
                     filtered = list.filter(r => r.gameMode === activeRecordsTab);
                   }
@@ -3869,6 +4019,7 @@ const App: React.FC = () => {
                       name: string;
                       gamesPlayed: number;
                       totalSchnaepse: number;
+                      avgSchnaepsePerGame: number;
                       bestSchnaepseSingle: number;
                       bestAvgSingle: number;
                       careerAverage: number;
@@ -3883,6 +4034,7 @@ const App: React.FC = () => {
                           name,
                           gamesPlayed: 0,
                           totalSchnaepse: 0,
+                          avgSchnaepsePerGame: 0,
                           bestSchnaepseSingle: 0,
                           bestAvgSingle: Infinity,
                           careerAverage: 0,
@@ -3910,6 +4062,7 @@ const App: React.FC = () => {
                     Object.values(playerStatsMap).forEach(stat => {
                       const sumAvg = stat.scores.reduce((sum, s) => sum + s.avg, 0);
                       stat.careerAverage = sumAvg / stat.gamesPlayed;
+                      stat.avgSchnaepsePerGame = stat.gamesPlayed > 0 ? stat.totalSchnaepse / stat.gamesPlayed : 0;
                     });
 
                     const playerStatsList = Object.values(playerStatsMap);
@@ -4048,24 +4201,32 @@ const App: React.FC = () => {
                             })()}
 
                         {activeStandardSubTab === 'highest_schnaepse' && (() => {
-                          const sortedByTotalSchnaepse = [...playerStatsList].sort((a,b) => b.totalSchnaepse - a.totalSchnaepse);
+                          const sortedByAvgSchnaepse = [...playerStatsList].sort((a,b) => {
+                            if (b.avgSchnaepsePerGame !== a.avgSchnaepsePerGame) {
+                              return b.avgSchnaepsePerGame - a.avgSchnaepsePerGame;
+                            }
+                            if (b.totalSchnaepse !== a.totalSchnaepse) {
+                              return b.totalSchnaepse - a.totalSchnaepse;
+                            }
+                            return a.careerAverage - b.careerAverage;
+                          });
                           const sortedBySingleSchnaepse = [...filtered].sort((a,b) => b.schnaepse - a.schnaepse);
                           
-                          const topTotal = sortedByTotalSchnaepse[0];
+                          const topAvgSchnaepse = sortedByAvgSchnaepse[0];
                           const topSingle = sortedBySingleSchnaepse[0];
                           
                           return (
                             <div className="space-y-6">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {topTotal && (
+                                {topAvgSchnaepse && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-yellow-500/20' : 'bg-emerald-500/5 border-emerald-500/10'} flex items-center space-x-4`}>
                                     <div className="w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 text-xl font-bold">
                                       👑
                                     </div>
                                     <div>
-                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Gesamt)</span>
-                                      <h5 className="font-black text-base">{topTotal.name}</h5>
-                                      <p className="text-xs font-semibold text-yellow-500">{topTotal.totalSchnaepse} Schnäpse ({topTotal.gamesPlayed} Spiele)</p>
+                                      <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Ø pro Spiel)</span>
+                                      <h5 className="font-black text-base">{topAvgSchnaepse.name}</h5>
+                                      <p className="text-xs font-semibold text-yellow-500">{topAvgSchnaepse.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel ({topAvgSchnaepse.gamesPlayed} Spiele)</p>
                                     </div>
                                   </div>
                                 )}
@@ -4087,7 +4248,7 @@ const App: React.FC = () => {
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 pb-2 border-b border-gray-500/10">
                                   <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
                                     <i className="fas fa-wine-glass-alt mr-2 text-pink-400"></i>
-                                    {schnaepseSortMode === 'gesamt' ? 'Rangliste: Meiste Schnäpse gesamt' : 'Rangliste: Meiste Schnäpse Einzelspiel'}
+                                    {schnaepseSortMode === 'gesamt' ? 'Rangliste: Schnäpse-Durchschnitt (pro Spiel)' : 'Rangliste: Meiste Schnäpse Einzelspiel'}
                                   </h4>
                                   
                                   {/* Toggle buttons */}
@@ -4117,7 +4278,7 @@ const App: React.FC = () => {
 
                                 <div className="space-y-2">
                                   {schnaepseSortMode === 'gesamt' ? (
-                                    sortedByTotalSchnaepse.slice(0, 10).map((p, idx) => (
+                                    sortedByAvgSchnaepse.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
                                         <div className="flex items-center space-x-2 pb-0.5">
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
@@ -4130,7 +4291,7 @@ const App: React.FC = () => {
                                           </button>
                                         </div>
                                         <div className="text-right">
-                                          <span className="font-black text-sm text-yellow-500">{p.totalSchnaepse} Schnäpse</span>
+                                          <span className="font-black text-sm text-yellow-500">{p.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel</span>
                                           <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
                                         </div>
                                       </div>
@@ -4780,6 +4941,85 @@ const App: React.FC = () => {
               Ist der Turniermodus deaktiviert, so können Spieler nicht ausscheiden, egal wie groß der Abstand ist.
             </p>
             <button onClick={() => setShowTournamentInfo(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Verstanden</button>
+          </div>
+        </div>
+      )}
+
+      {showSpeedKlassischModal && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 ${
+            darkMode ? 'bg-slate-900 border-yellow-500/30 text-white' : 'bg-white border-yellow-500/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-yellow-500/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#D4AF37]">
+                <i className="fas fa-crown mr-2.5"></i>
+                <span>Speedwiegen Klassisch</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSpeedKlassischModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs font-semibold opacity-80 leading-relaxed">
+                Das klassische Speedwiegen mit {Object.keys(KLASSISCH_TARGETS).length} vordefinierten Stufen:
+              </p>
+
+              <div className={`p-4 rounded-2xl border space-y-1.5 ${darkMode ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                <span className="text-[10px] uppercase font-black opacity-50 block mb-2">Die {Object.keys(KLASSISCH_TARGETS).length} klassischen Zielgewichte:</span>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold">
+                  {Object.entries(KLASSISCH_TARGETS).map(([lvl, target]) => (
+                    <div key={lvl}>Stufe {lvl}: {target}g</div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-60 mb-1">Spieler Name:</label>
+                <input
+                  type="text"
+                  value={speedPlayerName}
+                  onChange={e => setSpeedPlayerName(e.target.value)}
+                  placeholder="Dein Name"
+                  className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSpeedKlassischModal(false)}
+                className="flex-1 py-3.5 rounded-2xl border border-gray-500/30 text-xs font-bold uppercase tracking-wider hover:bg-black/10 transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!speedPlayerName.trim()) {
+                    alert("Bitte zuerst deinen Namen eingeben.");
+                    return;
+                  }
+                  setSpeedLevels(Object.keys(KLASSISCH_TARGETS).length.toString());
+                  setSpeedIsShortMode(false);
+                  setSpeedTargets({ ...KLASSISCH_TARGETS });
+                  setSpeedResults({});
+                  setShowSpeedKlassischModal(false);
+                  startSpeedCountdown();
+                }}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                style={{ backgroundColor: '#D4AF37' }}
+              >
+                Start
+              </button>
+            </div>
           </div>
         </div>
       )}

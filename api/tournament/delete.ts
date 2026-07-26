@@ -1,5 +1,23 @@
 import { del, list } from "@vercel/blob";
-import { getSafeFilename, getSafeTournamentName } from "./_utils";
+
+function getSafeTournamentName(name: string): string {
+  let clean = (name || "").trim();
+  if (clean.startsWith("tournament_")) {
+    clean = clean.replace(/^tournament_/, "");
+  }
+  if (clean.endsWith(".csv")) {
+    clean = clean.replace(/\.csv$/, "");
+  }
+  const safeName = clean
+    .replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_')
+    .substring(0, 50);
+  return safeName || 'unnamed';
+}
+
+function getSafeFilename(tournamentName: string): string {
+  const safeName = getSafeTournamentName(tournamentName);
+  return `tournament_${safeName}.csv`;
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Content-Type", "application/json");

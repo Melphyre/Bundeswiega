@@ -1,5 +1,4 @@
-import { put, list } from "@vercel/blob";
-import { parseTournamentCSV, TOURNAMENT_TABLE_COLORS, getSafeFilename } from "./get";
+import { loadTournamentCsv, saveTournamentCsv, getSafeFilename, parseTournamentCSV, TOURNAMENT_TABLE_COLORS } from "./_utils";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Content-Type", "application/json");
@@ -24,23 +23,12 @@ export default async function handler(req: any, res: any) {
   const filename = getSafeFilename(name);
 
   try {
-    let existingContent = "";
-
-    try {
-      const listResult = await list({ prefix: "tournament_", token });
-      const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
-      if (blob) {
-        const fetchRes = await fetch(blob.url);
-        if (fetchRes.ok) existingContent = await fetchRes.text();
-      }
-    } catch (err) {
-      console.error("Error fetching tournament blob:", err);
-    }
+    const loaded = await loadTournamentCsv(name, token);
+    const existingContent = loaded ? loaded.content : "";
 
     let csvContent = "";
 
     if (action === "create" || !existingContent) {
-      // Create new tournament CSV structure
       const tCount = parseInt(tablesCount) || 1;
       const qVorrunde = parseInt(req.body.qualifikationVorrunde) || 1;
       const qSecondChance = parseInt(req.body.qualifikationSecondChance) || 1;
@@ -69,7 +57,6 @@ export default async function handler(req: any, res: any) {
 
       csvContent = lines.join("\n");
     } else {
-      // Updating an existing tournament CSV
       const tournament = parseTournamentCSV(filename, existingContent);
       const config = tournament.config;
       const tables = tournament.tables;
@@ -78,18 +65,15 @@ export default async function handler(req: any, res: any) {
       if (action === "saveTableResult" && tableId && Array.isArray(results)) {
         const resultDate = date || new Date().toLocaleDateString("de-DE");
         
-        // Find target table
         const targetTable = tables.find(t => t.id === tableId);
         if (targetTable) {
           targetTable.status = "Abgeschlossen";
           
-          // Sort results by rank (rank 1 = winner)
           const sorted = [...results].sort((a, b) => (a.rank || 0) - (b.rank || 0));
           if (sorted.length > 0) targetTable.winner = sorted[0].name;
           if (sorted.length > 1) targetTable.secondPlace = sorted[1].name;
           targetTable.players = sorted.map(r => r.name);
           
-          // Append new result rows (remove older results for this tableId if re-played)
           const filteredResults = existingResults.filter(r => r.tableId !== tableId);
           sorted.forEach(r => {
             filteredResults.push({
@@ -102,7 +86,6 @@ export default async function handler(req: any, res: any) {
             });
           });
           
-          // Check state of all Vorrunde tables
           const vorrundeTables = tables.filter(t => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
           const allVorrundeDone = vorrundeTables.every(t => t.status === "Abgeschlossen");
 
@@ -115,7 +98,6 @@ export default async function handler(req: any, res: any) {
           if (allVorrundeDone) {
             config.status = "Vorrunde beendet";
 
-            // Collect direct qualifiers and non-qualifiers from Vorrunde tables
             const directQualifiers: string[] = [];
             const nonQualifiers: string[] = [];
 
@@ -131,7 +113,6 @@ export default async function handler(req: any, res: any) {
             });
 
             if (secondChanceTable) {
-              // Populate Second Chance table with non-qualifiers (ranks Y+1 and worse)
               secondChanceTable.players = nonQualifiers;
               if (secondChanceTable.status === "Gesperrt") {
                 secondChanceTable.status = "Offen";
@@ -139,7 +120,6 @@ export default async function handler(req: any, res: any) {
               }
             }
 
-            // Check if ready for Final table
             const scDone = !secondChanceTable || secondChanceTable.status === "Abgeschlossen";
 
             if (scDone && finalTable) {
@@ -148,7 +128,6 @@ export default async function handler(req: any, res: any) {
                 config.status = "Finale";
               }
 
-              // Finalists = Direct qualifiers from Vorrunde + Top Z from Second Chance
               const finalists = [...directQualifiers];
               if (secondChanceTable && secondChanceTable.status === "Abgeschlossen") {
                 const scResults = filteredResults.filter(r => r.tableId === secondChanceTable.id).sort((a, b) => a.rank - b.rank);
@@ -168,10 +147,8 @@ export default async function handler(req: any, res: any) {
             config.status = "Beendet";
           }
 
-          // Recalculate finalists count for config
           config.finalistsCount = config.tablesCount * qVorrunde + (config.hasSecondChance ? qSecondChance : 0);
 
-          // Rebuild CSV content
           const lines: string[] = [];
           lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
           lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
@@ -203,13 +180,11 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: "Keine Daten zum Speichern vorhanden." });
     }
 
-    await put(filename, csvContent, {
-      access: "public",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      token,
-      contentType: "text/csv"
-    });
+    const saved = await saveTournamentCsv(name, csvContent, token);
+    if (!saved) {
+      return res.status(500).json({ error: "Speichern der Turnier-CSV fehlgeschlagen." });
+    }
+
     return res.json({ success: true, message: `Turnier '${name}' erfolgreich gespeichert.` });
   } catch (error: any) {
     console.error("Error in tournament save handler:", error);

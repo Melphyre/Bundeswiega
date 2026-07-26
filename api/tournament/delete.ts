@@ -1,5 +1,5 @@
 import { del, list } from "@vercel/blob";
-import { getSafeFilename } from "./get";
+import { getSafeFilename, getSafeTournamentName } from "./_utils";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Content-Type", "application/json");
@@ -15,24 +15,27 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const { name } = req.body;
+  const { name, tournamentName } = req.body;
+  const targetName = name || tournamentName;
 
-  if (!name) {
-    return res.status(400).json({ error: "Missing parameter 'name'." });
+  if (!targetName) {
+    return res.status(400).json({ error: "Missing required parameter 'name' or 'tournamentName'." });
   }
 
-  const filename = getSafeFilename(name);
+  const filename = getSafeFilename(targetName);
+  const safeName = getSafeTournamentName(targetName);
 
   try {
-    const listResult = await list({ prefix: "tournament_", token });
+    const listResult = await list({ prefix: `tournament_${safeName}`, token });
     const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
     if (blob) {
       await del(blob.url, { token });
+      return res.json({ success: true, message: `Turnier '${targetName}' erfolgreich gelöscht.` });
+    } else {
+      return res.status(404).json({ error: `Turnier '${targetName}' nicht gefunden.` });
     }
-
-    return res.json({ success: true, message: `Turnier '${name}' erfolgreich gelöscht.` });
   } catch (error: any) {
-    console.error("Error deleting tournament:", error);
+    console.error("Error in tournament delete handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Löschen des Turniers." });
   }
 }

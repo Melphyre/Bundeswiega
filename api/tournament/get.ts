@@ -21,6 +21,13 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed. Use GET." });
   }
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
+    });
+  }
+
   let { name, filename } = req.query;
   if (!name && !filename) {
     return res.status(400).json({ error: "Missing parameter 'name' or 'filename'." });
@@ -32,30 +39,15 @@ export default async function handler(req: any, res: any) {
     filename = getSafeFilename(String(filename));
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-
   try {
     let content = "";
 
-    if (token) {
-      try {
-        const listResult = await list({ token });
-        const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
-        if (blob) {
-          const fetchRes = await fetch(blob.url);
-          if (fetchRes.ok) {
-            content = await fetchRes.text();
-          }
-        }
-      } catch (err) {
-        console.error("Error reading tournament blob:", err);
-      }
-    } else {
-      const path = await import("path");
-      const fs = await import("fs");
-      const localPath = path.join(process.cwd(), filename);
-      if (fs.existsSync(localPath)) {
-        content = fs.readFileSync(localPath, "utf-8");
+    const listResult = await list({ prefix: "tournament_", token });
+    const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
+    if (blob) {
+      const fetchRes = await fetch(blob.url);
+      if (fetchRes.ok) {
+        content = await fetchRes.text();
       }
     }
 

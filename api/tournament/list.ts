@@ -9,6 +9,19 @@ export default async function handler(req: any, res: any) {
 
   const token = process.env.BLOB_READ_WRITE_TOKEN;
 
+  if (req.query?.healthcheck === 'true') {
+    return res.status(200).json({
+      token: token ? 'vorhanden' : 'fehlt',
+      tokenPrefix: token ? token.substring(0, 20) + '...' : null
+    });
+  }
+
+  if (!token) {
+    return res.status(500).json({
+      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
+    });
+  }
+
   try {
     const tournaments: Array<{
       filename: string;
@@ -20,43 +33,21 @@ export default async function handler(req: any, res: any) {
       createdDate: string;
     }> = [];
 
-    if (token) {
+    const listResult = await list({ prefix: "tournament_", token });
+    const tourneyBlobs = listResult.blobs.filter(
+      b => (b.pathname.startsWith("tournament_") || b.pathname.includes("/tournament_")) && b.pathname.endsWith(".csv")
+    );
+
+    for (const blob of tourneyBlobs) {
       try {
-        const listResult = await list({ token });
-        const tourneyBlobs = listResult.blobs.filter(
-          b => b.pathname.startsWith("tournament_") && b.pathname.endsWith(".csv")
-        );
-
-        for (const blob of tourneyBlobs) {
-          try {
-            const fetchRes = await fetch(blob.url);
-            if (fetchRes.ok) {
-              const text = await fetchRes.text();
-              const meta = parseTournamentMeta(blob.pathname, text);
-              if (meta) tournaments.push(meta);
-            }
-          } catch (e) {
-            console.error(`Error reading blob ${blob.pathname}:`, e);
-          }
-        }
-      } catch (err) {
-        console.error("Error listing blobs for tournaments:", err);
-      }
-    } else {
-      // Local fallback
-      const path = await import("path");
-      const fs = await import("fs");
-      const cwd = process.cwd();
-      const files = fs.readdirSync(cwd).filter(f => f.startsWith("tournament_") && f.endsWith(".csv"));
-
-      for (const file of files) {
-        try {
-          const content = fs.readFileSync(path.join(cwd, file), "utf-8");
-          const meta = parseTournamentMeta(file, content);
+        const fetchRes = await fetch(blob.url);
+        if (fetchRes.ok) {
+          const text = await fetchRes.text();
+          const meta = parseTournamentMeta(blob.pathname, text);
           if (meta) tournaments.push(meta);
-        } catch (e) {
-          console.error(`Error reading local file ${file}:`, e);
         }
+      } catch (e) {
+        console.error(`Error reading blob ${blob.pathname}:`, e);
       }
     }
 

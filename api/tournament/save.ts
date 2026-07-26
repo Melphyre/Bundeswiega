@@ -8,36 +8,33 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
+    });
+  }
+
   const { action, name, tablesCount, finalistsCount, hasSecondChance, tableId, results, date } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: "Missing required parameter 'name'." });
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   const filename = getSafeFilename(name);
 
   try {
     let existingContent = "";
 
-    if (token) {
-      try {
-        const listResult = await list({ token });
-        const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
-        if (blob) {
-          const fetchRes = await fetch(blob.url);
-          if (fetchRes.ok) existingContent = await fetchRes.text();
-        }
-      } catch (err) {
-        console.error("Error fetching tournament blob:", err);
+    try {
+      const listResult = await list({ prefix: "tournament_", token });
+      const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
+      if (blob) {
+        const fetchRes = await fetch(blob.url);
+        if (fetchRes.ok) existingContent = await fetchRes.text();
       }
-    } else {
-      const path = await import("path");
-      const fs = await import("fs");
-      const localPath = path.join(process.cwd(), filename);
-      if (fs.existsSync(localPath)) {
-        existingContent = fs.readFileSync(localPath, "utf-8");
-      }
+    } catch (err) {
+      console.error("Error fetching tournament blob:", err);
     }
 
     let csvContent = "";
@@ -206,22 +203,14 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: "Keine Daten zum Speichern vorhanden." });
     }
 
-    if (token) {
-      await put(filename, csvContent, {
-        access: "public",
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        token,
-        contentType: "text/csv"
-      });
-      return res.json({ success: true, message: `Turnier '${name}' erfolgreich gespeichert.` });
-    } else {
-      const path = await import("path");
-      const fs = await import("fs");
-      const localPath = path.join(process.cwd(), filename);
-      fs.writeFileSync(localPath, csvContent, "utf-8");
-      return res.json({ success: true, message: `Turnier '${name}' lokal gespeichert.` });
-    }
+    await put(filename, csvContent, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      token,
+      contentType: "text/csv"
+    });
+    return res.json({ success: true, message: `Turnier '${name}' erfolgreich gespeichert.` });
   } catch (error: any) {
     console.error("Error in tournament save handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Speichern des Turniers." });

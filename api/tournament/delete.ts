@@ -8,29 +8,26 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
+    });
+  }
+
   const { name } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: "Missing parameter 'name'." });
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   const filename = getSafeFilename(name);
 
   try {
-    if (token) {
-      const listResult = await list({ token });
-      const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
-      if (blob) {
-        await del(blob.url, { token });
-      }
-    } else {
-      const path = await import("path");
-      const fs = await import("fs");
-      const localPath = path.join(process.cwd(), filename);
-      if (fs.existsSync(localPath)) {
-        fs.unlinkSync(localPath);
-      }
+    const listResult = await list({ prefix: "tournament_", token });
+    const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
+    if (blob) {
+      await del(blob.url, { token });
     }
 
     return res.json({ success: true, message: `Turnier '${name}' erfolgreich gelöscht.` });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
-import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS } from './utils';
+import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
 /**
  * 1. BUNDESWIEGA - Das ultimative Wiegen-Spiel
@@ -92,6 +92,16 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'team_gleichstand', title: 'Gleichstand-Könige', description: 'Ein Team hatte in 3 aufeinanderfolgenden Runden Gleichstand mit mindestens einem anderen Team', icon: '👑', rarity: 'rare', earnedTogether: true },
   { id: 'team_unschlagbar', title: 'Mehr Jungfrauen', description: 'Ein Team bekommt im gesamten Spiel keinen einzigen Strafpunkt', icon: '😇', rarity: 'legendary', earnedTogether: true },
   { id: 'team_pechvoegel', title: 'Pechvögel', description: 'Ein Team hat 3 mal im Spiel eine Schnappszahl als Gesamtabstand erreicht und dadurch Strafpunkte erhalten', icon: '🐦', rarity: 'common', earnedTogether: true },
+
+  // Turnier Achievements
+  { id: 'tournament_gold', title: 'Goldwaage', description: 'Sieger des Finales (Platz 1 im Finaltisch)', icon: '🥇', rarity: 'legendary' },
+  { id: 'tournament_silver', title: 'Silberwaage', description: '2. Platz im Finale des Turniers', icon: '🥈', rarity: 'epic' },
+  { id: 'tournament_bronze', title: 'Bronzewaage', description: '3. Platz im Finale des Turniers', icon: '🥉', rarity: 'rare' },
+  { id: 'tournament_second_chance_finalist', title: 'Ohne Proben nach oben', description: 'Über den Second Chance Tisch ins Finale eingezogen', icon: '🔄', rarity: 'epic' },
+  { id: 'tournament_second_chance_winner', title: 'Unerwarteter Favorit', description: 'War im Second Chance Tisch und hat das Turnier gewonnen', icon: '🎭', rarity: 'legendary' },
+  { id: 'tournament_most_schnaepse', title: 'Hart im Nehmen', description: 'Die meisten Schnäpse im gesamten Turnier über alle Tische', icon: '🍺', rarity: 'common' },
+  { id: 'tournament_best_avg', title: 'Nah dran', description: 'Den kleinsten Durchschnitt über alle Tische im Turnier', icon: '🎯', rarity: 'rare' },
+  { id: 'tournament_avg_better_than_rank', title: 'Weggeschnappt', description: 'Bester Durchschnitt im Turnier, aber wegen Strafpunkten schlechter als Platz 4 im Finale', icon: '😤', rarity: 'epic' },
 ];
 
 export function getTeamAlternatingPlayerSequence(teams: Team[]): Array<{ playerId: string; teamId: string }> {
@@ -918,6 +928,19 @@ const BRAND_COLOR = "#238183";
 const GOLD_COLOR = "#D4AF37";
 const DARK_GRAY = "#374151";
 
+const TOURNAMENT_TABLE_COLORS = [
+  '#3B82F6', // Blau
+  '#10B981', // Grün
+  '#F59E0B', // Orange
+  '#8B5CF6', // Lila
+  '#EF4444', // Rot
+  '#06B6D4', // Cyan
+  '#EC4899', // Pink
+  '#84CC16', // Hellgrün
+  '#F97316', // Dunkelorange
+  '#6366F1', // Indigo
+];
+
 // Optionen-Button temporär ausgeblendet – auf true setzen um ihn wieder anzuzeigen
 const SHOW_OPTIONS_BUTTON = false;
 
@@ -1199,7 +1222,7 @@ const App: React.FC = () => {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Standardspiel');
-  const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Alle');
+  const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Turnier'>('Alle');
   const [showAdminOptionsModal, setShowAdminOptionsModal] = useState(false);
   const [mergeOldName, setMergeOldName] = useState('');
   const [mergeNewName, setMergeNewName] = useState('');
@@ -1214,6 +1237,52 @@ const App: React.FC = () => {
   const [schnaepseSortMode, setSchnaepseSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   const [avgSortMode, setAvgSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   const [totalSortMode, setTotalSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
+  
+  // Tournament States
+  const [showTournamentOverview, setShowTournamentOverview] = useState(false);
+  const [showCreateTournamentModal, setShowCreateTournamentModal] = useState(false);
+  const [showTournamentDetailModal, setShowTournamentDetailModal] = useState(false);
+  const [tournamentsList, setTournamentsList] = useState<any[]>([]);
+  const [tournamentsLoading, setTournamentsLoading] = useState(false);
+  const [selectedTournamentName, setSelectedTournamentName] = useState<string | null>(null);
+  const [activeTournamentData, setActiveTournamentData] = useState<any | null>(null);
+  const [tournamentDetailLoading, setTournamentDetailLoading] = useState(false);
+
+  // Create Tournament Form States
+  const [newTournamentName, setNewTournamentName] = useState('');
+  const [newTournamentTables, setNewTournamentTables] = useState<number>(2);
+  const [newTournamentQualiVorrunde, setNewTournamentQualiVorrunde] = useState<number>(1);
+  const [newTournamentQualiSecondChance, setNewTournamentQualiSecondChance] = useState<number>(1);
+  const [newTournamentSecondChance, setNewTournamentSecondChance] = useState<boolean>(true);
+  const [createTournamentSubmitting, setCreateTournamentSubmitting] = useState(false);
+  const [createTournamentError, setCreateTournamentError] = useState<string | null>(null);
+
+  // Tournament Delete States
+  const [showDeleteTournamentModal, setShowDeleteTournamentModal] = useState(false);
+  const [tournamentToDelete, setTournamentToDelete] = useState<string | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deletingTournament, setDeletingTournament] = useState(false);
+  const [deleteTournamentError, setDeleteTournamentError] = useState<string | null>(null);
+
+  // Active Tournament Table Session state
+  const [activeTournamentTableId, setActiveTournamentTableId] = useState<string | null>(null);
+  const [activeTournamentTableName, setActiveTournamentTableName] = useState<string | null>(null);
+  const [activeTournamentTable, setActiveTournamentTable] = useState<{
+    tournamentName: string;
+    tableId: string | number;
+    tableColor: string;
+    tableName?: string;
+  } | null>(null);
+  
+  // Tournament Table Auto-Save States
+  const [tournamentTableSaved, setTournamentTableSaved] = useState(false);
+  const [tournamentTableSaveState, setTournamentTableSaveState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [tournamentTableSaveMessage, setTournamentTableSaveMessage] = useState<string>('');
+
+  // Tournament Standings States
+  const [showTournamentStandings, setShowTournamentStandings] = useState(false);
+  const [tournamentStandingsData, setTournamentStandingsData] = useState<any>(null);
+  const [tournamentStandingsLoading, setTournamentStandingsLoading] = useState(false);
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
@@ -1313,6 +1382,96 @@ const App: React.FC = () => {
     }
   };
 
+  const saveTournamentTableResults = async () => {
+    if (!activeTournamentTable || tournamentTableSaved) return;
+
+    setTournamentTableSaveState('loading');
+    setTournamentTableSaveMessage('Tischergebnisse werden gespeichert...');
+
+    try {
+      // 1. Calculate player rankings sorted by total score (avg distance + schnaepse) ascending
+      const playerResults = players
+        .map(p => {
+          const avg = calculateAverageDistance(p.id, rounds);
+          const total = avg + p.schnaepse;
+          return {
+            id: p.id,
+            name: p.name,
+            avg: avg,
+            schnaepse: p.schnaepse,
+            total: total,
+            isDisqualified: p.isDisqualified
+          };
+        })
+        .sort((a, b) => (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.total - b.total))
+        .map((p, idx) => ({
+          name: p.name,
+          rank: idx + 1,
+          avg: Number(p.avg.toFixed(2)),
+          schnaepse: p.schnaepse,
+          total: Number(p.total.toFixed(2))
+        }));
+
+      const targetTableId = activeTournamentTableId || activeTournamentTable.tableId;
+      const targetTournamentName = activeTournamentTable.tournamentName;
+
+      const res = await fetch('/api/tournament/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveTableResult',
+          name: targetTournamentName,
+          tableId: targetTableId,
+          results: playerResults,
+          date: new Date().toLocaleDateString('de-DE')
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setTournamentTableSaved(true);
+        setTournamentTableSaveState('success');
+        setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
+      } else {
+        setTournamentTableSaveState('error');
+        setTournamentTableSaveMessage(data.error || 'Fehler beim Speichern der Tischergebnisse.');
+      }
+    } catch (err: any) {
+      console.error('Error saving tournament table results:', err);
+      setTournamentTableSaveState('error');
+      setTournamentTableSaveMessage(err.message || 'Fehler beim Speichern der Tischergebnisse.');
+    }
+  };
+
+  useEffect(() => {
+    if (
+      gameState === GameState.RESULT_SCREEN &&
+      activeTournamentTable !== null &&
+      !tournamentTableSaved
+    ) {
+      saveTournamentTableResults();
+    }
+  }, [gameState, activeTournamentTable, tournamentTableSaved]);
+
+  const loadTournamentStandings = async (tName?: string) => {
+    const name = tName || activeTournamentData?.config?.name || selectedTournamentName || activeTournamentTable?.tournamentName;
+    if (!name) return;
+
+    setShowTournamentStandings(true);
+    setTournamentStandingsLoading(true);
+
+    try {
+      const res = await fetch(`/api/tournament/get?name=${encodeURIComponent(name)}`);
+      const json = await res.json();
+      setTournamentStandingsData(json);
+    } catch (err) {
+      console.error('Error loading tournament standings:', err);
+    } finally {
+      setTournamentStandingsLoading(false);
+    }
+  };
+
   const startGame = () => {
     setGameState(GameState.PLAYER_COUNT);
     setResultsSaved(false);
@@ -1325,6 +1484,9 @@ const App: React.FC = () => {
     setUploadState('idle');
     setUploadMessage('');
     setAnnouncingPlayerIndex(0);
+    setTournamentTableSaved(false);
+    setTournamentTableSaveState('idle');
+    setTournamentTableSaveMessage('');
   };
 
   const startTeamwiegen = () => {
@@ -1339,6 +1501,9 @@ const App: React.FC = () => {
     setUploadState('idle');
     setUploadMessage('');
     setAnnouncingPlayerIndex(0);
+    setTournamentTableSaved(false);
+    setTournamentTableSaveState('idle');
+    setTournamentTableSaveMessage('');
   };
 
   const startSpeedwiegen = () => {
@@ -1354,6 +1519,9 @@ const App: React.FC = () => {
     setSpeedCurrentTime(0);
     setUploadState('idle');
     setUploadMessage('');
+    setTournamentTableSaved(false);
+    setTournamentTableSaveState('idle');
+    setTournamentTableSaveMessage('');
   };
 
   const resetToStart = () => {
@@ -1367,14 +1535,175 @@ const App: React.FC = () => {
     setUploadState('idle');
     setUploadMessage('');
     setAnnouncingPlayerIndex(0);
+    setActiveTournamentTable(null);
+    setTournamentTableSaved(false);
+    setTournamentTableSaveState('idle');
+    setTournamentTableSaveMessage('');
   };
 
   const handleExitToMainMenu = () => {
     if (resultsSaved) {
-      resetToStart();
+      window.location.reload();
     } else {
       setShowExitWithoutSaveConfirm(true);
     }
+  };
+
+  const fetchTournamentsList = async () => {
+    setTournamentsLoading(true);
+    try {
+      const res = await fetch('/api/tournament/list');
+      const json = await res.json();
+      if (res.ok) {
+        setTournamentsList(json.tournaments || []);
+      }
+    } catch (err) {
+      console.error('Error fetching tournaments list:', err);
+    } finally {
+      setTournamentsLoading(false);
+    }
+  };
+
+  const openTournamentDetail = async (name: string) => {
+    setSelectedTournamentName(name);
+    setShowTournamentDetailModal(true);
+    setTournamentDetailLoading(true);
+    try {
+      const res = await fetch(`/api/tournament/get?name=${encodeURIComponent(name)}`);
+      const json = await res.json();
+      if (res.ok) {
+        setActiveTournamentData(json);
+      }
+    } catch (err) {
+      console.error('Error fetching tournament details:', err);
+    } finally {
+      setTournamentDetailLoading(false);
+    }
+  };
+
+  const handleCreateTournamentSubmit = async () => {
+    if (!newTournamentName.trim()) {
+      setCreateTournamentError('Bitte einen Turniernamen eingeben.');
+      return;
+    }
+    if (newTournamentTables < 1) {
+      setCreateTournamentError('Mindestens 1 Tisch erforderlich.');
+      return;
+    }
+    setCreateTournamentSubmitting(true);
+    setCreateTournamentError(null);
+    try {
+      const res = await fetch('/api/tournament/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          name: newTournamentName.trim(),
+          tablesCount: newTournamentTables,
+          qualifikationVorrunde: newTournamentQualiVorrunde,
+          qualifikationSecondChance: newTournamentQualiSecondChance,
+          hasSecondChance: newTournamentSecondChance
+        })
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setShowCreateTournamentModal(false);
+        const createdName = newTournamentName.trim();
+        setNewTournamentName('');
+        await fetchTournamentsList();
+        openTournamentDetail(createdName);
+      } else {
+        setCreateTournamentError(json.error || 'Fehler beim Erstellen des Turniers.');
+      }
+    } catch (err: any) {
+      setCreateTournamentError(err.message || 'Verbindungsfehler.');
+    } finally {
+      setCreateTournamentSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (name: string) => {
+    setTournamentToDelete(name);
+    setDeleteConfirmInput('');
+    setDeleteTournamentError(null);
+    setShowDeleteTournamentModal(true);
+  };
+
+  const handleConfirmDeleteTournament = async () => {
+    if (!tournamentToDelete) return;
+    if (deleteConfirmInput.trim().toLowerCase() !== 'delete') return;
+
+    setDeletingTournament(true);
+    setDeleteTournamentError(null);
+
+    try {
+      const res = await fetch('/api/tournament/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tournamentToDelete })
+      });
+      const json = await res.json();
+
+      if (res.ok) {
+        setShowDeleteTournamentModal(false);
+        setDeleteConfirmInput('');
+        const deletedName = tournamentToDelete;
+        setTournamentToDelete(null);
+        await fetchTournamentsList();
+        if (selectedTournamentName === deletedName) {
+          setShowTournamentDetailModal(false);
+        }
+      } else {
+        setDeleteTournamentError(json.error || 'Fehler beim Löschen des Turniers.');
+      }
+    } catch (err: any) {
+      setDeleteTournamentError(err.message || 'Verbindungsfehler.');
+    } finally {
+      setDeletingTournament(false);
+    }
+  };
+
+  const startTournamentTable = (table: any) => {
+    const tableColor = table.color || (
+      table.id === 'table_second_chance' ? '#F59E0B' :
+      table.id === 'table_final' ? '#D4AF37' :
+      table.id.startsWith('table_') ? (
+        TOURNAMENT_TABLE_COLORS[(parseInt(table.id.replace('table_', '')) - 1) % TOURNAMENT_TABLE_COLORS.length] || TOURNAMENT_TABLE_COLORS[0]
+      ) : TOURNAMENT_TABLE_COLORS[0]
+    );
+
+    setActiveTournamentTableId(table.id);
+    setActiveTournamentTableName(table.name);
+    setActiveTournamentTable({
+      tournamentName: selectedTournamentName || activeTournamentData?.config?.name || 'Turnier',
+      tableId: table.id,
+      tableColor: tableColor,
+      tableName: table.name
+    });
+
+    setTournamentTableSaved(false);
+    setTournamentTableSaveState('idle');
+    setTournamentTableSaveMessage('');
+
+    setShowTournamentDetailModal(false);
+    setShowTournamentOverview(false);
+
+    if (table.players && table.players.length > 0) {
+      const prefilledPlayers = table.players.map((pName: string, i: number) => ({
+        id: `p${i}`,
+        name: pName,
+        startWeight: 0,
+        schnaepse: 0,
+        isDisqualified: false
+      }));
+      setPlayerCount(prefilledPlayers.length);
+      setPlayers(prefilledPlayers);
+      setGameState(GameState.PLAYER_NAMES);
+    } else {
+      setPlayerCount(4);
+      setGameState(GameState.PLAYER_COUNT);
+    }
+    setTournamentMode(true);
   };
 
   const handlePlayerCountConfirm = () => {
@@ -2305,6 +2634,53 @@ const App: React.FC = () => {
 
       const data = await response.json();
       if (response.ok) {
+        if (selectedTournamentName && activeTournamentTableId) {
+          try {
+            const tRes = await fetch('/api/tournament/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'saveTableResult',
+                name: selectedTournamentName,
+                tableId: activeTournamentTableId,
+                results: resultsToUpload.map((r, idx) => ({
+                  name: r.name,
+                  rank: idx + 1,
+                  avg: r.avg,
+                  schnaepse: r.schnaepse
+                })),
+                date: today
+              })
+            });
+
+            if (tRes.ok && activeTournamentTableId === 'table_final') {
+              const tGetRes = await fetch(`/api/tournament/get?name=${encodeURIComponent(selectedTournamentName)}`);
+              if (tGetRes.ok) {
+                const tourneyData = await tGetRes.json();
+                const earnedTourneyAchs = checkTournamentAchievements(tourneyData);
+                if (earnedTourneyAchs.length > 0) {
+                  const tourneyAchObjs: Achievement[] = earnedTourneyAchs.map(e => {
+                    const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(a => a.id === e.id);
+                    return {
+                      id: e.id,
+                      title: def ? def.title : e.id,
+                      description: def ? def.description : '',
+                      icon: def ? def.icon : '🏆',
+                      rarity: def ? def.rarity : 'common',
+                      earnedBy: e.earnedBy
+                    };
+                  });
+                  setEarnedAchievements(prev => [...prev, ...tourneyAchObjs]);
+                  setNewlyEarnedAchievements(tourneyAchObjs);
+                  setShowAchievements(true);
+                }
+              }
+            }
+          } catch (tErr) {
+            console.error('Error saving tournament table result:', tErr);
+          }
+        }
+
         setSaveModalSuccess(true);
         setResultsSaved(true);
         setTimeout(() => {
@@ -2362,6 +2738,9 @@ const App: React.FC = () => {
             <div className="flex flex-col space-y-4 max-w-xs mx-auto">
               <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-play"></i><span>Spiel starten</span>
+              </button>
+              <button onClick={() => { setShowTournamentOverview(true); fetchTournamentsList(); }} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2 cursor-pointer" style={{ backgroundColor: '#7C3AED' }}>
+                <i className="fas fa-trophy text-amber-300"></i><span>Turnier spielen</span>
               </button>
               <button onClick={startSpeedwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
                 <i className="fas fa-bolt"></i><span>Speedwiegen</span>
@@ -3110,6 +3489,43 @@ const App: React.FC = () => {
         {/* SHARED RESULTS SCREEN */}
         {gameState === GameState.RESULT_SCREEN && (
           <div className="w-full space-y-8 pb-20 animate-in fade-in duration-500 overflow-y-auto max-h-screen">
+             {activeTournamentTable && (
+               <div className="w-full space-y-2 mb-4">
+                 <div
+                   className="w-full p-3.5 rounded-2xl text-white font-black text-center text-sm shadow-xl flex items-center justify-center space-x-2"
+                   style={{ backgroundColor: activeTournamentTable.tableColor }}
+                 >
+                   <span>🏆 Turnier: {activeTournamentTable.tournamentName} • Tisch {activeTournamentTable.tableName || activeTournamentTable.tableId}</span>
+                 </div>
+
+                 {tournamentTableSaveState === 'loading' && (
+                   <p className="text-xs font-bold text-center opacity-70">
+                     <i className="fas fa-spinner animate-spin mr-1"></i>
+                     Tischergebnisse werden gespeichert...
+                   </p>
+                 )}
+                 {tournamentTableSaveState === 'success' && (
+                   <p className="text-xs font-bold text-center text-emerald-500">
+                     ✅ {tournamentTableSaveMessage}
+                   </p>
+                 )}
+                 {tournamentTableSaveState === 'error' && (
+                   <div className="flex flex-col items-center space-y-1">
+                     <p className="text-xs font-bold text-center text-red-500">
+                       ❌ {tournamentTableSaveMessage}
+                     </p>
+                     <button
+                       onClick={saveTournamentTableResults}
+                       className="text-xs font-bold px-3 py-1 rounded-lg text-white cursor-pointer"
+                       style={{ backgroundColor: BRAND_COLOR }}
+                     >
+                       Erneut versuchen
+                     </button>
+                   </div>
+                 )}
+               </div>
+             )}
+
              <h2 className="text-4xl font-black text-center uppercase" style={{ color: BRAND_COLOR }}>Endergebnis</h2>
              
              {(() => {
@@ -3346,7 +3762,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setShowExitWithoutSaveConfirm(false);
-                  resetToStart();
+                  window.location.reload();
                 }}
                 className="w-full py-3.5 rounded-2xl text-red-500 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-2"
               >
@@ -3958,7 +4374,7 @@ const App: React.FC = () => {
 
                     const filteredGroups = allGroups.filter(g => {
                       if (activeAchSubTab === 'Standardspiel') {
-                        return !g.id.startsWith('speed_') && !g.id.startsWith('team_');
+                        return !g.id.startsWith('speed_') && !g.id.startsWith('team_') && !g.id.startsWith('tournament_');
                       }
                       if (activeAchSubTab === 'Speedwiegen') {
                         return g.id.startsWith('speed_');
@@ -3966,16 +4382,21 @@ const App: React.FC = () => {
                       if (activeAchSubTab === 'Teamwiegen') {
                         return g.id.startsWith('team_');
                       }
+                      if (activeAchSubTab === 'Turnier') {
+                        return g.id.startsWith('tournament_');
+                      }
                       return true;
                     });
 
                     let totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.length;
                     if (activeAchSubTab === 'Standardspiel') {
-                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => !a.id.startsWith('speed_') && !a.id.startsWith('team_')).length;
+                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => !a.id.startsWith('speed_') && !a.id.startsWith('team_') && !a.id.startsWith('tournament_')).length;
                     } else if (activeAchSubTab === 'Speedwiegen') {
                       totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => a.id.startsWith('speed_')).length;
                     } else if (activeAchSubTab === 'Teamwiegen') {
                       totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => a.id.startsWith('team_')).length;
+                    } else if (activeAchSubTab === 'Turnier') {
+                      totalDefsForSubTab = MASTER_ACHIEVEMENTS_DEFINITIONS.filter(a => a.id.startsWith('tournament_')).length;
                     }
 
                     const unlockedGroups = filteredGroups.filter(g => g.awards.length > 0);
@@ -4018,7 +4439,7 @@ const App: React.FC = () => {
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
                         {/* Sub-tabs bar */}
                         <div className="flex space-x-2 border-b border-gray-500/10 pb-3 overflow-x-auto">
-                          {(['Alle', 'Standardspiel', 'Speedwiegen', 'Teamwiegen'] as const).map(sub => (
+                          {(['Alle', 'Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Turnier'] as const).map(sub => (
                             <button
                               key={sub}
                               onClick={() => setActiveAchSubTab(sub)}
@@ -5337,6 +5758,888 @@ const App: React.FC = () => {
               <p><strong>5. Das Finale:</strong> Erreicht ein Spieler den Schwellenwert, wird das Finale ausgelöst. Alle trinken leer und schätzen ihr Leergewicht.</p>
             </div>
             <button onClick={() => setShowRules(false)} className="w-full text-white font-bold py-4 rounded-xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Alles klar!</button>
+          </div>
+        </div>
+      )}
+
+      {/* Tournament Overview Modal */}
+      {showTournamentOverview && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl border flex flex-col max-h-[85vh] ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20 mb-6">
+              <h3 className="text-2xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <i className="fas fa-trophy mr-3 text-amber-400"></i>
+                <span>Turniere</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowTournamentOverview(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateTournamentModal(true);
+                  setCreateTournamentError(null);
+                }}
+                className="w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                style={{ backgroundColor: '#238183' }}
+              >
+                <i className="fas fa-plus"></i>
+                <span>Neues Turnier erstellen</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+              {tournamentsLoading ? (
+                <div className="p-8 text-center opacity-60">
+                  <i className="fas fa-spinner animate-spin text-2xl mb-2"></i>
+                  <p className="text-xs font-bold">Turniere werden geladen...</p>
+                </div>
+              ) : tournamentsList.length === 0 ? (
+                <div className="p-8 text-center opacity-50 border border-dashed rounded-2xl">
+                  <i className="fas fa-trophy text-4xl mb-3 block opacity-30"></i>
+                  <p className="font-bold text-sm">Noch keine Turniere vorhanden</p>
+                  <p className="text-xs mt-1">Erstelle ein neues Turnier, um Tische und Vorrunden zu verwalten.</p>
+                </div>
+              ) : (
+                tournamentsList.map(t => {
+                  const statusColors: Record<string, string> = {
+                    'In Vorbereitung': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+                    'Vorrunde läuft': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+                    'Vorrunde beendet': 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+                    'Second Chance': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+                    'Finale': 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+                    'Beendet': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  };
+                  const badgeClass = statusColors[t.status] || statusColors['In Vorbereitung'];
+
+                  return (
+                    <div
+                      key={t.filename || t.name}
+                      onClick={() => openTournamentDetail(t.name)}
+                      className={`p-4 rounded-2xl border flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01] ${
+                        darkMode ? 'bg-slate-800/80 border-slate-700 hover:bg-slate-800' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-black text-base">{t.name}</span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeClass}`}>
+                            {t.status}
+                          </span>
+                        </div>
+                        <div className="text-xs opacity-60 flex items-center space-x-3">
+                          <span>📅 {t.createdDate}</span>
+                          <span>🪑 {t.tablesCount} {t.tablesCount === 1 ? 'Tisch' : 'Tische'}</span>
+                          <span>🏆 {t.finalistsCount} Finalisten</span>
+                          {t.hasSecondChance && <span>🔄 Second Chance</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDeleteModal(t.name);
+                          }}
+                          className="p-2 rounded-xl text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                          title="Turnier löschen"
+                        >
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+                        <i className="fas fa-chevron-right text-xs opacity-40"></i>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-gray-500/20 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowTournamentOverview(false)}
+                className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                style={{ backgroundColor: '#238183' }}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Tournament Modal */}
+      {showCreateTournamentModal && (
+        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border space-y-6 ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <i className="fas fa-trophy mr-2.5 text-amber-400"></i>
+                <span>Neues Turnier</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCreateTournamentModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {createTournamentError && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
+                {createTournamentError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-70 mb-1">Turniername</label>
+                <input
+                  type="text"
+                  value={newTournamentName}
+                  onChange={e => setNewTournamentName(e.target.value)}
+                  placeholder="z.B. Sommercup 2026"
+                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-70 mb-1">Anzahl Tische (Vorrunde)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={newTournamentTables}
+                  onChange={e => setNewTournamentTables(Math.max(1, parseInt(e.target.value) || 1))}
+                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-70 mb-1">
+                  Qualifikation Vorrunde
+                </label>
+                <p className="text-xs font-semibold mb-1.5 opacity-90">
+                  Wie viele Plätze pro Vorrundentisch qualifizieren sich fürs Finale?
+                </p>
+                <select
+                  value={newTournamentQualiVorrunde}
+                  onChange={e => setNewTournamentQualiVorrunde(parseInt(e.target.value) || 1)}
+                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                >
+                  <option value={1}>1 Platz pro Tisch</option>
+                  <option value={2}>2 Plätze pro Tisch</option>
+                  <option value={3}>3 Plätze pro Tisch</option>
+                </select>
+                <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
+                  Bei {newTournamentTables} {newTournamentTables === 1 ? 'Tisch' : 'Tischen'} und {newTournamentQualiVorrunde} {newTournamentQualiVorrunde === 1 ? 'Qualifikationsplatz' : 'Qualifikationsplätzen'} stehen {newTournamentTables * newTournamentQualiVorrunde} Spieler {newTournamentSecondChance ? 'direkt ' : ''}im Finale.
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-[#238183]/20 space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="hasSecondChanceCheck"
+                    checked={newTournamentSecondChance}
+                    onChange={e => setNewTournamentSecondChance(e.target.checked)}
+                    className="w-5 h-5 rounded accent-[#238183] cursor-pointer"
+                  />
+                  <label htmlFor="hasSecondChanceCheck" className="text-xs font-bold cursor-pointer select-none">
+                    Second Chance Tisch aktivieren
+                  </label>
+                </div>
+
+                {newTournamentSecondChance && (
+                  <div className="p-3.5 rounded-xl bg-[#238183]/10 border border-[#238183]/20 space-y-2 text-xs">
+                    <p className="opacity-90 leading-relaxed">
+                      Im Second Chance Tisch spielen alle Spieler, die in der Vorrunde nicht direkt qualifiziert wurden (also alle ab Platz {newTournamentQualiVorrunde + 1} jedes Vorrundentisches).
+                    </p>
+                    <div className="pt-1">
+                      <label className="block font-bold uppercase text-[10px] opacity-70 mb-1">
+                        Qualifikation Second Chance
+                      </label>
+                      <p className="font-semibold mb-1">
+                        Wie viele Plätze aus dem Second Chance Tisch qualifizieren sich noch fürs Finale?
+                      </p>
+                      <select
+                        value={newTournamentQualiSecondChance}
+                        onChange={e => setNewTournamentQualiSecondChance(parseInt(e.target.value) || 1)}
+                        className={`w-full p-2.5 rounded-lg border text-xs font-bold ${
+                          darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                        }`}
+                      >
+                        <option value={1}>1 Platz aus Second Chance</option>
+                        <option value={2}>2 Plätze aus Second Chance</option>
+                      </select>
+                      <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
+                        {newTournamentQualiSecondChance === 1
+                          ? '1 weiterer Spieler zieht aus dem Second Chance ins Finale ein.'
+                          : `${newTournamentQualiSecondChance} weitere Spieler ziehen aus dem Second Chance ins Finale ein.`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-[#238183]/20">
+              <button
+                type="button"
+                onClick={() => setShowCreateTournamentModal(false)}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                style={{ backgroundColor: '#238183' }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={createTournamentSubmitting}
+                onClick={handleCreateTournamentSubmit}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                style={{ backgroundColor: '#238183' }}
+              >
+                {createTournamentSubmitting ? (
+                  <i className="fas fa-spinner animate-spin"></i>
+                ) : (
+                  <span>Erstellen</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tournament Detail Modal */}
+      {showTournamentDetailModal && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border flex flex-col max-h-[85vh] ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20 mb-6">
+              <div>
+                <h3 className="text-2xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                  <i className="fas fa-trophy mr-2.5 text-amber-400"></i>
+                  <span>{activeTournamentData?.config?.name || selectedTournamentName}</span>
+                </h3>
+                {activeTournamentData?.config && (
+                  <div className="text-xs opacity-60 mt-1">
+                    {activeTournamentData.config.tablesCount} Vorrunden-Tische | Qualifikation: {activeTournamentData.config.qualifikationVorrunde || 1} pro Tisch | {activeTournamentData.config.finalistsCount} Finalisten
+                    {activeTournamentData.config.hasSecondChance ? ` | Second Chance (+${activeTournamentData.config.qualifikationSecondChance || 1})` : ''}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => loadTournamentStandings()}
+                  className="px-3.5 py-2 rounded-xl text-white font-black text-xs uppercase tracking-wider flex items-center space-x-1.5 shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                  style={{ backgroundColor: '#238183' }}
+                >
+                  <i className="fas fa-list-ol"></i>
+                  <span>Spielstand</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTournamentDetailModal(false)}
+                  className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            {tournamentDetailLoading ? (
+              <div className="p-12 text-center opacity-60">
+                <i className="fas fa-spinner animate-spin text-3xl mb-3 text-[#238183]"></i>
+                <p className="text-sm font-bold">Turnierdetails werden geladen...</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                {/* Qualified Finalists Overview */}
+                {(() => {
+                  const qVorrunde = activeTournamentData?.config?.qualifikationVorrunde || 1;
+                  const qSecondChance = activeTournamentData?.config?.qualifikationSecondChance || 1;
+                  const allResults = activeTournamentData?.results || [];
+                  const allTables = activeTournamentData?.tables || [];
+                  const vorrundeTables = allTables.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+                  const scTable = allTables.find((t: any) => t.id === "table_second_chance");
+
+                  const qualifiedFinalists: Array<{ name: string; origin: string; rank: number }> = [];
+
+                  vorrundeTables.forEach((vt: any) => {
+                    const vtResults = allResults.filter((r: any) => r.tableId === vt.id).sort((a: any, b: any) => a.rank - b.rank);
+                    vtResults.forEach((r: any) => {
+                      if (r.rank <= qVorrunde) {
+                        qualifiedFinalists.push({ name: r.playerName, origin: vt.name, rank: r.rank });
+                      }
+                    });
+                  });
+
+                  if (scTable) {
+                    const scResults = allResults.filter((r: any) => r.tableId === scTable.id).sort((a: any, b: any) => a.rank - b.rank);
+                    scResults.forEach((r: any) => {
+                      if (r.rank <= qSecondChance) {
+                        qualifiedFinalists.push({ name: r.playerName, origin: scTable.name, rank: r.rank });
+                      }
+                    });
+                  }
+
+                  if (qualifiedFinalists.length === 0) return null;
+
+                  return (
+                    <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#238183]/10 border-[#238183]/30' : 'bg-[#238183]/5 border-[#238183]/20'}`}>
+                      <h4 className="font-black text-xs uppercase tracking-wider text-[#238183] mb-2.5 flex items-center space-x-2">
+                        <i className="fas fa-crown text-amber-400"></i>
+                        <span>Qualifizierte Finalisten ({qualifiedFinalists.length} / {activeTournamentData?.config?.finalistsCount})</span>
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {qualifiedFinalists.map((f, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                            <span className="flex items-center space-x-1.5">
+                              <span>👑</span>
+                              <span>{f.name}</span>
+                            </span>
+                            <span className="opacity-70 text-[10px] font-mono">({f.origin}, Platz {f.rank})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activeTournamentData?.tables?.map((tbl: any, idx: number) => {
+                    const isLocked = tbl.status === 'Gesperrt';
+                    const isDone = tbl.status === 'Abgeschlossen';
+                    const isOpen = tbl.status === 'Offen';
+
+                    const tblColor = tbl.color || (
+                      tbl.id === 'table_second_chance' ? '#F59E0B' :
+                      tbl.id === 'table_final' ? '#D4AF37' :
+                      TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
+                    );
+
+                    let cardBorder = 'border-gray-500/20';
+                    if (isDone) cardBorder = 'border-emerald-500/40 bg-emerald-500/5';
+                    else if (isOpen) cardBorder = 'border-[#238183]/40 bg-[#238183]/5';
+                    else if (isLocked) cardBorder = 'border-gray-500/20 opacity-60';
+
+                    const qVorrunde = activeTournamentData?.config?.qualifikationVorrunde || 1;
+                    const qSecondChance = activeTournamentData?.config?.qualifikationSecondChance || 1;
+                    const tblResults = activeTournamentData?.results?.filter((r: any) => r.tableId === tbl.id).sort((a: any, b: any) => a.rank - b.rank) || [];
+
+                    return (
+                      <div
+                        key={tbl.id}
+                        className={`p-5 rounded-2xl border border-l-4 flex flex-col justify-between space-y-4 ${cardBorder} ${
+                          darkMode ? 'bg-slate-800/50' : 'bg-gray-50'
+                        }`}
+                        style={{ borderLeftColor: tblColor }}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-black text-lg flex items-center space-x-2">
+                              <span
+                                className="px-3 py-1 rounded-full text-white text-xs font-black shadow-sm"
+                                style={{ backgroundColor: tblColor }}
+                              >
+                                {tbl.name}
+                              </span>
+                            </h4>
+
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                              isDone ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                              isOpen ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' :
+                              'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                            }`}>
+                              {tbl.status}
+                            </span>
+                          </div>
+
+                          {/* Standings & Qualification badges per table type */}
+                          {tblResults.length > 0 ? (
+                            <div className="space-y-1.5">
+                              <span className="text-[11px] font-bold uppercase tracking-wider opacity-60">Ergebnisse & Qualifikation:</span>
+                              {tblResults.map((r: any) => {
+                                const isQualified = tbl.id === 'table_second_chance'
+                                  ? r.rank <= qSecondChance
+                                  : tbl.id === 'table_final'
+                                  ? true
+                                  : r.rank <= qVorrunde;
+
+                                return (
+                                  <div
+                                    key={r.playerName}
+                                    className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between border ${
+                                      tbl.id === 'table_final'
+                                        ? r.rank === 1
+                                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                                          : 'bg-black/10 dark:bg-white/10 border-gray-500/20'
+                                        : isQualified
+                                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                        : 'bg-gray-500/10 border-gray-500/20 text-gray-400 opacity-70'
+                                    }`}
+                                  >
+                                    <span>
+                                      {tbl.id === 'table_final' && r.rank === 1 ? '👑 1. Platz' : `Platz ${r.rank}`}: {r.playerName}
+                                    </span>
+                                    {tbl.id === 'table_final' ? (
+                                      <span className="text-[10px] opacity-60 font-mono">Ø {r.avg.toFixed(1)}g</span>
+                                    ) : isQualified ? (
+                                      <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 font-black">
+                                        Qualifiziert 🟢
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] opacity-60">
+                                        {tbl.id === 'table_second_chance' ? 'Ausschieden' : activeTournamentData?.config?.hasSecondChance ? 'Second Chance' : 'Ausschieden'}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : tbl.players && tbl.players.length > 0 ? (
+                            <div className="text-xs space-y-1.5">
+                              <span className="font-bold opacity-60">
+                                {tbl.id === 'table_second_chance'
+                                  ? `Spielberechtigt (ab Platz ${qVorrunde + 1} der Vorrunden):`
+                                  : tbl.id === 'table_final'
+                                  ? 'Finalisten:'
+                                  : 'Teilnehmer:'}
+                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {tbl.players.map((p: string, pIdx: number) => (
+                                  <span key={pIdx} className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                    tbl.id === 'table_final'
+                                      ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300'
+                                      : tbl.id === 'table_second_chance'
+                                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                                      : 'bg-black/10 dark:bg-white/10 font-mono'
+                                  }`}>
+                                    {tbl.id === 'table_final' ? `👑 ${p}` : p}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs opacity-50 italic">Noch keine Teilnehmer festgelegt.</p>
+                          )}
+
+                          {isDone && tbl.winner && (
+                            <div className="text-xs font-bold text-amber-500 flex items-center space-x-1 pt-1">
+                              <i className="fas fa-trophy"></i>
+                              <span>Sieger: {tbl.winner}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {isDone ? (
+                          <button
+                            type="button"
+                            disabled
+                            style={{ backgroundColor: tblColor }}
+                            className="w-full py-3.5 px-4 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-between cursor-default opacity-50 filter grayscale-[30%] shadow-md"
+                          >
+                            <span>{tbl.name}</span>
+                            <span className="flex items-center space-x-1">✅ Abgeschlossen</span>
+                          </button>
+                        ) : isLocked ? (
+                          <button
+                            type="button"
+                            disabled
+                            style={{ backgroundColor: '#6B7280' }}
+                            className="w-full py-3.5 px-4 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-between cursor-not-allowed opacity-80 shadow-md"
+                          >
+                            <span>{tbl.name}</span>
+                            <span className="flex items-center space-x-1">🔒 Gesperrt</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startTournamentTable(tbl)}
+                            style={{ backgroundColor: tblColor }}
+                            className="w-full py-3.5 px-4 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl hover:brightness-110 active:scale-95 cursor-pointer"
+                          >
+                            <i className="fas fa-play mr-1.5"></i>
+                            <span>Tisch starten</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-gray-500/20 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowTournamentDetailModal(false)}
+                className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                style={{ backgroundColor: '#238183' }}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Standings Modal */}
+      {showTournamentStandings && (
+        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl border flex flex-col max-h-[85vh] ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20 mb-4">
+              <div>
+                <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                  <i className="fas fa-list-ol mr-2.5"></i>
+                  <span>Aktueller Spielstand</span>
+                </h3>
+                <p className="text-xs font-semibold opacity-60 mt-0.5">
+                  {tournamentStandingsData?.config?.name || selectedTournamentName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTournamentStandings(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Body */}
+            {tournamentStandingsLoading ? (
+              <div className="py-12 text-center flex flex-col items-center justify-center">
+                <i className="fas fa-spinner animate-spin text-3xl mb-3 text-[#238183]"></i>
+                <p className="text-xs font-bold opacity-70">Spielstand wird geladen...</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+                {/* Tables List */}
+                {tournamentStandingsData?.tables?.map((tbl: any, idx: number) => {
+                  const tblColor = tbl.color || (
+                    tbl.id === 'table_second_chance' ? '#F59E0B' :
+                    tbl.id === 'table_final' ? '#D4AF37' :
+                    TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
+                  );
+                  const isDone = tbl.status === 'Abgeschlossen';
+                  const tblResults = tournamentStandingsData?.results?.filter((r: any) => r.tableId === tbl.id).sort((a: any, b: any) => a.rank - b.rank) || [];
+
+                  const config = tournamentStandingsData?.config || {};
+                  const qVorrunde = config.qualifikationVorrunde || 1;
+                  const qSecondChance = config.qualifikationSecondChance || 1;
+                  const isVorrunde = tbl.id.startsWith('table_') && tbl.id !== 'table_second_chance' && tbl.id !== 'table_final';
+                  const isSecondChance = tbl.id === 'table_second_chance';
+                  const isFinal = tbl.id === 'table_final';
+
+                  return (
+                    <div
+                      key={tbl.id}
+                      className={`p-4 rounded-2xl border-l-4 shadow-sm border ${
+                        darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-gray-50 border-gray-200'
+                      }`}
+                      style={{ borderLeftColor: tblColor }}
+                    >
+                      {/* Table Header */}
+                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-500/15">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm">{isDone ? '✅' : '⏳'}</span>
+                          <span
+                            className="px-3 py-1 rounded-full text-white text-xs font-black shadow-sm"
+                            style={{ backgroundColor: tblColor }}
+                          >
+                            {tbl.name}
+                          </span>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
+                          isDone ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                          tbl.status === 'Offen' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' :
+                          'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                        }`}>
+                          {isDone ? 'Abgeschlossen' : 'Noch nicht gespielt'}
+                        </span>
+                      </div>
+
+                      {/* Results */}
+                      {isDone ? (
+                        <div className="space-y-2">
+                          {tblResults.length > 0 ? (
+                            tblResults.map((r: any) => {
+                              const total = (r.avg + r.schnaepse).toFixed(1);
+                              let badge = null;
+
+                              if (isVorrunde) {
+                                if (r.rank <= qVorrunde) {
+                                  badge = (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 flex items-center space-x-1">
+                                      <span>✈️</span> <span>Qualifiziert</span>
+                                    </span>
+                                  );
+                                } else if (config.hasSecondChance) {
+                                  badge = (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-500/20 text-amber-500 border border-amber-500/30 flex items-center space-x-1">
+                                      <span>🔄</span> <span>Second Chance</span>
+                                    </span>
+                                  );
+                                }
+                              } else if (isSecondChance) {
+                                if (r.rank <= qSecondChance) {
+                                  badge = (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 flex items-center space-x-1">
+                                      <span>✈️</span> <span>Qualifiziert</span>
+                                    </span>
+                                  );
+                                }
+                              } else if (isFinal) {
+                                if (r.rank === 1) {
+                                  badge = (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-400/20 text-amber-400 border border-amber-400/30 flex items-center space-x-1">
+                                      <span>👑</span> <span>Sieger</span>
+                                    </span>
+                                  );
+                                }
+                              }
+
+                              return (
+                                <div
+                                  key={r.playerName}
+                                  className="flex flex-wrap items-center justify-between text-xs font-bold p-2.5 rounded-xl bg-black/10 dark:bg-white/5 gap-2"
+                                >
+                                  <div className="flex items-center space-x-3">
+                                    <span className="opacity-60 min-w-[20px]">#{r.rank}</span>
+                                    <span className="font-black text-sm">{r.playerName}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-3 font-mono text-[11px]">
+                                    <span className="opacity-80">Ø {r.avg.toFixed(1)}g</span>
+                                    <span className="opacity-80">{r.schnaepse} Pkt</span>
+                                    <span className="font-black text-[#238183]">Total: {total}</span>
+                                    {badge}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="text-xs font-bold opacity-50 italic">Keine Einzelergebnisse hinterlegt</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-bold opacity-60 italic py-1">
+                          ⏳ Noch nicht gespielt
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Finalists Overview Section */}
+                {(() => {
+                  const config = tournamentStandingsData?.config || {};
+                  const qVorrunde = config.qualifikationVorrunde || 1;
+                  const qSecondChance = config.qualifikationSecondChance || 1;
+                  const finalists: { playerName: string; tableName: string; rank: number }[] = [];
+
+                  const vorrundeTables = tournamentStandingsData?.tables?.filter((t: any) => t.id.startsWith('table_') && t.id !== 'table_second_chance' && t.id !== 'table_final') || [];
+                  vorrundeTables.forEach((vt: any) => {
+                    if (vt.status === 'Abgeschlossen') {
+                      const vtResults = tournamentStandingsData?.results?.filter((r: any) => r.tableId === vt.id).sort((a: any, b: any) => a.rank - b.rank) || [];
+                      vtResults.forEach((r: any) => {
+                        if (r.rank <= qVorrunde) {
+                          finalists.push({
+                            playerName: r.playerName,
+                            tableName: vt.name,
+                            rank: r.rank
+                          });
+                        }
+                      });
+                    }
+                  });
+
+                  const scTable = tournamentStandingsData?.tables?.find((t: any) => t.id === 'table_second_chance');
+                  if (scTable && scTable.status === 'Abgeschlossen') {
+                    const scResults = tournamentStandingsData?.results?.filter((r: any) => r.tableId === scTable.id).sort((a: any, b: any) => a.rank - b.rank) || [];
+                    scResults.forEach((r: any) => {
+                      if (r.rank <= qSecondChance) {
+                        finalists.push({
+                          playerName: r.playerName,
+                          tableName: scTable.name,
+                          rank: r.rank
+                        });
+                      }
+                    });
+                  }
+
+                  const totalFinalistsCount = config.finalistsCount || (config.tablesCount * qVorrunde + (config.hasSecondChance ? qSecondChance : 0));
+                  const openSpots = Math.max(0, totalFinalistsCount - finalists.length);
+
+                  return (
+                    <div className={`p-4 rounded-2xl border space-y-3 ${
+                      darkMode ? 'bg-slate-800/80 border-[#238183]/30' : 'bg-gray-50 border-gray-200'
+                    }`}>
+                      <div className="flex items-center justify-between border-b pb-2 border-gray-500/20">
+                        <h4 className="font-black text-xs uppercase tracking-wider text-[#238183] flex items-center">
+                          <i className="fas fa-trophy text-amber-400 mr-2"></i>
+                          <span>Aktuelle Finalisten</span>
+                        </h4>
+                        <span className="text-[11px] font-bold opacity-60">
+                          ({finalists.length} / {totalFinalistsCount})
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {finalists.map((f, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-xs font-bold p-2.5 rounded-xl bg-black/10 dark:bg-white/5">
+                            <span className="flex items-center space-x-1.5">
+                              <span className="text-emerald-500">✈️</span>
+                              <span className="font-black">{f.playerName}</span>
+                            </span>
+                            <span className="text-[11px] opacity-60 font-semibold">
+                              ({f.tableName}, Platz {f.rank})
+                            </span>
+                          </div>
+                        ))}
+
+                        {openSpots > 0 && (
+                          <div className="p-3 rounded-xl border border-dashed border-gray-500/30 text-center text-xs font-bold opacity-60">
+                            [Noch {openSpots} {openSpots === 1 ? 'Platz' : 'Plätze'} offen]
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="pt-4 border-t border-gray-500/20 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowTournamentStandings(false)}
+                className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                style={{ backgroundColor: '#238183' }}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Tournament Delete Modal */}
+      {showDeleteTournamentModal && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border space-y-6 ${
+            darkMode ? 'bg-slate-900 border-red-500/30 text-white' : 'bg-white border-red-500/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-red-500/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-red-500">
+                <i className="fas fa-trash-alt mr-2.5"></i>
+                <span>Turnier löschen</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteTournamentModal(false);
+                  setTournamentToDelete(null);
+                  setDeleteConfirmInput('');
+                  setDeleteTournamentError(null);
+                }}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm font-bold">
+                Möchtest du das Turnier <span className="text-red-400 font-extrabold">"{tournamentToDelete}"</span> wirklich löschen?
+              </p>
+
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500 text-red-500 text-xs font-bold space-y-1">
+                <p className="flex items-start space-x-1.5">
+                  <span className="text-sm leading-none">⚠️</span>
+                  <span>Diese Aktion löscht alle Turnierdaten vollständig und unwiderruflich. Sie kann nicht rückgängig gemacht werden.</span>
+                </p>
+              </div>
+
+              {deleteTournamentError && (
+                <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-bold text-center">
+                  {deleteTournamentError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-70 mb-1.5">
+                  Zur Bestätigung bitte "delete" eingeben:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmInput}
+                  onChange={e => setDeleteConfirmInput(e.target.value)}
+                  placeholder="delete"
+                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-mono font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-red-500/20">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteTournamentModal(false);
+                  setTournamentToDelete(null);
+                  setDeleteConfirmInput('');
+                  setDeleteTournamentError(null);
+                }}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 transition-all cursor-pointer"
+                style={{ backgroundColor: '#238183' }}
+              >
+                Abbrechen
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteConfirmInput.trim().toLowerCase() !== 'delete' || deletingTournament}
+                onClick={handleConfirmDeleteTournament}
+                className={`flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 ${
+                  deleteConfirmInput.trim().toLowerCase() === 'delete' && !deletingTournament
+                    ? 'bg-red-600 hover:bg-red-700 shadow-lg active:scale-95 cursor-pointer'
+                    : 'bg-red-500/30 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {deletingTournament ? (
+                  <i className="fas fa-spinner animate-spin"></i>
+                ) : (
+                  <span>Löschen bestätigen</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -138,3 +138,87 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
     max: Math.max(0, minW - 10)
   };
 }
+
+export function checkTournamentAchievements(
+  tournamentData: {
+    config: any;
+    tables: any[];
+    results: Array<{ tableId: string; playerName: string; rank: number; avg: number; schnaepse: number }>;
+  }
+): Array<{ id: string; earnedBy: string[] }> {
+  const { tables, results } = tournamentData;
+  const earned: Array<{ id: string; earnedBy: string[] }> = [];
+
+  const finalResults = results.filter(r => r.tableId === 'table_final').sort((a, b) => a.rank - b.rank);
+  const secondChanceResults = results.filter(r => r.tableId === 'table_second_chance');
+
+  const addAchievement = (id: string, playerNames: string[]) => {
+    if (playerNames.length === 0) return;
+    earned.push({ id, earnedBy: Array.from(new Set(playerNames)) });
+  };
+
+  // 1. Goldwaage (Platz 1 im Finale)
+  if (finalResults.length >= 1 && finalResults[0].rank === 1) {
+    addAchievement('tournament_gold', [finalResults[0].playerName]);
+  }
+
+  // 2. Silberwaage (Platz 2 im Finale)
+  if (finalResults.length >= 2 && finalResults[1].rank === 2) {
+    addAchievement('tournament_silver', [finalResults[1].playerName]);
+  }
+
+  // 3. Bronzewaage (Platz 3 im Finale)
+  if (finalResults.length >= 3 && finalResults[2].rank === 3) {
+    addAchievement('tournament_bronze', [finalResults[2].playerName]);
+  }
+
+  // 4. Second Chance Finalist
+  const scPlayerNames = secondChanceResults.map(r => r.playerName);
+  const finalPlayerNames = finalResults.map(r => r.playerName);
+  const scFinalists = scPlayerNames.filter(p => finalPlayerNames.includes(p));
+  addAchievement('tournament_second_chance_finalist', scFinalists);
+
+  // 5. Second Chance Winner
+  if (finalResults.length >= 1 && finalResults[0].rank === 1) {
+    const winnerName = finalResults[0].playerName;
+    if (scPlayerNames.includes(winnerName)) {
+      addAchievement('tournament_second_chance_winner', [winnerName]);
+    }
+  }
+
+  // Aggregate player stats across all tournament tables
+  const playerStats: Record<string, { totalSchnaepse: number; totalAvg: number; tablesCount: number }> = {};
+  results.forEach(r => {
+    if (!playerStats[r.playerName]) {
+      playerStats[r.playerName] = { totalSchnaepse: 0, totalAvg: 0, tablesCount: 0 };
+    }
+    playerStats[r.playerName].totalSchnaepse += r.schnaepse;
+    playerStats[r.playerName].totalAvg += r.avg;
+    playerStats[r.playerName].tablesCount += 1;
+  });
+
+  const playerList = Object.keys(playerStats);
+  if (playerList.length > 0) {
+    // 6. Most Schnäpse in Tournament
+    const maxSchnaepse = Math.max(...playerList.map(p => playerStats[p].totalSchnaepse));
+    if (maxSchnaepse > 0) {
+      const mostSchnaepsePlayers = playerList.filter(p => playerStats[p].totalSchnaepse === maxSchnaepse);
+      addAchievement('tournament_most_schnaepse', mostSchnaepsePlayers);
+    }
+
+    // 7. Smallest Average in Tournament
+    const minAvg = Math.min(...playerList.map(p => playerStats[p].totalAvg / playerStats[p].tablesCount));
+    const bestAvgPlayers = playerList.filter(p => (playerStats[p].totalAvg / playerStats[p].tablesCount) === minAvg);
+    addAchievement('tournament_best_avg', bestAvgPlayers);
+
+    // 8. Bester Durchschnitt aber schlechter als Platz 4 im Finale
+    bestAvgPlayers.forEach(p => {
+      const fRes = finalResults.find(r => r.playerName === p);
+      if (fRes && fRes.rank > 3) {
+        addAchievement('tournament_avg_better_than_rank', [p]);
+      }
+    });
+  }
+
+  return earned;
+}

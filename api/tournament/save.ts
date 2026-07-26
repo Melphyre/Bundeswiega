@@ -1,7 +1,9 @@
 import { put, list } from "@vercel/blob";
-import { parseTournamentCSV, TOURNAMENT_TABLE_COLORS } from "./get";
+import { parseTournamentCSV, TOURNAMENT_TABLE_COLORS, getSafeFilename } from "./get";
 
 export default async function handler(req: any, res: any) {
+  res.setHeader("Content-Type", "application/json");
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
@@ -13,7 +15,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  const filename = `tournament_${name.trim()}.csv`;
+  const filename = getSafeFilename(name);
 
   try {
     let existingContent = "";
@@ -21,7 +23,7 @@ export default async function handler(req: any, res: any) {
     if (token) {
       try {
         const listResult = await list({ token });
-        const blob = listResult.blobs.find(b => b.pathname === filename);
+        const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
         if (blob) {
           const fetchRes = await fetch(blob.url);
           if (fetchRes.ok) existingContent = await fetchRes.text();

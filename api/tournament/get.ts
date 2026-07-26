@@ -1,6 +1,22 @@
 import { list } from "@vercel/blob";
 
+export function getSafeFilename(tournamentName: string): string {
+  let clean = (tournamentName || "").trim();
+  if (clean.startsWith("tournament_")) {
+    clean = clean.replace(/^tournament_/, "");
+  }
+  if (clean.endsWith(".csv")) {
+    clean = clean.replace(/\.csv$/, "");
+  }
+  const safeName = clean
+    .replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_')
+    .substring(0, 50);
+  return `tournament_${safeName || 'unnamed'}.csv`;
+}
+
 export default async function handler(req: any, res: any) {
+  res.setHeader("Content-Type", "application/json");
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed. Use GET." });
   }
@@ -11,7 +27,9 @@ export default async function handler(req: any, res: any) {
   }
 
   if (!filename) {
-    filename = `tournament_${name}.csv`;
+    filename = getSafeFilename(String(name));
+  } else {
+    filename = getSafeFilename(String(filename));
   }
 
   const token = process.env.BLOB_READ_WRITE_TOKEN;
@@ -22,7 +40,7 @@ export default async function handler(req: any, res: any) {
     if (token) {
       try {
         const listResult = await list({ token });
-        const blob = listResult.blobs.find(b => b.pathname === filename);
+        const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
         if (blob) {
           const fetchRes = await fetch(blob.url);
           if (fetchRes.ok) {

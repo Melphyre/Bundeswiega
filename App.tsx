@@ -1458,7 +1458,9 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error('Tournament save error:', err);
       setTournamentTableSaveState('error');
-      setTournamentTableSaveMessage(err.message || 'Unbekannter Fehler beim Speichern.');
+      setTournamentTableSaveMessage(
+        `Fehler: ${err.message}. Bitte prüfe die Vercel Environment Variables (BLOB_READ_WRITE_TOKEN).`
+      );
     }
   };
 
@@ -5927,6 +5929,15 @@ const App: React.FC = () => {
                 {createTournamentError}
               </div>
             )}
+
+            <div className="p-3 rounded-xl bg-[#238183]/10 border border-[#238183]/20 text-xs font-medium space-y-1">
+              <div className="font-bold text-[#238183]">ℹ️ Vercel Storage Hinweis:</div>
+              <p className="opacity-80 leading-relaxed">
+                Stelle sicher dass der Blob Store mit diesem Projekt verbunden ist:
+                <br />
+                <span className="font-mono text-[11px]">Vercel Dashboard → Storage → bundeswiega-blob → Connect to Project</span>
+              </p>
+            </div>
 
             <div className="space-y-4">
               <div>

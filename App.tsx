@@ -1389,7 +1389,22 @@ const App: React.FC = () => {
     setTournamentTableSaveMessage('Tischergebnisse werden gespeichert...');
 
     try {
-      // 1. Calculate player rankings sorted by total score (avg distance + schnaepse) ascending
+      // 1. Erst GET zur Verifikation/Laden
+      const getRes = await fetch(
+        `/api/tournament/get?name=${encodeURIComponent(activeTournamentTable.tournamentName)}`
+      );
+
+      // Prüfen ob Response wirklich JSON ist
+      const contentType = getRes.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await getRes.text();
+        throw new Error(`API returned non-JSON: ${text.substring(0, 100)}`);
+      }
+
+      const getJson = await getRes.json();
+      if (!getRes.ok) throw new Error(getJson.error || 'Fehler beim Laden der Turnier-CSV');
+
+      // 2. Player results zusammenstellen
       const playerResults = players
         .map(p => {
           const avg = calculateAverageDistance(p.id, rounds);
@@ -1413,34 +1428,37 @@ const App: React.FC = () => {
         }));
 
       const targetTableId = activeTournamentTableId || activeTournamentTable.tableId;
-      const targetTournamentName = activeTournamentTable.tournamentName;
 
-      const res = await fetch('/api/tournament/save', {
+      // 3. Dann SAVE
+      const saveRes = await fetch('/api/tournament/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'saveTableResult',
-          name: targetTournamentName,
+          name: activeTournamentTable.tournamentName,
           tableId: targetTableId,
           results: playerResults,
           date: new Date().toLocaleDateString('de-DE')
         })
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        setTournamentTableSaved(true);
-        setTournamentTableSaveState('success');
-        setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
-      } else {
-        setTournamentTableSaveState('error');
-        setTournamentTableSaveMessage(data.error || 'Fehler beim Speichern der Tischergebnisse.');
+      const saveCT = saveRes.headers.get('content-type');
+      if (!saveCT || !saveCT.includes('application/json')) {
+        const text = await saveRes.text();
+        throw new Error(`Save API returned non-JSON: ${text.substring(0, 100)}`);
       }
+
+      const saveJson = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveJson.error || 'Fehler beim Speichern');
+
+      setTournamentTableSaved(true);
+      setTournamentTableSaveState('success');
+      setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
+
     } catch (err: any) {
-      console.error('Error saving tournament table results:', err);
+      console.error('Tournament save error:', err);
       setTournamentTableSaveState('error');
-      setTournamentTableSaveMessage(err.message || 'Fehler beim Speichern der Tischergebnisse.');
+      setTournamentTableSaveMessage(err.message || 'Unbekannter Fehler beim Speichern.');
     }
   };
 
@@ -1463,9 +1481,15 @@ const App: React.FC = () => {
 
     try {
       const res = await fetch(`/api/tournament/get?name=${encodeURIComponent(name)}`);
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`API returned non-JSON: ${text.substring(0, 100)}`);
+      }
       const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Fehler beim Laden des Spielstands');
       setTournamentStandingsData(json);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading tournament standings:', err);
     } finally {
       setTournamentStandingsLoading(false);

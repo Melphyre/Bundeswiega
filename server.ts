@@ -26,6 +26,13 @@ app.get("/api/tournament/get", tournamentGetHandler);
 app.post("/api/tournament/save", tournamentSaveHandler);
 app.post("/api/tournament/delete", tournamentDeleteHandler);
 
+// Express global error middleware for API routes to guarantee JSON error response
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled API error:", err);
+  res.setHeader("Content-Type", "application/json");
+  res.status(500).json({ error: err?.message || "Internal server error" });
+});
+
 // Serve frontend assets
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

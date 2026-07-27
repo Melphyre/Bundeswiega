@@ -91,6 +91,11 @@ function parseTournamentCSV(filename: string, content: string) {
     date: string;
   }> = [];
 
+  const outPlayers: Array<{
+    tableId: string;
+    playerName: string;
+  }> = [];
+
   let vorrundeCount = 0;
 
   for (const line of lines) {
@@ -111,8 +116,9 @@ function parseTournamentCSV(filename: string, content: string) {
       config.qualifikationVorrunde = parseInt(parts[1]) || 1;
     } else if (rowType === "QualifikationSecondChance" || rowType === "QUALIFIKATION_SECOND_CHANCE") {
       config.qualifikationSecondChance = parseInt(parts[1]) || 1;
-    } else if (rowType === "TABLE") {
-      const tableId = parts[1];
+    } else if (rowType === "TABLE" || rowType === "Tisch") {
+      const rawTableId = parts[1];
+      const tableId = rawTableId === "SecondChance" ? "table_second_chance" : rawTableId === "Final" ? "table_final" : rawTableId;
       let defaultColor = TOURNAMENT_TABLE_COLORS[0];
       if (tableId === "table_second_chance") {
         defaultColor = "#F59E0B";
@@ -128,25 +134,49 @@ function parseTournamentCSV(filename: string, content: string) {
         }
       }
 
-      const tableColor = parts[7] || defaultColor;
+      const tableColor = parts[7] || (rowType === "Tisch" ? parts[2] : defaultColor);
+      const rawStatus = rowType === "Tisch" ? parts[3] : parts[3];
+      const statusVal = rawStatus === "gespielt" ? "Abgeschlossen" : (rawStatus as any) || "Offen";
 
       tables.push({
-        id: parts[1],
-        name: parts[2],
-        status: (parts[3] as any) || "Offen",
+        id: tableId,
+        name: parts[2] || (tableId === "table_second_chance" ? "Second Chance Tisch" : tableId === "table_final" ? "Finaltisch" : `Tisch ${tableId}`),
+        status: statusVal,
         winner: parts[4] || "",
         secondPlace: parts[5] || "",
         players: parts[6] ? JSON.parse(decodeURIComponent(parts[6])) : [],
         color: tableColor
       });
-    } else if (rowType === "RESULT") {
-      results.push({
-        tableId: parts[1],
-        playerName: parts[2],
-        rank: parseInt(parts[3]) || 1,
-        avg: parseFloat(parts[4]) || 0,
-        schnaepse: parseInt(parts[5]) || 0,
-        date: parts[6] || ""
+    } else if (rowType === "RESULT" || rowType === "Ergebnis") {
+      if (rowType === "RESULT") {
+        results.push({
+          tableId: parts[1],
+          playerName: parts[2],
+          rank: parseInt(parts[3]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[6] || ""
+        });
+      } else {
+        // Ergebnis;[TischNr];[Datum];[Spielername];[Avg];[Schnaepse];[Total];[Platzierung]
+        const rawT = parts[1] || "";
+        const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+        results.push({
+          tableId: normTableId,
+          playerName: parts[3] || "",
+          rank: parseInt(parts[7]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[2] || ""
+        });
+      }
+    } else if (rowType === "Ausgeschieden") {
+      // Ausgeschieden;SecondChance;[Spielername]
+      const rawT = parts[1] || "";
+      const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+      outPlayers.push({
+        tableId: normTableId,
+        playerName: parts[2] || ""
       });
     }
   }
@@ -181,7 +211,7 @@ function parseTournamentCSV(filename: string, content: string) {
     });
   }
 
-  return { config, tables, results };
+  return { config, tables, results, outPlayers };
 }
 
 export default async function handler(req: any, res: any) {

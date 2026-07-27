@@ -112,6 +112,11 @@ function parseTournamentCSV(filename: string, content: string) {
     date: string;
   }> = [];
 
+  const outPlayers: Array<{
+    tableId: string;
+    playerName: string;
+  }> = [];
+
   let vorrundeCount = 0;
 
   for (const line of lines) {
@@ -132,8 +137,9 @@ function parseTournamentCSV(filename: string, content: string) {
       config.qualifikationVorrunde = parseInt(parts[1]) || 1;
     } else if (rowType === "QualifikationSecondChance" || rowType === "QUALIFIKATION_SECOND_CHANCE") {
       config.qualifikationSecondChance = parseInt(parts[1]) || 1;
-    } else if (rowType === "TABLE") {
-      const tableId = parts[1];
+    } else if (rowType === "TABLE" || rowType === "Tisch") {
+      const rawTableId = parts[1];
+      const tableId = rawTableId === "SecondChance" ? "table_second_chance" : rawTableId === "Final" ? "table_final" : rawTableId;
       let defaultColor = TOURNAMENT_TABLE_COLORS[0];
       if (tableId === "table_second_chance") {
         defaultColor = "#F59E0B";
@@ -149,25 +155,47 @@ function parseTournamentCSV(filename: string, content: string) {
         }
       }
 
-      const tableColor = parts[7] || defaultColor;
+      const tableColor = parts[7] || (rowType === "Tisch" ? parts[2] : defaultColor);
+      const rawStatus = rowType === "Tisch" ? parts[3] : parts[3];
+      const statusVal = rawStatus === "gespielt" ? "Abgeschlossen" : (rawStatus as any) || "Offen";
 
       tables.push({
-        id: parts[1],
-        name: parts[2],
-        status: (parts[3] as any) || "Offen",
+        id: tableId,
+        name: parts[2] || (tableId === "table_second_chance" ? "Second Chance Tisch" : tableId === "table_final" ? "Finaltisch" : `Tisch ${tableId}`),
+        status: statusVal,
         winner: parts[4] || "",
         secondPlace: parts[5] || "",
         players: parts[6] ? JSON.parse(decodeURIComponent(parts[6])) : [],
         color: tableColor
       });
-    } else if (rowType === "RESULT") {
-      results.push({
-        tableId: parts[1],
-        playerName: parts[2],
-        rank: parseInt(parts[3]) || 1,
-        avg: parseFloat(parts[4]) || 0,
-        schnaepse: parseInt(parts[5]) || 0,
-        date: parts[6] || ""
+    } else if (rowType === "RESULT" || rowType === "Ergebnis") {
+      if (rowType === "RESULT") {
+        results.push({
+          tableId: parts[1],
+          playerName: parts[2],
+          rank: parseInt(parts[3]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[6] || ""
+        });
+      } else {
+        const rawT = parts[1] || "";
+        const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+        results.push({
+          tableId: normTableId,
+          playerName: parts[3] || "",
+          rank: parseInt(parts[7]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[2] || ""
+        });
+      }
+    } else if (rowType === "Ausgeschieden") {
+      const rawT = parts[1] || "";
+      const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+      outPlayers.push({
+        tableId: normTableId,
+        playerName: parts[2] || ""
       });
     }
   }
@@ -202,7 +230,7 @@ function parseTournamentCSV(filename: string, content: string) {
     });
   }
 
-  return { config, tables, results };
+  return { config, tables, results, outPlayers };
 }
 
 export default async function handler(req: any, res: any) {
@@ -266,11 +294,53 @@ export default async function handler(req: any, res: any) {
       const config = tournament.config;
       const tables = tournament.tables;
       const existingResults = tournament.results;
+      const existingOutPlayers = tournament.outPlayers || [];
 
-      if (action === "saveTableResult" && tableId && Array.isArray(results)) {
+      if (action === "updateParticipantsAndTables" && Array.isArray(req.body.tables)) {
+        req.body.tables.forEach((updatedT: any) => {
+          const targetTable = tables.find(t => t.id === updatedT.id);
+          if (targetTable) {
+            if (updatedT.name) targetTable.name = updatedT.name;
+            if (Array.isArray(updatedT.players)) targetTable.players = updatedT.players;
+            if (updatedT.color) targetTable.color = updatedT.color;
+          }
+        });
+
+        const qVorrunde = config.qualifikationVorrunde || 1;
+        const qSecondChance = config.qualifikationSecondChance || 1;
+
+        const lines: string[] = [];
+        lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
+        lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
+        lines.push(`QualifikationVorrunde;${qVorrunde}`);
+        if (config.hasSecondChance) {
+          lines.push(`QualifikationSecondChance;${qSecondChance}`);
+        }
+
+        tables.forEach((t, idx) => {
+          const playersJson = encodeURIComponent(JSON.stringify(t.players || []));
+          const tColor = t.color || (
+            t.id === "table_second_chance" ? "#F59E0B" :
+            t.id === "table_final" ? "#D4AF37" :
+            TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
+          );
+          lines.push(`TABLE;${t.id};${t.name};${t.status};${t.winner || ""};${t.secondPlace || ""};${playersJson};${tColor}`);
+        });
+
+        existingResults.forEach(r => {
+          lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
+        });
+
+        existingOutPlayers.forEach(op => {
+          const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
+          lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
+        });
+
+        csvContent = lines.join("\n");
+      } else if (action === "saveTableResult" && tableId && Array.isArray(results)) {
         const resultDate = date || new Date().toLocaleDateString("de-DE");
         
-        const targetTable = tables.find(t => t.id === tableId);
+        const targetTable = tables.find(t => t.id === tableId || (tableId === "SecondChance" && t.id === "table_second_chance") || (tableId === "Final" && t.id === "table_final"));
         if (targetTable) {
           targetTable.status = "Abgeschlossen";
           
@@ -279,10 +349,10 @@ export default async function handler(req: any, res: any) {
           if (sorted.length > 1) targetTable.secondPlace = sorted[1].name;
           targetTable.players = sorted.map(r => r.name);
           
-          const filteredResults = existingResults.filter(r => r.tableId !== tableId);
+          const filteredResults = existingResults.filter(r => r.tableId !== targetTable.id);
           sorted.forEach(r => {
             filteredResults.push({
-              tableId,
+              tableId: targetTable.id,
               playerName: r.name,
               rank: r.rank,
               avg: r.avg,
@@ -290,6 +360,16 @@ export default async function handler(req: any, res: any) {
               date: resultDate
             });
           });
+
+          let updatedOutPlayers = existingOutPlayers.filter(op => op.tableId !== targetTable.id);
+          if (Array.isArray(req.body.outPlayers) && req.body.outPlayers.length > 0) {
+            req.body.outPlayers.forEach((pName: string) => {
+              updatedOutPlayers.push({
+                tableId: targetTable.id,
+                playerName: pName
+              });
+            });
+          }
           
           const vorrundeTables = tables.filter(t => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
           const allVorrundeDone = vorrundeTables.every(t => t.status === "Abgeschlossen");
@@ -348,7 +428,7 @@ export default async function handler(req: any, res: any) {
             config.status = "Vorrunde läuft";
           }
 
-          if (tableId === "table_final" && targetTable.status === "Abgeschlossen") {
+          if (targetTable.id === "table_final" && targetTable.status === "Abgeschlossen") {
             config.status = "Beendet";
           }
 
@@ -374,6 +454,11 @@ export default async function handler(req: any, res: any) {
 
           filteredResults.forEach(r => {
             lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
+          });
+
+          updatedOutPlayers.forEach(op => {
+            const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
+            lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
           });
 
           csvContent = lines.join("\n");

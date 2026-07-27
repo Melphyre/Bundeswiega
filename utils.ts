@@ -132,10 +132,16 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
   const minW = Math.min(...previousWeights);
   const maxW = Math.max(...previousWeights);
   
-  // Rule: Target must be >= maxW - 100 and <= minW - 10
+  const upperBound = Math.max(0, minW - 10);
+  let lowerBound = Math.max(0, maxW - 100);
+
+  if (lowerBound > upperBound) {
+    lowerBound = upperBound;
+  }
+
   return {
-    min: Math.max(0, maxW - 100),
-    max: Math.max(0, minW - 10)
+    min: lowerBound,
+    max: upperBound
   };
 }
 

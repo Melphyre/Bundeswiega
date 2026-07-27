@@ -2,6 +2,47 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
+function formatTableName(tableIndex: number, customName: string): string {
+  const clean = (customName || '').trim();
+  if (!clean) return `Tisch ${tableIndex}`;
+  if (clean.toLowerCase().startsWith('tisch')) return clean;
+  return `Tisch ${tableIndex} (${clean})`;
+}
+
+function extractCustomName(rawTableName: string, tableIndex: number): string {
+  if (!rawTableName) return '';
+  const match = rawTableName.match(/\(([^)]+)\)/);
+  if (match && match[1]) return match[1].trim();
+  if (rawTableName.startsWith(`Tisch ${tableIndex}`)) {
+    const rest = rawTableName.replace(`Tisch ${tableIndex}`, '').trim();
+    if (rest.startsWith('(') && rest.endsWith(')')) return rest.slice(1, -1).trim();
+    return rest;
+  }
+  return rawTableName;
+}
+
+function shuffleArray<T>(array: T[]): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function distributePlayers(names: string[], tableIds: string[]): Record<string, string[]> {
+  const distribution: Record<string, string[]> = {};
+  tableIds.forEach(id => { distribution[id] = []; });
+  if (names.length === 0 || tableIds.length === 0) return distribution;
+
+  const shuffled = shuffleArray(names);
+  shuffled.forEach((name, idx) => {
+    const targetTableId = tableIds[idx % tableIds.length];
+    distribution[targetTableId].push(name);
+  });
+  return distribution;
+}
+
 /**
  * 1. BUNDESWIEGA - Das ultimative Wiegen-Spiel
  */
@@ -1283,6 +1324,20 @@ const App: React.FC = () => {
   const [showTournamentStandings, setShowTournamentStandings] = useState(false);
   const [tournamentStandingsData, setTournamentStandingsData] = useState<any>(null);
   const [tournamentStandingsLoading, setTournamentStandingsLoading] = useState(false);
+
+  // Tournament Participant Management States
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [tableCustomNames, setTableCustomNames] = useState<Record<string, string>>({});
+  const [participantNamesText, setParticipantNamesText] = useState<string>('');
+  const [participantsDistribution, setParticipantsDistribution] = useState<Record<string, string[]>>({});
+  const [isSavingParticipants, setIsSavingParticipants] = useState<boolean>(false);
+  const [participantsSaveError, setParticipantsSaveError] = useState<string | null>(null);
+
+  // Second Chance Selection Modal States
+  const [showSecondChancePlayerSelect, setShowSecondChancePlayerSelect] = useState(false);
+  const [secondChancePlayers, setSecondChancePlayers] = useState<Array<{name: string; sourceTisch: string; placement: number; selected: boolean}>>([]);
+  const [secondChanceTableData, setSecondChanceTableData] = useState<any>(null);
+  const [isSavingSecondChance, setIsSavingSecondChance] = useState(false);
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
@@ -1428,6 +1483,8 @@ const App: React.FC = () => {
         }));
 
       const targetTableId = activeTournamentTableId || activeTournamentTable.tableId;
+      const isSecondChance = targetTableId === 'table_second_chance' || targetTableId === 'SecondChance';
+      const outPlayers = isSecondChance ? secondChancePlayers.filter(p => !p.selected).map(p => p.name) : [];
 
       // 3. Dann SAVE
       const saveRes = await fetch('/api/tournament/save', {
@@ -1438,6 +1495,7 @@ const App: React.FC = () => {
           name: activeTournamentTable.tournamentName,
           tableId: targetTableId,
           results: playerResults,
+          outPlayers: outPlayers,
           date: new Date().toLocaleDateString('de-DE')
         })
       });
@@ -1454,6 +1512,11 @@ const App: React.FC = () => {
       setTournamentTableSaved(true);
       setTournamentTableSaveState('success');
       setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
+
+      // Reload tournament detail if modal is active
+      if (selectedTournamentName) {
+        openTournamentDetail(selectedTournamentName);
+      }
 
     } catch (err: any) {
       console.error('Tournament save error:', err);
@@ -1689,7 +1752,198 @@ const App: React.FC = () => {
     }
   };
 
+  const openParticipantsModal = () => {
+    if (!activeTournamentData) return;
+    const allTables = activeTournamentData.tables || [];
+    const vorrundeTables = allTables.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+
+    const initCustomNames: Record<string, string> = {};
+    const initDistribution: Record<string, string[]> = {};
+    const allExistingNamesSet = new Set<string>();
+
+    vorrundeTables.forEach((t: any, idx: number) => {
+      initCustomNames[t.id] = extractCustomName(t.name, idx + 1);
+      initDistribution[t.id] = t.players || [];
+      (t.players || []).forEach((p: string) => allExistingNamesSet.add(p));
+    });
+
+    setTableCustomNames(initCustomNames);
+    setParticipantsDistribution(initDistribution);
+    setParticipantNamesText(Array.from(allExistingNamesSet).join('\n'));
+    setParticipantsSaveError(null);
+    setShowParticipantsModal(true);
+  };
+
+  const handleShuffleAndDistribute = () => {
+    if (!activeTournamentData) return;
+    const vorrundeTables = (activeTournamentData.tables || []).filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+    const rawNames = participantNamesText.split('\n').map(n => n.trim()).filter(Boolean);
+    if (rawNames.length === 0) {
+      setParticipantsSaveError('Bitte gib mindestens einen Teilnehmernamen ein.');
+      return;
+    }
+    setParticipantsSaveError(null);
+    const tableIds = vorrundeTables.map((t: any) => t.id);
+    const newDist = distributePlayers(rawNames, tableIds);
+    setParticipantsDistribution(newDist);
+  };
+
+  const handleSaveParticipants = async () => {
+    if (!activeTournamentData || !selectedTournamentName) return;
+    setIsSavingParticipants(true);
+    setParticipantsSaveError(null);
+
+    const vorrundeTables = (activeTournamentData.tables || []).filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+
+    const updatedTablesPayload = vorrundeTables.map((t: any, idx: number) => {
+      const custom = tableCustomNames[t.id] || '';
+      const formattedName = formatTableName(idx + 1, custom);
+      const playersList = participantsDistribution[t.id] || [];
+      return {
+        id: t.id,
+        name: formattedName,
+        players: playersList,
+        color: t.color
+      };
+    });
+
+    try {
+      const res = await fetch('/api/tournament/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateParticipantsAndTables',
+          name: selectedTournamentName,
+          tables: updatedTablesPayload
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Fehler beim Speichern der Teilnehmer.');
+      }
+
+      await openTournamentDetail(selectedTournamentName);
+      setShowParticipantsModal(false);
+    } catch (err: any) {
+      setParticipantsSaveError(err.message || 'Fehler beim Speichern.');
+    } finally {
+      setIsSavingParticipants(false);
+    }
+  };
+
+  const openSecondChanceModal = (scTable: any) => {
+    if (!activeTournamentData || !activeTournamentData.results || activeTournamentData.results.length === 0) {
+      alert("Bitte zuerst alle Vorrundentische abschließen");
+      return;
+    }
+
+    const qVorrunde = activeTournamentData.config?.qualifikationVorrunde || 1;
+    const allResults = activeTournamentData.results || [];
+    const allTables = activeTournamentData.tables || [];
+    const vorrundeTables = allTables.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+
+    const eligible: Array<{ name: string; sourceTisch: string; placement: number; selected: boolean }> = [];
+
+    vorrundeTables.forEach((vt: any) => {
+      const vtResults = allResults.filter((r: any) => r.tableId === vt.id);
+      vtResults.forEach((r: any) => {
+        if (r.rank > qVorrunde) {
+          eligible.push({
+            name: r.playerName,
+            sourceTisch: vt.name || `Tisch ${vt.id.replace('table_', '')}`,
+            placement: r.rank,
+            selected: true
+          });
+        }
+      });
+    });
+
+    if (eligible.length === 0) {
+      alert("Bitte zuerst alle Vorrundentische abschließen");
+      return;
+    }
+
+    eligible.sort((a, b) => a.placement - b.placement || a.sourceTisch.localeCompare(b.sourceTisch));
+
+    setSecondChancePlayers(eligible);
+    setSecondChanceTableData(scTable);
+    setShowSecondChancePlayerSelect(true);
+  };
+
+  const handleConfirmSecondChance = async () => {
+    const selectedPlayers = secondChancePlayers.filter(p => p.selected);
+    if (selectedPlayers.length < 2 || !secondChanceTableData) return;
+
+    setIsSavingSecondChance(true);
+    const selectedNames = selectedPlayers.map(p => p.name);
+
+    const updatedTable = {
+      id: secondChanceTableData.id,
+      name: secondChanceTableData.name || 'Second Chance',
+      players: selectedNames,
+      color: secondChanceTableData.color || '#F59E0B'
+    };
+
+    try {
+      if (selectedTournamentName) {
+        await fetch('/api/tournament/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'updateParticipantsAndTables',
+            name: selectedTournamentName,
+            tables: [updatedTable]
+          })
+        });
+
+        await openTournamentDetail(selectedTournamentName);
+      }
+
+      setShowSecondChancePlayerSelect(false);
+
+      const prefilledPlayers = selectedNames.map((pName: string, i: number) => ({
+        id: `p${i}`,
+        name: pName,
+        startWeight: 0,
+        schnaepse: 0,
+        isDisqualified: false
+      }));
+
+      setActiveTournamentTableId(secondChanceTableData.id);
+      setActiveTournamentTableName(secondChanceTableData.name || 'Second Chance');
+      setActiveTournamentTable({
+        tournamentName: selectedTournamentName || activeTournamentData?.config?.name || 'Turnier',
+        tableId: secondChanceTableData.id,
+        tableName: secondChanceTableData.name || 'Second Chance',
+        tableColor: secondChanceTableData.color || '#F59E0B'
+      });
+
+      setTournamentTableSaved(false);
+      setTournamentTableSaveState('idle');
+      setTournamentTableSaveMessage('');
+
+      setShowTournamentDetailModal(false);
+      setShowTournamentOverview(false);
+
+      setPlayerCount(prefilledPlayers.length);
+      setPlayers(prefilledPlayers);
+      setTempWeights(new Array(prefilledPlayers.length).fill(''));
+      setGameState(GameState.START_WEIGHTS);
+      setTournamentMode(true);
+    } catch (err: any) {
+      alert("Fehler beim Starten des Second Chance Tisches: " + err.message);
+    } finally {
+      setIsSavingSecondChance(false);
+    }
+  };
+
   const startTournamentTable = (table: any) => {
+    if (table.id === 'table_second_chance') {
+      openSecondChanceModal(table);
+      return;
+    }
+
     const tableColor = table.color || (
       table.id === 'table_second_chance' ? '#F59E0B' :
       table.id === 'table_final' ? '#D4AF37' :
@@ -1714,8 +1968,39 @@ const App: React.FC = () => {
     setShowTournamentDetailModal(false);
     setShowTournamentOverview(false);
 
-    if (table.players && table.players.length > 0) {
-      const prefilledPlayers = table.players.map((pName: string, i: number) => ({
+    let effectivePlayers = table.players || [];
+    if ((table.id === 'table_final' || table.id === 'Final') && (!effectivePlayers || effectivePlayers.length === 0)) {
+      const config = activeTournamentData?.config || {};
+      const qVorrunde = config.qualifikationVorrunde || 1;
+      const qSecondChance = config.qualifikationSecondChance || 1;
+      const allResults = activeTournamentData?.results || [];
+      const allTables = activeTournamentData?.tables || [];
+      const vorrundeTables = allTables.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+      const scTable = allTables.find((t: any) => t.id === "table_second_chance");
+
+      const computedFinalists: string[] = [];
+      vorrundeTables.forEach((vt: any) => {
+        const vtResults = allResults.filter((r: any) => r.tableId === vt.id).sort((a: any, b: any) => a.rank - b.rank);
+        vtResults.forEach((r: any) => {
+          if (r.rank <= qVorrunde) {
+            computedFinalists.push(r.playerName);
+          }
+        });
+      });
+
+      if (scTable && (scTable.status === 'Abgeschlossen' || scTable.status === 'gespielt')) {
+        const scResults = allResults.filter((r: any) => r.tableId === scTable.id).sort((a: any, b: any) => a.rank - b.rank);
+        scResults.forEach((r: any) => {
+          if (r.rank <= qSecondChance) {
+            computedFinalists.push(r.playerName);
+          }
+        });
+      }
+      effectivePlayers = computedFinalists;
+    }
+
+    if (effectivePlayers && effectivePlayers.length > 0) {
+      const prefilledPlayers = effectivePlayers.map((pName: string, i: number) => ({
         id: `p${i}`,
         name: pName,
         startWeight: 0,
@@ -1724,7 +2009,8 @@ const App: React.FC = () => {
       }));
       setPlayerCount(prefilledPlayers.length);
       setPlayers(prefilledPlayers);
-      setGameState(GameState.PLAYER_NAMES);
+      setTempWeights(new Array(prefilledPlayers.length).fill(''));
+      setGameState(GameState.START_WEIGHTS);
     } else {
       setPlayerCount(4);
       setGameState(GameState.PLAYER_COUNT);
@@ -1793,14 +2079,17 @@ const App: React.FC = () => {
             const currentMin = Math.min(...prevResults);
             const currentMax = Math.max(...prevResults);
             
-            if (target > currentMin - 10) {
+            if (isNaN(target) || nextTargetInput.trim() === '') {
+                reason = "Bitte ein gültiges Zielgewicht eingeben.";
+                correction = Math.round(range.max);
+            } else if (target > currentMin - 10) {
                 reason = `Das Zielgewicht von ${target}g ist zu hoch. Es muss mindestens 10g unter dem aktuell niedrigsten Füllstand (${currentMin}g) liegen.`;
                 correction = currentMin - 10;
             } else if (target < currentMax - 100) {
                 reason = `Das Zielgewicht von ${target}g ist zu niedrig. Es darf maximal 100g unter dem aktuell höchsten Füllstand (${currentMax}g) liegen.`;
                 correction = currentMax - 100;
             } else {
-                reason = "Zielgewicht ungültig.";
+                reason = `Das Zielgewicht von ${target}g liegt außerhalb des gültigen Bereichs (${Math.round(range.min)}g - ${Math.round(range.max)}g).`;
                 correction = Math.round(range.max);
             }
             setTargetWeightError({ message: reason, correction });
@@ -1822,6 +2111,16 @@ const App: React.FC = () => {
     if (!activePlayers.every(p => currentRoundResults[p.id] && !isNaN(parseInt(currentRoundResults[p.id])))) {
       alert("Bitte alle Gewichte eintragen.");
       return;
+    }
+
+    // Gameplay input validation: Weight cannot be higher than previous round
+    for (const p of activePlayers) {
+      const currWeight = parseInt(currentRoundResults[p.id]);
+      const prevWeight = rounds.length <= 1 ? p.startWeight : rounds[rounds.length - 2].results[p.id];
+      if (prevWeight !== undefined && currWeight > prevWeight) {
+        alert(`Eingabefehler bei ${p.name}: Das eingegebene Gewicht (${currWeight}g) darf nicht höher sein als das vorherige Gewicht (${prevWeight}g).`);
+        return;
+      }
     }
 
     const updatedRounds = [...rounds];
@@ -2608,8 +2907,8 @@ const App: React.FC = () => {
       const items = getParticipatingItems();
       const selectedItems = items.filter(it => saveModalChecked[it.id]);
 
-      if (selectedItems.length === 0 && !saveAchievementsChecked) {
-        setSaveModalError('Bitte mindestens einen Spieler oder Achievements auswählen.');
+      if (selectedItems.length === 0) {
+        setSaveModalError('Bitte mindestens einen Spieler auswählen.');
         setSaveModalSubmitting(false);
         return;
       }
@@ -2625,27 +2924,51 @@ const App: React.FC = () => {
         };
       });
 
-      let achievementsToUpload: Achievement[] = [];
-      if (saveAchievementsChecked) {
-        achievementsToUpload = earnedAchievements.map(ach => {
-          const remappedEarnedBy = ach.earnedBy.map(originalName => {
-            // Finde den Item dessen Name mit originalName übereinstimmt
-            const matchItem = items.find(i => i.name.trim().toLowerCase() === originalName.trim().toLowerCase());
-            if (matchItem) {
+      const achievementsToUpload: Achievement[] = [];
+      earnedAchievements.forEach(ach => {
+        const isTogether = ach.earnedBy.length > 1 || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id);
+        const checkedNames: string[] = [];
+        let uncheckedCount = 0;
+
+        ach.earnedBy.forEach(originalName => {
+          const matchItem = items.find(i => i.name.trim().toLowerCase() === originalName.trim().toLowerCase());
+          if (matchItem) {
+            const isChecked = saveModalChecked[matchItem.id] !== false;
+            if (isChecked) {
               const mapping = saveModalMappings[matchItem.id];
-              // Wenn ein bestehender Name gewählt wurde, diesen verwenden
-              if (mapping && mapping !== '__NEW__') {
-                return mapping; // ← zugeordneter Name
-              }
+              const finalName = (mapping && mapping !== '__NEW__') ? mapping : matchItem.name;
+              checkedNames.push(finalName);
+            } else {
+              uncheckedCount++;
             }
-            return originalName; // ← ursprünglicher Name wenn kein Mapping
-          });
-          return {
-            ...ach,
-            earnedBy: remappedEarnedBy
-          };
+          } else {
+            checkedNames.push(originalName);
+          }
         });
-      }
+
+        if (!isTogether) {
+          if (checkedNames.length > 0 && uncheckedCount === 0) {
+            achievementsToUpload.push({
+              ...ach,
+              earnedBy: checkedNames
+            });
+          }
+        } else {
+          if (checkedNames.length > 0) {
+            if (uncheckedCount > 0) {
+              achievementsToUpload.push({
+                ...ach,
+                earnedBy: [...checkedNames, 'und andere']
+              });
+            } else {
+              achievementsToUpload.push({
+                ...ach,
+                earnedBy: checkedNames
+              });
+            }
+          }
+        }
+      });
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -3905,30 +4228,6 @@ const App: React.FC = () => {
                         );
                       })}
 
-                      {/* Final Row: Achievements */}
-                      <tr className={`border-t-2 ${darkMode ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-black/5'}`}>
-                        <td className="py-3 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setSaveAchievementsChecked(!saveAchievementsChecked)}
-                            className="inline-flex items-center justify-center focus:outline-none"
-                          >
-                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                              saveAchievementsChecked
-                                ? 'bg-[#238183] border-[#238183] text-white shadow-sm'
-                                : darkMode ? 'border-white/30 bg-slate-800' : 'border-gray-300 bg-gray-100'
-                            }`}>
-                              {saveAchievementsChecked && <i className="fas fa-check text-xs"></i>}
-                            </div>
-                          </button>
-                        </td>
-                        <td className="py-3 px-3 font-black text-xs md:text-sm">
-                          Achievements speichern
-                        </td>
-                        <td className="py-3 px-3 text-center font-black opacity-40">
-                          –
-                        </td>
-                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -6110,6 +6409,29 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                {/* Teilnehmer hinzufügen und mischen Button */}
+                {(() => {
+                  const isAnyTablePlayed = (activeTournamentData?.results && activeTournamentData.results.length > 0) ||
+                    (activeTournamentData?.tables && activeTournamentData.tables.some((t: any) => t.status === 'Abgeschlossen'));
+
+                  return (
+                    <button
+                      type="button"
+                      disabled={isAnyTablePlayed}
+                      onClick={openParticipantsModal}
+                      className={`w-full py-4 px-6 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-lg flex items-center justify-center space-x-2 transition-all ${
+                        isAnyTablePlayed
+                          ? 'opacity-50 cursor-not-allowed bg-gray-600'
+                          : 'hover:brightness-110 active:scale-95 cursor-pointer'
+                      }`}
+                      style={{ backgroundColor: isAnyTablePlayed ? undefined : '#238183' }}
+                    >
+                      <i className="fas fa-users text-lg"></i>
+                      <span>Teilnehmer hinzufügen und mischen</span>
+                    </button>
+                  );
+                })()}
+
                 {/* Qualified Finalists Overview */}
                 {(() => {
                   const qVorrunde = activeTournamentData?.config?.qualifikationVorrunde || 1;
@@ -6448,6 +6770,12 @@ const App: React.FC = () => {
                                       <span>✈️</span> <span>Qualifiziert</span>
                                     </span>
                                   );
+                                } else {
+                                  badge = (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-red-500/20 text-red-500 border border-red-500/30 flex items-center space-x-1">
+                                      <span>❌</span> <span>Ausgeschieden</span>
+                                    </span>
+                                  );
                                 }
                               } else if (isFinal) {
                                 if (r.rank === 1) {
@@ -6480,6 +6808,26 @@ const App: React.FC = () => {
                           ) : (
                             <p className="text-xs font-bold opacity-50 italic">Keine Einzelergebnisse hinterlegt</p>
                           )}
+                          {isSecondChance && (() => {
+                            const scOuts = tournamentStandingsData?.outPlayers?.filter((o: any) => o.tableId === 'table_second_chance' || o.tableId === 'SecondChance') || [];
+                            if (scOuts.length === 0) return null;
+                            return (
+                              <div className="mt-3 pt-2.5 border-t border-gray-500/15 space-y-1.5">
+                                <p className="text-[11px] font-bold text-red-400 uppercase tracking-wider flex items-center space-x-1">
+                                  <span>Freiwillig ausgeschieden:</span>
+                                </p>
+                                {scOuts.map((outP: any) => (
+                                  <div key={outP.playerName} className="flex items-center justify-between text-xs font-semibold p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
+                                    <span className="flex items-center space-x-1.5">
+                                      <span>❌</span>
+                                      <span className="font-bold">{outP.playerName}</span>
+                                    </span>
+                                    <span className="text-[10px] opacity-75 italic">(hat auf Second Chance verzichtet)</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <p className="text-xs font-bold opacity-60 italic py-1">
@@ -6499,7 +6847,7 @@ const App: React.FC = () => {
 
                   const vorrundeTables = tournamentStandingsData?.tables?.filter((t: any) => t.id.startsWith('table_') && t.id !== 'table_second_chance' && t.id !== 'table_final') || [];
                   vorrundeTables.forEach((vt: any) => {
-                    if (vt.status === 'Abgeschlossen') {
+                    if (vt.status === 'Abgeschlossen' || vt.status === 'gespielt') {
                       const vtResults = tournamentStandingsData?.results?.filter((r: any) => r.tableId === vt.id).sort((a: any, b: any) => a.rank - b.rank) || [];
                       vtResults.forEach((r: any) => {
                         if (r.rank <= qVorrunde) {
@@ -6514,7 +6862,7 @@ const App: React.FC = () => {
                   });
 
                   const scTable = tournamentStandingsData?.tables?.find((t: any) => t.id === 'table_second_chance');
-                  if (scTable && scTable.status === 'Abgeschlossen') {
+                  if (scTable && (scTable.status === 'Abgeschlossen' || scTable.status === 'gespielt')) {
                     const scResults = tournamentStandingsData?.results?.filter((r: any) => r.tableId === scTable.id).sort((a: any, b: any) => a.rank - b.rank) || [];
                     scResults.forEach((r: any) => {
                       if (r.rank <= qSecondChance) {
@@ -6529,6 +6877,7 @@ const App: React.FC = () => {
 
                   const totalFinalistsCount = config.finalistsCount || (config.tablesCount * qVorrunde + (config.hasSecondChance ? qSecondChance : 0));
                   const openSpots = Math.max(0, totalFinalistsCount - finalists.length);
+                  const allFinalistsDecided = finalists.length > 0 && finalists.length === totalFinalistsCount;
 
                   return (
                     <div className={`p-4 rounded-2xl border space-y-3 ${
@@ -6537,7 +6886,7 @@ const App: React.FC = () => {
                       <div className="flex items-center justify-between border-b pb-2 border-gray-500/20">
                         <h4 className="font-black text-xs uppercase tracking-wider text-[#238183] flex items-center">
                           <i className="fas fa-trophy text-amber-400 mr-2"></i>
-                          <span>Aktuelle Finalisten</span>
+                          <span>Finalisten</span>
                         </h4>
                         <span className="text-[11px] font-bold opacity-60">
                           ({finalists.length} / {totalFinalistsCount})
@@ -6552,14 +6901,19 @@ const App: React.FC = () => {
                               <span className="font-black">{f.playerName}</span>
                             </span>
                             <span className="text-[11px] opacity-60 font-semibold">
-                              ({f.tableName}, Platz {f.rank})
+                              ({f.tableName} · Platz {f.rank})
                             </span>
                           </div>
                         ))}
 
-                        {openSpots > 0 && (
-                          <div className="p-3 rounded-xl border border-dashed border-gray-500/30 text-center text-xs font-bold opacity-60">
-                            [Noch {openSpots} {openSpots === 1 ? 'Platz' : 'Plätze'} offen]
+                        {allFinalistsDecided ? (
+                          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-center text-xs font-black flex items-center justify-center space-x-2 mt-2">
+                            <span>🏆</span>
+                            <span>Alle {totalFinalistsCount} Finalisten stehen fest → Finaltisch kann gestartet werden!</span>
+                          </div>
+                        ) : (
+                          <div className="p-3 rounded-xl border border-dashed border-gray-500/30 text-center text-xs font-bold opacity-70 mt-2">
+                            [{finalists.length} / {totalFinalistsCount}] Finalisten stehen fest · [{openSpots}] {openSpots === 1 ? 'Platz' : 'Plätze'} noch offen
                           </div>
                         )}
                       </div>
@@ -6749,6 +7103,287 @@ const App: React.FC = () => {
             </div>
 
             <button onClick={() => setShowStats(false)} className="w-full mt-8 py-4 rounded-xl text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Schließen</button>
+          </div>
+        </div>
+      )}
+
+      {/* Participant Management Modal */}
+      {showParticipantsModal && (
+        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl border flex flex-col max-h-[90vh] space-y-6 ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <i className="fas fa-users mr-2.5"></i>
+                <span>Teilnehmer hinzufügen & mischen</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowParticipantsModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {participantsSaveError && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
+                {participantsSaveError}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+              {/* Bereich 1: Tische benennen */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
+                  <i className="fas fa-pen text-xs"></i>
+                  <span>1. Tische benennen</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {activeTournamentData?.tables?.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final").map((t: any, idx: number) => {
+                    const tblColor = t.color || TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length];
+                    return (
+                      <div key={t.id} className="flex items-center space-x-2">
+                        <span className="px-2.5 py-1 rounded-full text-white text-[11px] font-black shrink-0" style={{ backgroundColor: tblColor }}>
+                          Tisch {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={tableCustomNames[t.id] || ''}
+                          onChange={e => setTableCustomNames(prev => ({ ...prev, [t.id]: e.target.value }))}
+                          placeholder="z.B. Küche"
+                          className={`flex-1 p-2.5 rounded-xl border-2 text-xs font-bold ${
+                            darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Bereich 2: Teilnehmer eingeben */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
+                  <i className="fas fa-user-plus text-xs"></i>
+                  <span>2. Teilnehmer eingeben (ein Name pro Zeile)</span>
+                </h4>
+                <textarea
+                  rows={5}
+                  value={participantNamesText}
+                  onChange={e => setParticipantNamesText(e.target.value)}
+                  placeholder="Max&#10;Anna&#10;Lukas&#10;Sophie"
+                  className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (text) {
+                          setParticipantNamesText(prev => (prev ? `${prev}\n${text}` : text));
+                        }
+                      } catch (e) {
+                        alert("Einfügen nicht erlaubt. Bitte manuell eingeben.");
+                      }
+                    }}
+                    className={`px-3.5 py-2 rounded-xl border font-bold text-xs flex items-center space-x-1.5 cursor-pointer ${
+                      darkMode ? 'border-gray-700 hover:bg-white/5' : 'border-gray-300 hover:bg-black/5'
+                    }`}
+                  >
+                    <span>📋 Namen einfügen</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShuffleAndDistribute}
+                    className="flex-1 py-2 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    style={{ backgroundColor: '#238183' }}
+                  >
+                    <span>🎲 Mischen & Verteilen</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Bereich 3: Vorschau Tische & Teilnehmer */}
+              <div className="space-y-3 pt-2 border-t border-[#238183]/20">
+                <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
+                  <i className="fas fa-table text-xs"></i>
+                  <span>3. Vorschau der Tischverteilung</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {activeTournamentData?.tables?.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final").map((t: any, idx: number) => {
+                    const tblColor = t.color || TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length];
+                    const custom = tableCustomNames[t.id] || '';
+                    const fullTableName = formatTableName(idx + 1, custom);
+                    const list = participantsDistribution[t.id] || [];
+
+                    return (
+                      <div key={t.id} className={`p-3.5 rounded-2xl border ${darkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="px-2.5 py-0.5 rounded-full text-white text-[11px] font-black" style={{ backgroundColor: tblColor }}>
+                            {fullTableName}
+                          </span>
+                          <span className="text-[10px] font-mono opacity-60 font-bold">{list.length} Spieler</span>
+                        </div>
+                        {list.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {list.map((pName, pIdx) => (
+                              <span key={pIdx} className="px-2 py-0.5 rounded-lg bg-black/10 dark:bg-white/10 text-[11px] font-bold">
+                                {pName}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] opacity-40 italic">Keine Spieler zugewiesen</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+              <button
+                type="button"
+                onClick={() => setShowParticipantsModal(false)}
+                className={`flex-1 py-3.5 rounded-2xl font-bold border text-xs uppercase tracking-wider cursor-pointer ${
+                  darkMode ? 'border-gray-700 hover:bg-white/5' : 'border-gray-300 hover:bg-black/5'
+                }`}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={isSavingParticipants}
+                onClick={handleSaveParticipants}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                style={{ backgroundColor: '#238183' }}
+              >
+                {isSavingParticipants ? (
+                  <i className="fas fa-spinner animate-spin"></i>
+                ) : (
+                  <>
+                    <i className="fas fa-save"></i>
+                    <span>Speichern</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Second Chance Selection Modal */}
+      {showSecondChancePlayerSelect && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border flex flex-col max-h-[85vh] space-y-5 ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <i className="fas fa-sync-alt mr-2.5"></i>
+                <span>🔄 Second Chance Tisch</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSecondChancePlayerSelect(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <p className="text-xs font-semibold opacity-80 leading-relaxed">
+              Wähle aus, welche Spieler am Second Chance Tisch teilnehmen möchten:
+            </p>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {secondChancePlayers.map((player, index) => (
+                <div
+                  key={`${player.name}-${index}`}
+                  onClick={() => {
+                    setSecondChancePlayers(prev => prev.map((p, i) => i === index ? { ...p, selected: !p.selected } : p));
+                  }}
+                  className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                    player.selected
+                      ? 'bg-[#238183]/15 border-[#238183]/50 text-[#238183] dark:text-[#38b2b5] font-bold shadow-sm'
+                      : darkMode ? 'bg-slate-800/40 border-slate-700/60 opacity-60 text-gray-300' : 'bg-gray-50 border-gray-200 opacity-60 text-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs font-black transition-all ${
+                      player.selected
+                        ? 'bg-[#238183] border-[#238183] text-white'
+                        : darkMode ? 'border-gray-600 bg-slate-800' : 'border-gray-300 bg-white'
+                    }`}>
+                      {player.selected && <i className="fas fa-check text-[10px]"></i>}
+                    </div>
+                    <span className="font-black text-sm">{player.name}</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs font-semibold opacity-80">
+                    <span>({player.sourceTisch} · Platz {player.placement})</span>
+                    {!player.selected && (
+                      <span className="text-[10px] italic text-red-400 font-normal">← abgewählt = freiwillig ausgeschieden</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Dynamic counter and validation */}
+            {(() => {
+              const selectedCount = secondChancePlayers.filter(p => p.selected).length;
+              const isSecondChanceValid = selectedCount >= 2;
+
+              return (
+                <div className="space-y-3 pt-2">
+                  <div className="text-center">
+                    <span className="text-xs font-black uppercase tracking-wider text-[#238183]">
+                      [{selectedCount}] ausgewählte Spieler nehmen teil
+                    </span>
+                    {!isSecondChanceValid && (
+                      <p className="text-[11px] font-bold text-red-500 mt-1">
+                        ⚠️ Mindestens 2 Spieler erforderlich
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+                    <button
+                      type="button"
+                      onClick={() => setShowSecondChancePlayerSelect(false)}
+                      className={`flex-1 py-3.5 rounded-2xl font-bold border text-xs uppercase tracking-wider cursor-pointer ${
+                        darkMode ? 'border-gray-700 hover:bg-white/5 text-gray-300' : 'border-gray-300 hover:bg-black/5 text-gray-700'
+                      }`}
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isSecondChanceValid || isSavingSecondChance}
+                      onClick={handleConfirmSecondChance}
+                      className={`flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg transition-all flex items-center justify-center space-x-2 ${
+                        !isSecondChanceValid || isSavingSecondChance
+                          ? 'opacity-40 bg-gray-500 cursor-not-allowed'
+                          : 'hover:brightness-110 active:scale-95 cursor-pointer'
+                      }`}
+                      style={{ backgroundColor: (isSecondChanceValid && !isSavingSecondChance) ? '#238183' : undefined }}
+                    >
+                      {isSavingSecondChance ? (
+                        <i className="fas fa-spinner animate-spin"></i>
+                      ) : (
+                        <span>Spiel starten</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -82,6 +82,9 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common' },
   { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare' },
   { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedTogether: true },
+  { id: 'six_seven', title: 'Six Seven', description: 'In einer Runde exakt 67g getroffen', icon: '6️⃣7️⃣', rarity: 'rare' },
+  { id: 'four_twenty', title: 'Four Twenty', description: 'In einer Runde exakt 420g getroffen', icon: '🌿', rarity: 'rare' },
+  { id: 'sixty_nine', title: '69', description: 'In einer Runde exakt 69g getroffen', icon: '♋', rarity: 'rare' },
 
   // Verlaufs-Achievements
   { id: 'rising_star', title: 'Aufsteiger', description: 'Abstand in jeder Runde kleiner als in der vorherigen', icon: '📈', rarity: 'rare' },
@@ -212,6 +215,9 @@ export const checkAchievements = (
     so_close: { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common', earnedBy: new Set() },
     outsider: { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare', earnedBy: new Set() },
     shadow: { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedBy: new Set() },
+    six_seven: { id: 'six_seven', title: 'Six Seven', description: 'In einer Runde exakt 67g getroffen', icon: '6️⃣7️⃣', rarity: 'rare', earnedBy: new Set() },
+    four_twenty: { id: 'four_twenty', title: 'Four Twenty', description: 'In einer Runde exakt 420g getroffen', icon: '🌿', rarity: 'rare', earnedBy: new Set() },
+    sixty_nine: { id: 'sixty_nine', title: '69', description: 'In einer Runde exakt 69g getroffen', icon: '♋', rarity: 'rare', earnedBy: new Set() },
 
     // Verlaufs-Achievements
     rising_star: { id: 'rising_star', title: 'Aufsteiger', description: 'Abstand in jeder Runde kleiner als in der vorherigen', icon: '📈', rarity: 'rare', earnedBy: new Set() },
@@ -324,6 +330,18 @@ export const checkAchievements = (
 
     if (pData.some(d => d.weight === 77)) {
       achievementMap.triple_seven.earnedBy.add(p.name);
+    }
+
+    if (pData.some(d => d.weight === 67)) {
+      achievementMap.six_seven.earnedBy.add(p.name);
+    }
+
+    if (pData.some(d => d.weight === 420)) {
+      achievementMap.four_twenty.earnedBy.add(p.name);
+    }
+
+    if (pData.some(d => d.weight === 69)) {
+      achievementMap.sixty_nine.earnedBy.add(p.name);
     }
 
     if (pData.some(d => [100, 200, 300].includes(d.weight))) {
@@ -1291,7 +1309,8 @@ const App: React.FC = () => {
 
   // Create Tournament Form States
   const [newTournamentName, setNewTournamentName] = useState('');
-  const [newTournamentTables, setNewTournamentTables] = useState<number>(2);
+  const [newTournamentTableCount, setNewTournamentTableCount] = useState<number>(0);
+  const [tableCountError, setTableCountError] = useState<string | null>(null);
   const [newTournamentQualiVorrunde, setNewTournamentQualiVorrunde] = useState<number>(1);
   const [newTournamentQualiSecondChance, setNewTournamentQualiSecondChance] = useState<number>(1);
   const [newTournamentSecondChance, setNewTournamentSecondChance] = useState<boolean>(true);
@@ -1332,6 +1351,16 @@ const App: React.FC = () => {
   const [participantsDistribution, setParticipantsDistribution] = useState<Record<string, string[]>>({});
   const [isSavingParticipants, setIsSavingParticipants] = useState<boolean>(false);
   const [participantsSaveError, setParticipantsSaveError] = useState<string | null>(null);
+  const [participantSaveState, setParticipantSaveState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [participantSaveMessage, setParticipantSaveMessage] = useState<string>('');
+
+  // Screenshot States
+  const [showScreenshotNotice, setShowScreenshotNotice] = useState(false);
+
+  // Speedwiegen Empty Weight States
+  const [showEmptyWeightModal, setShowEmptyWeightModal] = useState(false);
+  const [emptyWeightGuess, setEmptyWeightGuess] = useState('');
+  const [emptyWeightActual, setEmptyWeightActual] = useState('');
 
   // Second Chance Selection Modal States
   const [showSecondChancePlayerSelect, setShowSecondChancePlayerSelect] = useState(false);
@@ -1399,13 +1428,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let interval: any;
-    if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime) {
+    if (gameState === GameState.SPEED_GAMEPLAY && speedStartTime && !speedEndTime) {
       interval = setInterval(() => {
         setSpeedCurrentTime(Date.now() - speedStartTime);
       }, 50);
     }
     return () => clearInterval(interval);
-  }, [gameState, speedStartTime]);
+  }, [gameState, speedStartTime, speedEndTime]);
 
   useEffect(() => {
     if (gameState === GameState.SPEED_CONFIG) {
@@ -1434,6 +1463,107 @@ const App: React.FC = () => {
       link.click();
     } catch (err) {
       alert("Screenshot konnte nicht erstellt werden.");
+    }
+  };
+
+  useEffect(() => {
+    if (gameState === GameState.RESULT_SCREEN) {
+      setShowScreenshotNotice(true);
+      const noticeTimer = setTimeout(() => setShowScreenshotNotice(false), 3000);
+
+      const timer = setTimeout(async () => {
+        if (rankingAreaRef.current) {
+          await captureElement(rankingAreaRef, 'Bundeswiega_Ranking');
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (roundsAreaRef.current) {
+          await captureElement(roundsAreaRef, 'Bundeswiega_Tabelle');
+        }
+      }, 800);
+
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(noticeTimer);
+      };
+    }
+
+    if (gameState === GameState.SPEED_RESULT) {
+      setShowScreenshotNotice(true);
+      const noticeTimer = setTimeout(() => setShowScreenshotNotice(false), 3000);
+
+      const timer = setTimeout(async () => {
+        if (rankingAreaRef.current) {
+          await captureElement(rankingAreaRef, `Bundeswiega_Speed_Result_${speedPlayerName || 'Gast'}`);
+        }
+      }, 800);
+
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(noticeTimer);
+      };
+    }
+  }, [gameState]);
+
+  const saveTournamentParticipants = async () => {
+    const currentTournamentName = selectedTournamentName || activeTournamentData?.config?.name;
+    if (!currentTournamentName) return;
+
+    setParticipantSaveState('loading');
+    setParticipantSaveMessage('Spielerzuteilung wird gespeichert...');
+
+    try {
+      const getRes = await fetch(
+        `/api/tournament/get?name=${encodeURIComponent(currentTournamentName)}`
+      );
+      const contentType = getRes.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await getRes.text();
+        throw new Error(`API returned non-JSON: ${text.substring(0, 100)}`);
+      }
+      const getJson = await getRes.json();
+      if (!getRes.ok) throw new Error(getJson.error || 'Fehler beim Laden');
+
+      const updatedTablesPayload = (activeTournamentData?.tables || []).map((t: any, idx: number) => {
+        if (t.id === 'table_second_chance' || t.id === 'table_final') return t;
+        const custom = tableCustomNames[t.id] || '';
+        const formattedName = formatTableName(idx + 1, custom);
+        const playersList = participantsDistribution[t.id] || [];
+        return {
+          ...t,
+          id: t.id,
+          name: formattedName,
+          players: playersList,
+          color: t.color
+        };
+      });
+
+      const saveRes = await fetch('/api/tournament/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateParticipantsAndTables',
+          name: currentTournamentName,
+          tables: updatedTablesPayload
+        })
+      });
+
+      const saveCT = saveRes.headers.get('content-type');
+      if (!saveCT?.includes('application/json')) {
+        const text = await saveRes.text();
+        throw new Error(`Save API returned non-JSON: ${text.substring(0, 100)}`);
+      }
+
+      const saveJson = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveJson.error || 'Fehler beim Speichern');
+
+      setParticipantSaveState('success');
+      setParticipantSaveMessage('✅ Spielerzuteilung gespeichert! Seite wird neu geladen...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      setParticipantSaveState('error');
+      setParticipantSaveMessage(`❌ Fehler: ${err.message}`);
     }
   };
 
@@ -1675,12 +1805,13 @@ const App: React.FC = () => {
       setCreateTournamentError('Bitte einen Turniernamen eingeben.');
       return;
     }
-    if (newTournamentTables < 1) {
-      setCreateTournamentError('Mindestens 1 Tisch erforderlich.');
+    if (!newTournamentTableCount || newTournamentTableCount < 2 || newTournamentTableCount > 10) {
+      setTableCountError('Bitte eine gültige Anzahl zwischen 2 und 10 Tischen eingeben.');
       return;
     }
     setCreateTournamentSubmitting(true);
     setCreateTournamentError(null);
+    setTableCountError(null);
     try {
       const res = await fetch('/api/tournament/save', {
         method: 'POST',
@@ -1688,7 +1819,7 @@ const App: React.FC = () => {
         body: JSON.stringify({
           action: 'create',
           name: newTournamentName.trim(),
-          tablesCount: newTournamentTables,
+          tablesCount: newTournamentTableCount,
           qualifikationVorrunde: newTournamentQualiVorrunde,
           qualifikationSecondChance: newTournamentQualiSecondChance,
           hasSecondChance: newTournamentSecondChance
@@ -1699,6 +1830,8 @@ const App: React.FC = () => {
         setShowCreateTournamentModal(false);
         const createdName = newTournamentName.trim();
         setNewTournamentName('');
+        setNewTournamentTableCount(0);
+        setTableCountError(null);
         await fetchTournamentsList();
         openTournamentDetail(createdName);
       } else {
@@ -1789,47 +1922,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveParticipants = async () => {
-    if (!activeTournamentData || !selectedTournamentName) return;
-    setIsSavingParticipants(true);
-    setParticipantsSaveError(null);
-
-    const vorrundeTables = (activeTournamentData.tables || []).filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
-
-    const updatedTablesPayload = vorrundeTables.map((t: any, idx: number) => {
-      const custom = tableCustomNames[t.id] || '';
-      const formattedName = formatTableName(idx + 1, custom);
-      const playersList = participantsDistribution[t.id] || [];
-      return {
-        id: t.id,
-        name: formattedName,
-        players: playersList,
-        color: t.color
-      };
-    });
-
-    try {
-      const res = await fetch('/api/tournament/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'updateParticipantsAndTables',
-          name: selectedTournamentName,
-          tables: updatedTablesPayload
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Fehler beim Speichern der Teilnehmer.');
-      }
-
-      await openTournamentDetail(selectedTournamentName);
-      setShowParticipantsModal(false);
-    } catch (err: any) {
-      setParticipantsSaveError(err.message || 'Fehler beim Speichern.');
-    } finally {
-      setIsSavingParticipants(false);
-    }
+    await saveTournamentParticipants();
   };
 
   const openSecondChanceModal = (scTable: any) => {
@@ -2238,6 +2331,11 @@ const App: React.FC = () => {
       setNewlyEarnedAchievements([]);
     }
 
+    if (gameState === GameState.SPEED_GAMEPLAY || gameState === GameState.SPEED_RESULT) {
+      setGameState(GameState.SPEED_RESULT);
+      return;
+    }
+
     if (rounds.length > 0 && rounds[rounds.length - 1].isFinal) {
       setGameState(GameState.RESULT_SCREEN);
       if (teams.length === 0 && gameState !== GameState.SPEED_RESULT && gameState !== GameState.SPEED_GAMEPLAY) {
@@ -2269,6 +2367,10 @@ const App: React.FC = () => {
   };
 
   const triggerNextStep = () => {
+    if (gameState === GameState.SPEED_GAMEPLAY || gameState === GameState.SPEED_RESULT) {
+      setGameState(GameState.SPEED_RESULT);
+      return;
+    }
     const allDisqualified = tournamentMode && players.length > 0 && players.every(p => p.isDisqualified);
     if (allDisqualified) {
       setGameState(GameState.RESULT_SCREEN);
@@ -2415,22 +2517,44 @@ const App: React.FC = () => {
     startSpeedCountdown();
   };
 
-  const handleSpeedGameplayConfirm = () => {
+  const handleLeertrinkenClick = () => {
     const levels = parseInt(speedLevels);
-    for (let i = 1; i <= levels; i++) {
-      if (!speedResults[i]) { alert("Bitte alle Ergebnisse eintragen."); return; }
+    for (let i = 1; i < levels; i++) {
+      if (!speedResults[i]) { alert("Bitte alle bisherigen Ergebnisse eintragen."); return; }
     }
-    const end = Date.now();
-    setSpeedEndTime(end);
+    setSpeedEndTime(Date.now());
+    setEmptyWeightGuess('');
+    setEmptyWeightActual('');
+    setShowEmptyWeightModal(true);
+  };
+
+  const handleConfirmEmptyWeight = () => {
+    if (!emptyWeightActual || isNaN(parseInt(emptyWeightActual))) {
+      alert('Bitte tatsächliches Leergewicht eintragen.');
+      return;
+    }
+    if (!emptyWeightGuess || isNaN(parseInt(emptyWeightGuess))) {
+      alert('Bitte geschätztes Leergewicht eintragen.');
+      return;
+    }
+
+    const lastLevel = parseInt(speedLevels);
+    const updatedResults = { ...speedResults, [lastLevel]: emptyWeightActual };
+    setSpeedResults(updatedResults);
+
+    setShowEmptyWeightModal(false);
+    setEmptyWeightGuess('');
+    setEmptyWeightActual('');
+
     setGameState(GameState.SPEED_RESULT);
 
     const speedAch = checkSpeedAchievements(
       speedPlayerName || 'Gast',
-      levels,
+      lastLevel,
       speedTargets,
-      speedResults,
+      updatedResults,
       speedStartTime,
-      end,
+      speedEndTime || Date.now(),
       earnedAchievements
     );
 
@@ -2452,7 +2576,12 @@ const App: React.FC = () => {
         });
         return updated;
       });
+      setShowAchievements(true);
     }
+  };
+
+  const handleSpeedGameplayConfirm = () => {
+    handleLeertrinkenClick();
   };
 
   // Teamwiegen Handlers
@@ -3068,7 +3197,7 @@ const App: React.FC = () => {
   const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
   return (
-    <div className={`min-h-screen flex flex-col p-4 md:p-8 transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+    <div className={`min-h-screen flex flex-col p-4 md:p-8 pt-safe-top pb-safe-bottom overflow-y-auto transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => gameState !== GameState.START && setShowResetConfirm(true)}>
           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
@@ -3501,7 +3630,7 @@ const App: React.FC = () => {
                   className="flex-1 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 text-lg"
                   style={{ backgroundColor: BRAND_COLOR }}
                 >
-                  {safeRowIndex < maxTeamSize - 1 ? 'Nächste Reihe' : 'Runde auswerten'}
+                  {safeRowIndex < maxTeamSize - 1 ? 'Die nächsten Spieler' : 'Runde auswerten'}
                 </button>
               </div>
             </div>
@@ -3692,15 +3821,19 @@ const App: React.FC = () => {
                         <td className="py-3 px-4 font-bold">{idxLevel}</td>
                         <td className="py-3 px-4 font-black">{speedTargets[idxLevel]}g</td>
                         <td className="py-3 px-4">
-                          <input 
-                            type="number" 
-                            min="0" 
-                            max="999" 
-                            value={speedResults[idxLevel] || ''} 
-                            onChange={e => setSpeedResults({...speedResults, [idxLevel]: e.target.value.slice(0, 3)})} 
-                            className={`w-20 p-2 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
-                            placeholder="?" 
-                          />
+                          {idxLevel === parseInt(speedLevels) ? (
+                            <span className="text-xs font-bold opacity-50 italic">Leertrinken</span>
+                          ) : (
+                            <input 
+                              type="number" 
+                              min="0" 
+                              max="999" 
+                              value={speedResults[idxLevel] || ''} 
+                              onChange={e => setSpeedResults({...speedResults, [idxLevel]: e.target.value.slice(0, 3)})} 
+                              className={`w-20 p-2 rounded border-2 ${darkMode ? 'border-brand/60 bg-slate-800 text-white' : 'border-brand/40 bg-white text-black'} text-center font-black`}
+                              placeholder="?" 
+                            />
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right font-black text-indigo-400">
                           {differenceStr}
@@ -3712,13 +3845,19 @@ const App: React.FC = () => {
               </table>
             </div>
             
-            <button onClick={handleSpeedGameplayConfirm} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95" style={{ backgroundColor: BRAND_COLOR }}>Stop & Auswerten</button>
+            <button onClick={handleLeertrinkenClick} className="w-full text-white font-bold py-5 rounded-2xl shadow-xl active:scale-95 cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Leertrinken</button>
           </div>
         )}
 
         {gameState === GameState.SPEED_RESULT && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
             <h2 className="text-3xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Ergebnis</h2>
+            
+            {showScreenshotNotice && (
+              <div className="p-3 mb-4 rounded-xl bg-[#238183]/20 border border-[#238183]/40 text-[#238183] text-xs font-bold text-center animate-in fade-in">
+                📸 Screenshots werden automatisch gespeichert...
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
@@ -3769,10 +3908,9 @@ const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <button onClick={() => captureElement(rankingAreaRef, `Speed_Result_${speedPlayerName}`)} className="py-4 rounded-2xl border-2 font-black text-xs shadow-md"><i className="fas fa-image mr-2"></i>Screenshot</button>
               <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
               <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
-              <button onClick={() => setShowAchievements(true)} className="py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg"><i className="fas fa-trophy mr-2"></i>Achievements ({earnedAchievements.length})</button>
+              <button onClick={() => setShowAchievements(true)} className="col-span-2 py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg"><i className="fas fa-trophy mr-2"></i>Achievements ({earnedAchievements.length})</button>
             </div>
             <button onClick={handleExitToMainMenu} className="w-full py-4 rounded-2xl border-2 font-bold uppercase mb-4">Hauptmenü</button>
 
@@ -4011,8 +4149,6 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3 px-2">
                 <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
                 <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
-                <button onClick={() => captureElement(rankingAreaRef, 'Ranking')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-image mr-2"></i>Screenshot Ranking</button>
-                <button onClick={() => captureElement(roundsAreaRef, 'Tabelle')} className={`py-4 rounded-2xl border-2 font-black text-xs shadow-md ${darkMode ? 'border-white/20' : 'border-black/20'}`}><i className="fas fa-table mr-2"></i>Screenshot Tabelle</button>
               </div>
               <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
               <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
@@ -6111,8 +6247,11 @@ const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setShowCreateTournamentModal(true);
+                  setNewTournamentName('');
+                  setNewTournamentTableCount(0);
+                  setTableCountError(null);
                   setCreateTournamentError(null);
+                  setShowCreateTournamentModal(true);
                 }}
                 className="w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
                 style={{ backgroundColor: '#238183' }}
@@ -6256,14 +6395,41 @@ const App: React.FC = () => {
                 <label className="block text-xs font-bold uppercase opacity-70 mb-1">Anzahl Tische (Vorrunde)</label>
                 <input
                   type="number"
-                  min={1}
-                  max={20}
-                  value={newTournamentTables}
-                  onChange={e => setNewTournamentTables(Math.max(1, parseInt(e.target.value) || 1))}
-                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                  min="2"
+                  max="10"
+                  value={newTournamentTableCount === 0 ? '' : newTournamentTableCount}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setNewTournamentTableCount(0);
+                      setTableCountError(null);
+                      return;
+                    }
+                    const num = parseInt(val);
+                    setNewTournamentTableCount(num);
+                    if (num < 2) {
+                      setTableCountError('Mindestanzahl ist 2 Tische.');
+                    } else if (num > 10) {
+                      setTableCountError('Maximalanzahl ist 10 Tische.');
+                    } else {
+                      setTableCountError(null);
+                    }
+                  }}
+                  placeholder="z.B. 3"
+                  className={`w-full p-4 rounded-xl border-2 bg-transparent font-bold text-center text-lg ${
+                    tableCountError
+                      ? 'border-red-500'
+                      : newTournamentTableCount >= 2 && newTournamentTableCount <= 10
+                        ? 'border-emerald-500'
+                        : darkMode ? 'border-white/20' : 'border-black/20'
                   }`}
                 />
+                {tableCountError && (
+                  <p className="text-xs font-bold text-red-500 mt-1 flex items-center space-x-1">
+                    <i className="fas fa-exclamation-circle"></i>
+                    <span>{tableCountError}</span>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -6285,7 +6451,7 @@ const App: React.FC = () => {
                   <option value={3}>3 Plätze pro Tisch</option>
                 </select>
                 <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
-                  Bei {newTournamentTables} {newTournamentTables === 1 ? 'Tisch' : 'Tischen'} und {newTournamentQualiVorrunde} {newTournamentQualiVorrunde === 1 ? 'Qualifikationsplatz' : 'Qualifikationsplätzen'} stehen {newTournamentTables * newTournamentQualiVorrunde} Spieler {newTournamentSecondChance ? 'direkt ' : ''}im Finale.
+                  Bei {newTournamentTableCount || 0} {newTournamentTableCount === 1 ? 'Tisch' : 'Tischen'} und {newTournamentQualiVorrunde} {newTournamentQualiVorrunde === 1 ? 'Qualifikationsplatz' : 'Qualifikationsplätzen'} stehen {(newTournamentTableCount || 0) * newTournamentQualiVorrunde} Spieler {newTournamentSecondChance ? 'direkt ' : ''}im Finale.
                 </p>
               </div>
 
@@ -6347,9 +6513,9 @@ const App: React.FC = () => {
               </button>
               <button
                 type="button"
-                disabled={createTournamentSubmitting}
+                disabled={!newTournamentTableCount || newTournamentTableCount < 2 || newTournamentTableCount > 10 || !newTournamentName.trim() || createTournamentSubmitting}
                 onClick={handleCreateTournamentSubmit}
-                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#238183' }}
               >
                 {createTournamentSubmitting ? (
@@ -7247,6 +7413,16 @@ const App: React.FC = () => {
               </div>
             </div>
 
+            {participantSaveMessage && (
+              <div className={`p-3 rounded-xl text-xs font-bold text-center my-2 ${
+                participantSaveState === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                participantSaveState === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                'bg-[#238183]/20 text-[#238183] border border-[#238183]/30'
+              }`}>
+                {participantSaveMessage}
+              </div>
+            )}
+
             <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
               <button
                 type="button"
@@ -7384,6 +7560,89 @@ const App: React.FC = () => {
                 </div>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Leertrinken Modal */}
+      {showEmptyWeightModal && (
+        <div className="fixed inset-0 z-[750] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border flex flex-col space-y-5 ${
+            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+          }`}>
+            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+              <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <i className="fas fa-glass-whiskey mr-2.5"></i>
+                <span>Leertrinken Auswertung</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEmptyWeightModal(false)}
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <p className="text-xs font-semibold opacity-80 leading-relaxed">
+              Trage hier deine geschätzte und gemessene Leermenge (0g Ziel) ein:
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-60 mb-1">
+                  Geschätzter Leergewichtswert (g)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="999"
+                  value={emptyWeightGuess}
+                  onChange={e => setEmptyWeightGuess(e.target.value.slice(0, 3))}
+                  placeholder="z.B. 15"
+                  className={`w-full p-3 rounded-xl border-2 font-black text-center ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase opacity-60 mb-1">
+                  Gemessener Leergewichtswert (g)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="999"
+                  value={emptyWeightActual}
+                  onChange={e => setEmptyWeightActual(e.target.value.slice(0, 3))}
+                  placeholder="z.B. 12"
+                  className={`w-full p-3 rounded-xl border-2 font-black text-center ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+              <button
+                type="button"
+                onClick={() => setShowEmptyWeightModal(false)}
+                className={`flex-1 py-3.5 rounded-2xl font-bold border text-xs uppercase tracking-wider cursor-pointer ${
+                  darkMode ? 'border-gray-700 hover:bg-white/5 text-gray-300' : 'border-gray-300 hover:bg-black/5 text-gray-700'
+                }`}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmEmptyWeight}
+                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                style={{ backgroundColor: '#238183' }}
+              >
+                <span>Auswerten</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,1 +1,29 @@
-/* App CSS style overrides */
+/* Safe Area für mobile Geräte (iPhone Notch, etc.) */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+}
+
+.pt-safe-top {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+
+.pb-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Smooth Scrolling auf mobilen Geräten */
+html, body {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
+}
+
+/* Verhindert horizontales Scrollen */
+* {
+  max-width: 100vw;
+  box-sizing: border-box;
+}
+

@@ -5739,6 +5739,9 @@ const App: React.FC = () => {
                     .sort((a, b) => activeRecordsTab === 'Speedwiegen' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse)
                     .slice(0, 10); // top 10
 
+                  const speedmeisterList = [...filtered]
+                    .sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse));
+
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
                       {activeRecordsTab === 'Speedwiegen' && (
@@ -5762,60 +5765,90 @@ const App: React.FC = () => {
                         </div>
                       )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Averages Section */}
+                      {activeRecordsTab === 'Speedwiegen' ? (
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                          <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                            <i className="fas fa-medal mr-2 text-amber-400"></i>Persönliche Bestwerte (Ø Abstand)
+                          <h4 className="text-sm font-black uppercase mb-1 tracking-wider text-yellow-500 flex items-center">
+                            <i className="fas fa-trophy mr-2 text-amber-400"></i>Speedmeister-Rangliste
                           </h4>
-                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Niedrigster Ø-Abstand zählt (Je niedriger desto besser)</p>
-                          <div className="space-y-2">
-                            {leaderboardAverages.slice(0, 10).map((p, idx) => (
-                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                <div className="flex items-center space-x-3">
-                                  <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                  <span className="font-black">{p.name}</span>
-                                </div>
-                                <div className="text-right">
-                                  <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
-                                  <span className="block text-[8px] opacity-40">
-                                    {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Points (Schnäpse) / Time Section */}
-                        <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                          <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                            <i className={activeRecordsTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
-                            {activeRecordsTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
-                          </h4>
-                          <p className="text-[10px] opacity-50 mb-3 uppercase font-bold font-bold">
-                            {activeRecordsTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
+                          <p className="text-[10px] opacity-50 mb-3 font-bold">
+                            (Ø Abstand + Zeit in Sekunden – je niedriger desto besser)
                           </p>
                           <div className="space-y-2">
-                            {pointsLeaderboard.map((p, idx) => (
-                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                <div className="flex items-center space-x-3">
-                                  <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                  <span className="font-black">{p.playerName}</span>
+                            {speedmeisterList.slice(0, 10).map((p, idx) => {
+                              const score = (p.avg + p.schnaepse).toFixed(1);
+                              return (
+                                <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                  <div className="flex items-center space-x-3">
+                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                    <span className="font-black text-sm">{p.playerName}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="font-black text-sm text-amber-400">Score: {score}</span>
+                                    <span className="block text-[10px] opacity-60">
+                                      (Ø {p.avg.toFixed(1)}g + {p.schnaepse.toFixed(1)}s{p.levels !== undefined ? ` • ${p.levels} Stufen` : ''} • {p.date})
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="font-black text-sm text-indigo-400">
-                                    {activeRecordsTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
-                                  </span>
-                                  <span className="block text-[8px] opacity-40">
-                                    {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Averages Section */}
+                          <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                            <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                              <i className="fas fa-medal mr-2 text-amber-400"></i>Persönliche Bestwerte (Ø Abstand)
+                            </h4>
+                            <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Niedrigster Ø-Abstand zählt (Je niedriger desto besser)</p>
+                            <div className="space-y-2">
+                              {leaderboardAverages.slice(0, 10).map((p, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                  <div className="flex items-center space-x-3">
+                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                    <span className="font-black">{p.name}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
+                                    <span className="block text-[8px] opacity-40">
+                                      {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Points (Schnäpse) / Time Section */}
+                          <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                            <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
+                              <i className={activeRecordsTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
+                              {activeRecordsTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
+                            </h4>
+                            <p className="text-[10px] opacity-50 mb-3 uppercase font-bold font-bold">
+                              {activeRecordsTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
+                            </p>
+                            <div className="space-y-2">
+                              {pointsLeaderboard.map((p, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
+                                  <div className="flex items-center space-x-3">
+                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                    <span className="font-black">{p.playerName}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="font-black text-sm text-indigo-400">
+                                      {activeRecordsTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
+                                    </span>
+                                    <span className="block text-[8px] opacity-40">
+                                      {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Complete Game History Log / Ranking im Speedwiegen */}
                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
@@ -5832,7 +5865,7 @@ const App: React.FC = () => {
                                 <th className="pb-2">Ø-Abstand</th>
                                 {activeRecordsTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
                                 <th className="pb-2 text-right">{activeRecordsTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
-                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2 text-right">Total</th>}
+                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2 text-right">Score</th>}
                               </tr>
                             </thead>
                             <tbody>
@@ -5867,7 +5900,7 @@ const App: React.FC = () => {
                                     </td>
                                     {activeRecordsTab === 'Speedwiegen' && (
                                       <td className="py-2 text-right font-black text-purple-400">
-                                        {(item.avg + item.schnaepse).toFixed(2)}
+                                        {(item.avg + item.schnaepse).toFixed(1)}
                                       </td>
                                     )}
                                   </tr>
@@ -6344,11 +6377,12 @@ const App: React.FC = () => {
 
       {/* Create Tournament Modal */}
       {showCreateTournamentModal && (
-        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border space-y-6 ${
-            darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
+        <div className="fixed inset-0 z-[650] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-lg rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
+            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                 <i className="fas fa-trophy mr-2.5 text-amber-400"></i>
                 <span>Neues Turnier</span>
@@ -6356,158 +6390,154 @@ const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowCreateTournamentModal(false)}
-                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
               >
                 <i className="fas fa-times"></i>
               </button>
             </div>
 
-            {createTournamentError && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
-                {createTournamentError}
-              </div>
-            )}
+            {/* Scrollbarer Inhalt */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 overscroll-contain">
+              {createTournamentError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
+                  {createTournamentError}
+                </div>
+              )}
 
-            <div className="p-3 rounded-xl bg-[#238183]/10 border border-[#238183]/20 text-xs font-medium space-y-1">
-              <div className="font-bold text-[#238183]">ℹ️ Vercel Storage Hinweis:</div>
-              <p className="opacity-80 leading-relaxed">
-                Stelle sicher dass der Blob Store mit diesem Projekt verbunden ist:
-                <br />
-                <span className="font-mono text-[11px]">Vercel Dashboard → Storage → bundeswiega-blob → Connect to Project</span>
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-70 mb-1">Turniername</label>
-                <input
-                  type="text"
-                  value={newTournamentName}
-                  onChange={e => setNewTournamentName(e.target.value)}
-                  placeholder="z.B. Sommercup 2026"
-                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-70 mb-1">Anzahl Tische (Vorrunde)</label>
-                <input
-                  type="number"
-                  min="2"
-                  max="10"
-                  value={newTournamentTableCount === 0 ? '' : newTournamentTableCount}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setNewTournamentTableCount(0);
-                      setTableCountError(null);
-                      return;
-                    }
-                    const num = parseInt(val);
-                    setNewTournamentTableCount(num);
-                    if (num < 2) {
-                      setTableCountError('Mindestanzahl ist 2 Tische.');
-                    } else if (num > 10) {
-                      setTableCountError('Maximalanzahl ist 10 Tische.');
-                    } else {
-                      setTableCountError(null);
-                    }
-                  }}
-                  placeholder="z.B. 3"
-                  className={`w-full p-4 rounded-xl border-2 bg-transparent font-bold text-center text-lg ${
-                    tableCountError
-                      ? 'border-red-500'
-                      : newTournamentTableCount >= 2 && newTournamentTableCount <= 10
-                        ? 'border-emerald-500'
-                        : darkMode ? 'border-white/20' : 'border-black/20'
-                  }`}
-                />
-                {tableCountError && (
-                  <p className="text-xs font-bold text-red-500 mt-1 flex items-center space-x-1">
-                    <i className="fas fa-exclamation-circle"></i>
-                    <span>{tableCountError}</span>
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-70 mb-1">
-                  Qualifikation Vorrunde
-                </label>
-                <p className="text-xs font-semibold mb-1.5 opacity-90">
-                  Wie viele Plätze pro Vorrundentisch qualifizieren sich fürs Finale?
-                </p>
-                <select
-                  value={newTournamentQualiVorrunde}
-                  onChange={e => setNewTournamentQualiVorrunde(parseInt(e.target.value) || 1)}
-                  className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                >
-                  <option value={1}>1 Platz pro Tisch</option>
-                  <option value={2}>2 Plätze pro Tisch</option>
-                  <option value={3}>3 Plätze pro Tisch</option>
-                </select>
-                <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
-                  Bei {newTournamentTableCount || 0} {newTournamentTableCount === 1 ? 'Tisch' : 'Tischen'} und {newTournamentQualiVorrunde} {newTournamentQualiVorrunde === 1 ? 'Qualifikationsplatz' : 'Qualifikationsplätzen'} stehen {(newTournamentTableCount || 0) * newTournamentQualiVorrunde} Spieler {newTournamentSecondChance ? 'direkt ' : ''}im Finale.
-                </p>
-              </div>
-
-              <div className="pt-2 border-t border-[#238183]/20 space-y-3">
-                <div className="flex items-center space-x-3">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase opacity-70 mb-1">Turniername</label>
                   <input
-                    type="checkbox"
-                    id="hasSecondChanceCheck"
-                    checked={newTournamentSecondChance}
-                    onChange={e => setNewTournamentSecondChance(e.target.checked)}
-                    className="w-5 h-5 rounded accent-[#238183] cursor-pointer"
+                    type="text"
+                    value={newTournamentName}
+                    onChange={e => setNewTournamentName(e.target.value)}
+                    placeholder="z.B. Sommercup 2026"
+                    className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                    }`}
                   />
-                  <label htmlFor="hasSecondChanceCheck" className="text-xs font-bold cursor-pointer select-none">
-                    Second Chance Tisch aktivieren
-                  </label>
                 </div>
 
-                {newTournamentSecondChance && (
-                  <div className="p-3.5 rounded-xl bg-[#238183]/10 border border-[#238183]/20 space-y-2 text-xs">
-                    <p className="opacity-90 leading-relaxed">
-                      Im Second Chance Tisch spielen alle Spieler, die in der Vorrunde nicht direkt qualifiziert wurden (also alle ab Platz {newTournamentQualiVorrunde + 1} jedes Vorrundentisches).
+                <div>
+                  <label className="block text-xs font-bold uppercase opacity-70 mb-1">Anzahl Tische (Vorrunde)</label>
+                  <input
+                    type="number"
+                    min="2"
+                    max="10"
+                    value={newTournamentTableCount === 0 ? '' : newTournamentTableCount}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setNewTournamentTableCount(0);
+                        setTableCountError(null);
+                        return;
+                      }
+                      const num = parseInt(val);
+                      setNewTournamentTableCount(num);
+                      if (num < 2) {
+                        setTableCountError('Mindestanzahl ist 2 Tische.');
+                      } else if (num > 10) {
+                        setTableCountError('Maximalanzahl ist 10 Tische.');
+                      } else {
+                        setTableCountError(null);
+                      }
+                    }}
+                    placeholder="z.B. 3"
+                    className={`w-full p-4 rounded-xl border-2 bg-transparent font-bold text-center text-lg ${
+                      tableCountError
+                        ? 'border-red-500'
+                        : newTournamentTableCount >= 2 && newTournamentTableCount <= 10
+                          ? 'border-emerald-500'
+                          : darkMode ? 'border-white/20' : 'border-black/20'
+                    }`}
+                  />
+                  {tableCountError && (
+                    <p className="text-xs font-bold text-red-500 mt-1 flex items-center space-x-1">
+                      <i className="fas fa-exclamation-circle"></i>
+                      <span>{tableCountError}</span>
                     </p>
-                    <div className="pt-1">
-                      <label className="block font-bold uppercase text-[10px] opacity-70 mb-1">
-                        Qualifikation Second Chance
-                      </label>
-                      <p className="font-semibold mb-1">
-                        Wie viele Plätze aus dem Second Chance Tisch qualifizieren sich noch fürs Finale?
-                      </p>
-                      <select
-                        value={newTournamentQualiSecondChance}
-                        onChange={e => setNewTournamentQualiSecondChance(parseInt(e.target.value) || 1)}
-                        className={`w-full p-2.5 rounded-lg border text-xs font-bold ${
-                          darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                        }`}
-                      >
-                        <option value={1}>1 Platz aus Second Chance</option>
-                        <option value={2}>2 Plätze aus Second Chance</option>
-                      </select>
-                      <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
-                        {newTournamentQualiSecondChance === 1
-                          ? '1 weiterer Spieler zieht aus dem Second Chance ins Finale ein.'
-                          : `${newTournamentQualiSecondChance} weitere Spieler ziehen aus dem Second Chance ins Finale ein.`}
-                      </p>
-                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase opacity-70 mb-1">
+                    Qualifikation Vorrunde
+                  </label>
+                  <p className="text-xs font-semibold mb-1.5 opacity-90">
+                    Wie viele Plätze pro Vorrundentisch qualifizieren sich fürs Finale?
+                  </p>
+                  <select
+                    value={newTournamentQualiVorrunde}
+                    onChange={e => setNewTournamentQualiVorrunde(parseInt(e.target.value) || 1)}
+                    className={`w-full p-3.5 rounded-xl border-2 text-sm font-bold ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                    }`}
+                  >
+                    <option value={1}>1 Platz pro Tisch</option>
+                    <option value={2}>2 Plätze pro Tisch</option>
+                    <option value={3}>3 Plätze pro Tisch</option>
+                  </select>
+                  <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
+                    Bei {newTournamentTableCount || 0} {newTournamentTableCount === 1 ? 'Tisch' : 'Tischen'} und {newTournamentQualiVorrunde} {newTournamentQualiVorrunde === 1 ? 'Qualifikationsplatz' : 'Qualifikationsplätzen'} stehen {(newTournamentTableCount || 0) * newTournamentQualiVorrunde} Spieler {newTournamentSecondChance ? 'direkt ' : ''}im Finale.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-[#238183]/20 space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id="hasSecondChanceCheck"
+                      checked={newTournamentSecondChance}
+                      onChange={e => setNewTournamentSecondChance(e.target.checked)}
+                      className="w-5 h-5 rounded accent-[#238183] cursor-pointer"
+                    />
+                    <label htmlFor="hasSecondChanceCheck" className="text-xs font-bold cursor-pointer select-none">
+                      Second Chance Tisch aktivieren
+                    </label>
                   </div>
-                )}
+
+                  {newTournamentSecondChance && (
+                    <div className="p-3.5 rounded-xl bg-[#238183]/10 border border-[#238183]/20 space-y-2 text-xs">
+                      <p className="opacity-90 leading-relaxed">
+                        Im Second Chance Tisch spielen alle Spieler, die in der Vorrunde nicht direkt qualifiziert wurden (also alle ab Platz {newTournamentQualiVorrunde + 1} jedes Vorrundentisches).
+                      </p>
+                      <div className="pt-1">
+                        <label className="block font-bold uppercase text-[10px] opacity-70 mb-1">
+                          Qualifikation Second Chance
+                        </label>
+                        <p className="font-semibold mb-1">
+                          Wie viele Plätze aus dem Second Chance Tisch qualifizieren sich noch fürs Finale?
+                        </p>
+                        <select
+                          value={newTournamentQualiSecondChance}
+                          onChange={e => setNewTournamentQualiSecondChance(parseInt(e.target.value) || 1)}
+                          className={`w-full p-2.5 rounded-lg border text-xs font-bold ${
+                            darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        >
+                          <option value={1}>1 Platz aus Second Chance</option>
+                          <option value={2}>2 Plätze aus Second Chance</option>
+                        </select>
+                        <p className="text-[11px] font-semibold text-[#238183] mt-1.5">
+                          {newTournamentQualiSecondChance === 1
+                            ? '1 weiterer Spieler zieht aus dem Second Chance ins Finale ein.'
+                            : `${newTournamentQualiSecondChance} weitere Spieler ziehen aus dem Second Chance ins Finale ein.`}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-3 pt-4 border-t border-[#238183]/20">
+            {/* Footer */}
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-[#238183]/20 flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowCreateTournamentModal(false)}
-                className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
-                style={{ backgroundColor: '#238183' }}
+                className={`flex-1 py-3.5 rounded-2xl font-bold border text-xs uppercase tracking-wider cursor-pointer ${
+                  darkMode ? 'border-gray-700 hover:bg-white/5 text-gray-300' : 'border-gray-300 hover:bg-black/5 text-gray-700'
+                }`}
               >
                 Abbrechen
               </button>
@@ -6531,13 +6561,13 @@ const App: React.FC = () => {
 
       {/* Tournament Detail Modal */}
       {showTournamentDetailModal && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border flex flex-col max-h-[85vh] ${
+        <div className="fixed inset-0 z-[600] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-3xl rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20 mb-6">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <div>
-                <h3 className="text-2xl font-black uppercase flex items-center tracking-tight text-[#238183]">
+                <h3 className="text-xl md:text-2xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                   <i className="fas fa-trophy mr-2.5 text-amber-400"></i>
                   <span>{activeTournamentData?.config?.name || selectedTournamentName}</span>
                 </h3>
@@ -6556,12 +6586,12 @@ const App: React.FC = () => {
                   style={{ backgroundColor: '#238183' }}
                 >
                   <i className="fas fa-list-ol"></i>
-                  <span>Spielstand</span>
+                  <span className="hidden sm:inline">Spielstand</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowTournamentDetailModal(false)}
-                  className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+                  className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
                 >
                   <i className="fas fa-times"></i>
                 </button>
@@ -6569,12 +6599,12 @@ const App: React.FC = () => {
             </div>
 
             {tournamentDetailLoading ? (
-              <div className="p-12 text-center opacity-60">
+              <div className="p-12 text-center opacity-60 flex-1 flex flex-col items-center justify-center">
                 <i className="fas fa-spinner animate-spin text-3xl mb-3 text-[#238183]"></i>
                 <p className="text-sm font-bold">Turnierdetails werden geladen...</p>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 overscroll-contain">
                 {/* Teilnehmer hinzufügen und mischen Button */}
                 {(() => {
                   const isAnyTablePlayed = (activeTournamentData?.results && activeTournamentData.results.length > 0) ||
@@ -6814,7 +6844,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            <div className="pt-4 border-t border-gray-500/20 mt-4">
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20">
               <button
                 type="button"
                 onClick={() => setShowTournamentDetailModal(false)}
@@ -6830,12 +6860,12 @@ const App: React.FC = () => {
 
       {/* Standings Modal */}
       {showTournamentStandings && (
-        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl border flex flex-col max-h-[85vh] ${
+        <div className="fixed inset-0 z-[650] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-2xl rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
           }`}>
             {/* Header */}
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20 mb-4">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <div>
                 <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                   <i className="fas fa-list-ol mr-2.5"></i>
@@ -6856,12 +6886,12 @@ const App: React.FC = () => {
 
             {/* Body */}
             {tournamentStandingsLoading ? (
-              <div className="py-12 text-center flex flex-col items-center justify-center">
+              <div className="p-12 text-center flex flex-col items-center justify-center flex-1 opacity-60">
                 <i className="fas fa-spinner animate-spin text-3xl mb-3 text-[#238183]"></i>
                 <p className="text-xs font-bold opacity-70">Spielstand wird geladen...</p>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4 overscroll-contain">
                 {/* Tables List */}
                 {tournamentStandingsData?.tables?.map((tbl: any, idx: number) => {
                   const tblColor = tbl.color || (
@@ -7090,7 +7120,7 @@ const App: React.FC = () => {
             )}
 
             {/* Modal Footer */}
-            <div className="pt-4 border-t border-gray-500/20 mt-4">
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20">
               <button
                 type="button"
                 onClick={() => setShowTournamentStandings(false)}
@@ -7106,11 +7136,11 @@ const App: React.FC = () => {
 
       {/* Dedicated Tournament Delete Modal */}
       {showDeleteTournamentModal && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border space-y-6 ${
+        <div className="fixed inset-0 z-[700] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-md rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-red-500/30 text-white' : 'bg-white border-red-500/30 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-red-500/20">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-red-500/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-red-500">
                 <i className="fas fa-trash-alt mr-2.5"></i>
                 <span>Turnier löschen</span>
@@ -7123,13 +7153,13 @@ const App: React.FC = () => {
                   setDeleteConfirmInput('');
                   setDeleteTournamentError(null);
                 }}
-                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
+                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none cursor-pointer"
               >
                 <i className="fas fa-times"></i>
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 overscroll-contain">
               <p className="text-sm font-bold">
                 Möchtest du das Turnier <span className="text-red-400 font-extrabold">"{tournamentToDelete}"</span> wirklich löschen?
               </p>
@@ -7163,7 +7193,7 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 pt-4 border-t border-red-500/20">
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-red-500/20 flex gap-3">
               <button
                 type="button"
                 onClick={() => {
@@ -7275,11 +7305,11 @@ const App: React.FC = () => {
 
       {/* Participant Management Modal */}
       {showParticipantsModal && (
-        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl border flex flex-col max-h-[90vh] space-y-6 ${
+        <div className="fixed inset-0 z-[650] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-2xl rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                 <i className="fas fa-users mr-2.5"></i>
                 <span>Teilnehmer hinzufügen & mischen</span>
@@ -7293,13 +7323,13 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            {participantsSaveError && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
-                {participantsSaveError}
-              </div>
-            )}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 overscroll-contain">
+              {participantsSaveError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold text-center">
+                  {participantsSaveError}
+                </div>
+              )}
 
-            <div className="flex-1 overflow-y-auto space-y-6 pr-1">
               {/* Bereich 1: Tische benennen */}
               <div className="space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
@@ -7344,29 +7374,11 @@ const App: React.FC = () => {
                     darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
                   }`}
                 />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const text = await navigator.clipboard.readText();
-                        if (text) {
-                          setParticipantNamesText(prev => (prev ? `${prev}\n${text}` : text));
-                        }
-                      } catch (e) {
-                        alert("Einfügen nicht erlaubt. Bitte manuell eingeben.");
-                      }
-                    }}
-                    className={`px-3.5 py-2 rounded-xl border font-bold text-xs flex items-center space-x-1.5 cursor-pointer ${
-                      darkMode ? 'border-gray-700 hover:bg-white/5' : 'border-gray-300 hover:bg-black/5'
-                    }`}
-                  >
-                    <span>📋 Namen einfügen</span>
-                  </button>
+                <div>
                   <button
                     type="button"
                     onClick={handleShuffleAndDistribute}
-                    className="flex-1 py-2 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="w-full py-2.5 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
                     style={{ backgroundColor: '#238183' }}
                   >
                     <span>🎲 Mischen & Verteilen</span>
@@ -7411,19 +7423,19 @@ const App: React.FC = () => {
                   })}
                 </div>
               </div>
+
+              {participantSaveMessage && (
+                <div className={`p-3 rounded-xl text-xs font-bold text-center my-2 ${
+                  participantSaveState === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                  participantSaveState === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                  'bg-[#238183]/20 text-[#238183] border border-[#238183]/30'
+                }`}>
+                  {participantSaveMessage}
+                </div>
+              )}
             </div>
 
-            {participantSaveMessage && (
-              <div className={`p-3 rounded-xl text-xs font-bold text-center my-2 ${
-                participantSaveState === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                participantSaveState === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                'bg-[#238183]/20 text-[#238183] border border-[#238183]/30'
-              }`}>
-                {participantSaveMessage}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+            <div className="flex-shrink-0 p-6 pt-3 border-t border-[#238183]/20 flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowParticipantsModal(false)}
@@ -7456,11 +7468,11 @@ const App: React.FC = () => {
 
       {/* Second Chance Selection Modal */}
       {showSecondChancePlayerSelect && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border flex flex-col max-h-[85vh] space-y-5 ${
+        <div className="fixed inset-0 z-[700] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-lg rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                 <i className="fas fa-sync-alt mr-2.5"></i>
                 <span>🔄 Second Chance Tisch</span>
@@ -7474,41 +7486,43 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <p className="text-xs font-semibold opacity-80 leading-relaxed">
-              Wähle aus, welche Spieler am Second Chance Tisch teilnehmen möchten:
-            </p>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 overscroll-contain">
+              <p className="text-xs font-semibold opacity-80 leading-relaxed">
+                Wähle aus, welche Spieler am Second Chance Tisch teilnehmen möchten:
+              </p>
 
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {secondChancePlayers.map((player, index) => (
-                <div
-                  key={`${player.name}-${index}`}
-                  onClick={() => {
-                    setSecondChancePlayers(prev => prev.map((p, i) => i === index ? { ...p, selected: !p.selected } : p));
-                  }}
-                  className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                    player.selected
-                      ? 'bg-[#238183]/15 border-[#238183]/50 text-[#238183] dark:text-[#38b2b5] font-bold shadow-sm'
-                      : darkMode ? 'bg-slate-800/40 border-slate-700/60 opacity-60 text-gray-300' : 'bg-gray-50 border-gray-200 opacity-60 text-gray-600'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs font-black transition-all ${
+              <div className="space-y-2">
+                {secondChancePlayers.map((player, index) => (
+                  <div
+                    key={`${player.name}-${index}`}
+                    onClick={() => {
+                      setSecondChancePlayers(prev => prev.map((p, i) => i === index ? { ...p, selected: !p.selected } : p));
+                    }}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                       player.selected
-                        ? 'bg-[#238183] border-[#238183] text-white'
-                        : darkMode ? 'border-gray-600 bg-slate-800' : 'border-gray-300 bg-white'
-                    }`}>
-                      {player.selected && <i className="fas fa-check text-[10px]"></i>}
+                        ? 'bg-[#238183]/15 border-[#238183]/50 text-[#238183] dark:text-[#38b2b5] font-bold shadow-sm'
+                        : darkMode ? 'bg-slate-800/40 border-slate-700/60 opacity-60 text-gray-300' : 'bg-gray-50 border-gray-200 opacity-60 text-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-xs font-black transition-all ${
+                        player.selected
+                          ? 'bg-[#238183] border-[#238183] text-white'
+                          : darkMode ? 'border-gray-600 bg-slate-800' : 'border-gray-300 bg-white'
+                      }`}>
+                        {player.selected && <i className="fas fa-check text-[10px]"></i>}
+                      </div>
+                      <span className="font-black text-sm">{player.name}</span>
                     </div>
-                    <span className="font-black text-sm">{player.name}</span>
+                    <div className="flex items-center space-x-2 text-xs font-semibold opacity-80">
+                      <span>({player.sourceTisch} · Platz {player.placement})</span>
+                      {!player.selected && (
+                        <span className="text-[10px] italic text-red-400 font-normal">← abgewählt = freiwillig ausgeschieden</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 text-xs font-semibold opacity-80">
-                    <span>({player.sourceTisch} · Platz {player.placement})</span>
-                    {!player.selected && (
-                      <span className="text-[10px] italic text-red-400 font-normal">← abgewählt = freiwillig ausgeschieden</span>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
 
             {/* Dynamic counter and validation */}
@@ -7517,7 +7531,7 @@ const App: React.FC = () => {
               const isSecondChanceValid = selectedCount >= 2;
 
               return (
-                <div className="space-y-3 pt-2">
+                <div className="flex-shrink-0 p-6 pt-3 border-t border-[#238183]/20 space-y-3">
                   <div className="text-center">
                     <span className="text-xs font-black uppercase tracking-wider text-[#238183]">
                       [{selectedCount}] ausgewählte Spieler nehmen teil
@@ -7529,7 +7543,7 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+                  <div className="flex gap-3">
                     <button
                       type="button"
                       onClick={() => setShowSecondChancePlayerSelect(false)}
@@ -7566,11 +7580,11 @@ const App: React.FC = () => {
 
       {/* Leertrinken Modal */}
       {showEmptyWeightModal && (
-        <div className="fixed inset-0 z-[750] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border flex flex-col space-y-5 ${
+        <div className="fixed inset-0 z-[750] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`w-full md:max-w-md rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] md:max-h-[90vh] shadow-2xl border-t-2 md:border-2 ${
             darkMode ? 'bg-slate-900 border-[#238183]/30 text-white' : 'bg-white border-[#238183]/30 text-gray-900'
           }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-[#238183]/20">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                 <i className="fas fa-glass-whiskey mr-2.5"></i>
                 <span>Leertrinken Auswertung</span>
@@ -7584,47 +7598,49 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <p className="text-xs font-semibold opacity-80 leading-relaxed">
-              Trage hier deine geschätzte und gemessene Leermenge (0g Ziel) ein:
-            </p>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 overscroll-contain">
+              <p className="text-xs font-semibold opacity-80 leading-relaxed">
+                Trage hier deine geschätzte und gemessene Leermenge (0g Ziel) ein:
+              </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-60 mb-1">
-                  Geschätzter Leergewichtswert (g)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="999"
-                  value={emptyWeightGuess}
-                  onChange={e => setEmptyWeightGuess(e.target.value.slice(0, 3))}
-                  placeholder="z.B. 15"
-                  className={`w-full p-3 rounded-xl border-2 font-black text-center ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
-                  }`}
-                />
-              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase opacity-60 mb-1">
+                    Geschätzter Leergewichtswert (g)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    value={emptyWeightGuess}
+                    onChange={e => setEmptyWeightGuess(e.target.value.slice(0, 3))}
+                    placeholder="z.B. 15"
+                    className={`w-full p-3 rounded-xl border-2 font-black text-center ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
+                    }`}
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-60 mb-1">
-                  Gemessener Leergewichtswert (g)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="999"
-                  value={emptyWeightActual}
-                  onChange={e => setEmptyWeightActual(e.target.value.slice(0, 3))}
-                  placeholder="z.B. 12"
-                  className={`w-full p-3 rounded-xl border-2 font-black text-center ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
-                  }`}
-                />
+                <div>
+                  <label className="block text-xs font-bold uppercase opacity-60 mb-1">
+                    Gemessener Leergewichtswert (g)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    value={emptyWeightActual}
+                    onChange={e => setEmptyWeightActual(e.target.value.slice(0, 3))}
+                    placeholder="z.B. 12"
+                    className={`w-full p-3 rounded-xl border-2 font-black text-center ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
+                    }`}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-3 pt-3 border-t border-[#238183]/20">
+            <div className="flex-shrink-0 p-6 pt-3 border-t border-[#238183]/20 flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowEmptyWeightModal(false)}

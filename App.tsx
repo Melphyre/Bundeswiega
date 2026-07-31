@@ -144,8 +144,20 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'tournament_second_chance_finalist', title: 'Ohne Proben nach oben', description: 'Über den Second Chance Tisch ins Finale eingezogen', icon: '🔄', rarity: 'epic' },
   { id: 'tournament_second_chance_winner', title: 'Unerwarteter Favorit', description: 'War im Second Chance Tisch und hat das Turnier gewonnen', icon: '🎭', rarity: 'legendary' },
   { id: 'tournament_most_schnaepse', title: 'Hart im Nehmen', description: 'Die meisten Schnäpse im gesamten Turnier über alle Tische', icon: '🍺', rarity: 'common' },
+  { id: 'tournament_schnapskoenig', title: 'Schnaps-König des Turniers', description: 'Die meisten Schnäpse im gesamten Turnier getrunken', icon: '🍻', rarity: 'epic' },
   { id: 'tournament_best_avg', title: 'Nah dran', description: 'Den kleinsten Durchschnitt über alle Tische im Turnier', icon: '🎯', rarity: 'rare' },
   { id: 'tournament_avg_better_than_rank', title: 'Weggeschnappt', description: 'Bester Durchschnitt im Turnier, aber wegen Strafpunkten schlechter als Platz 4 im Finale', icon: '😤', rarity: 'epic' },
+  { id: 'tournament_tischkoenig', title: 'Final-Favorit', description: 'Niedrigster Gesamtscore aller Spieler in der Vorrunde', icon: '👑', rarity: 'epic' },
+  { id: 'tournament_sauber', title: 'Sauber geblieben', description: 'Im gesamten Turnier keinen einzigen Schnaps getrunken', icon: '✨', rarity: 'epic' },
+  { id: 'tournament_eiserner_wille', title: 'Eiserner Wille', description: 'Aus dem Second Chance Tisch bis ins Finale und dort unter die Top 3 gekommen', icon: '🛡️', rarity: 'epic' },
+  { id: 'tournament_durchstarter', title: 'Durchstarter', description: 'Durchschnittsabstand im Finale war besser als in der Vorrunde', icon: '🚀', rarity: 'rare' },
+  { id: 'tournament_konstanz', title: 'Konstanz-Monster', description: 'In allen gespielten Tischen einen Ø Abstand unter 15,0g gehabt', icon: '📏', rarity: 'epic' },
+  { id: 'tournament_streber', title: 'Streber', description: 'Sowohl Vorrundentisch als auch Finaltisch gewonnen', icon: '🤓', rarity: 'legendary' },
+  { id: 'tournament_dominator', title: 'Tisch-Dominator', description: 'Vorrundentisch mit mindestens 10g Vorsprung gewonnen', icon: '💥', rarity: 'epic' },
+  { id: 'tournament_marathon', title: 'Marathon-Mann', description: 'Vorrunde, Second Chance und Finale gespielt', icon: '🏃', rarity: 'epic' },
+  { id: 'tournament_pechvogel', title: 'Pechvogel des Turniers', description: 'Bester Ø Abstand im Finale, aber nicht gewonnen', icon: '😭', rarity: 'rare' },
+  { id: 'tournament_stehauf', title: 'Stehaufmännchen', description: 'In der Vorrunde Letzter an seinem Tisch, aber im Finale nicht Letzter', icon: '🧗', rarity: 'rare' },
+  { id: 'tournament_minimalist', title: 'Der Minimalist', description: 'Im Finale genau den 4. Platz belegt', icon: '🤏', rarity: 'common' },
 ];
 
 export function getTeamAlternatingPlayerSequence(teams: Team[]): Array<{ playerId: string; teamId: string }> {
@@ -3217,7 +3229,7 @@ const App: React.FC = () => {
               <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-play"></i><span>Spiel starten</span>
               </button>
-              <button onClick={() => { setShowTournamentOverview(true); fetchTournamentsList(); }} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2 cursor-pointer" style={{ backgroundColor: '#7C3AED' }}>
+              <button onClick={() => { setShowTournamentOverview(true); fetchTournamentsList(); }} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2 cursor-pointer" style={{ backgroundColor: '#238183' }}>
                 <i className="fas fa-trophy text-amber-300"></i><span>Turnier spielen</span>
               </button>
               <button onClick={startSpeedwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
@@ -3229,9 +3241,20 @@ const App: React.FC = () => {
               <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-book"></i><span>Regeln</span>
               </button>
-              <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: GOLD_COLOR }}>
-                <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
-              </button>
+              <div className="relative inline-block w-full">
+                {/* Animierte Sternchen für Glitzer-Effekt */}
+                <div className="absolute inset-0 pointer-events-none overflow-visible">
+                  <span className="absolute -top-2 -left-2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
+                  <span className="absolute -top-3 -right-2 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
+                  <span className="absolute -bottom-2 -left-3 text-white text-sm animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
+                  <span className="absolute -bottom-3 -right-1 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
+                  <span className="absolute top-1/2 -left-4 -translate-y-1/2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.9s', animationDelay: '0.6s' }}>✦</span>
+                  <span className="absolute top-1/2 -right-4 -translate-y-1/2 text-yellow-200 text-xs animate-twinkle" style={{ animationDuration: '2.5s', animationDelay: '1.1s' }}>✦</span>
+                </div>
+                <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 relative z-10 cursor-pointer" style={{ backgroundColor: GOLD_COLOR }}>
+                  <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -147,21 +147,36 @@ export function getTargetRange(previousWeights: number[]): { min: number; max: n
 
 export function checkTournamentAchievements(
   tournamentData: {
-    config: any;
-    tables: any[];
+    config?: any;
+    tables?: any[];
     results: Array<{ tableId: string; playerName: string; rank: number; avg: number; schnaepse: number }>;
   }
 ): Array<{ id: string; earnedBy: string[] }> {
-  const { tables, results } = tournamentData;
+  const { results = [] } = tournamentData;
   const earned: Array<{ id: string; earnedBy: string[] }> = [];
-
-  const finalResults = results.filter(r => r.tableId === 'table_final').sort((a, b) => a.rank - b.rank);
-  const secondChanceResults = results.filter(r => r.tableId === 'table_second_chance');
 
   const addAchievement = (id: string, playerNames: string[]) => {
     if (playerNames.length === 0) return;
     earned.push({ id, earnedBy: Array.from(new Set(playerNames)) });
   };
+
+  const finalResults = results.filter(r => r.tableId === 'table_final').sort((a, b) => a.rank - b.rank);
+  const secondChanceResults = results.filter(r => r.tableId === 'table_second_chance').sort((a, b) => a.rank - b.rank);
+  const vorrundeResults = results.filter(r => r.tableId !== 'table_final' && r.tableId !== 'table_second_chance');
+
+  // Group by player
+  const playerMap: Record<string, typeof results> = {};
+  results.forEach(r => {
+    if (!playerMap[r.playerName]) playerMap[r.playerName] = [];
+    playerMap[r.playerName].push(r);
+  });
+
+  // Group by table
+  const tableMap: Record<string, typeof results> = {};
+  results.forEach(r => {
+    if (!tableMap[r.tableId]) tableMap[r.tableId] = [];
+    tableMap[r.tableId].push(r);
+  });
 
   // 1. Goldwaage (Platz 1 im Finale)
   if (finalResults.length >= 1 && finalResults[0].rank === 1) {
@@ -169,22 +184,24 @@ export function checkTournamentAchievements(
   }
 
   // 2. Silberwaage (Platz 2 im Finale)
-  if (finalResults.length >= 2 && finalResults[1].rank === 2) {
-    addAchievement('tournament_silver', [finalResults[1].playerName]);
+  const silverPlayer = finalResults.find(r => r.rank === 2);
+  if (silverPlayer) {
+    addAchievement('tournament_silver', [silverPlayer.playerName]);
   }
 
   // 3. Bronzewaage (Platz 3 im Finale)
-  if (finalResults.length >= 3 && finalResults[2].rank === 3) {
-    addAchievement('tournament_bronze', [finalResults[2].playerName]);
+  const bronzePlayer = finalResults.find(r => r.rank === 3);
+  if (bronzePlayer) {
+    addAchievement('tournament_bronze', [bronzePlayer.playerName]);
   }
 
-  // 4. Second Chance Finalist
+  // 4. Second Chance Finalist (Über Second Chance ins Finale)
   const scPlayerNames = secondChanceResults.map(r => r.playerName);
   const finalPlayerNames = finalResults.map(r => r.playerName);
   const scFinalists = scPlayerNames.filter(p => finalPlayerNames.includes(p));
   addAchievement('tournament_second_chance_finalist', scFinalists);
 
-  // 5. Second Chance Winner
+  // 5. Second Chance Winner (Aus Second Chance und Turnier gewonnen)
   if (finalResults.length >= 1 && finalResults[0].rank === 1) {
     const winnerName = finalResults[0].playerName;
     if (scPlayerNames.includes(winnerName)) {
@@ -193,26 +210,25 @@ export function checkTournamentAchievements(
   }
 
   // Aggregate player stats across all tournament tables
+  const playerList = Object.keys(playerMap);
   const playerStats: Record<string, { totalSchnaepse: number; totalAvg: number; tablesCount: number }> = {};
-  results.forEach(r => {
-    if (!playerStats[r.playerName]) {
-      playerStats[r.playerName] = { totalSchnaepse: 0, totalAvg: 0, tablesCount: 0 };
-    }
-    playerStats[r.playerName].totalSchnaepse += r.schnaepse;
-    playerStats[r.playerName].totalAvg += r.avg;
-    playerStats[r.playerName].tablesCount += 1;
+  playerList.forEach(p => {
+    const pResList = playerMap[p];
+    const totalSchnaepse = pResList.reduce((sum, r) => sum + r.schnaepse, 0);
+    const totalAvg = pResList.reduce((sum, r) => sum + r.avg, 0);
+    playerStats[p] = { totalSchnaepse, totalAvg, tablesCount: pResList.length };
   });
 
-  const playerList = Object.keys(playerStats);
   if (playerList.length > 0) {
-    // 6. Most Schnäpse in Tournament
+    // 6. Die meisten Schnäpse im gesamten Turnier
     const maxSchnaepse = Math.max(...playerList.map(p => playerStats[p].totalSchnaepse));
     if (maxSchnaepse > 0) {
       const mostSchnaepsePlayers = playerList.filter(p => playerStats[p].totalSchnaepse === maxSchnaepse);
       addAchievement('tournament_most_schnaepse', mostSchnaepsePlayers);
+      addAchievement('tournament_schnapskoenig', mostSchnaepsePlayers);
     }
 
-    // 7. Smallest Average in Tournament
+    // 7. Kleinsten Durchschnitt über alle Tische
     const minAvg = Math.min(...playerList.map(p => playerStats[p].totalAvg / playerStats[p].tablesCount));
     const bestAvgPlayers = playerList.filter(p => (playerStats[p].totalAvg / playerStats[p].tablesCount) === minAvg);
     addAchievement('tournament_best_avg', bestAvgPlayers);
@@ -224,6 +240,114 @@ export function checkTournamentAchievements(
         addAchievement('tournament_avg_better_than_rank', [p]);
       }
     });
+  }
+
+  // 9. Final-Favorit (niedrigster Gesamtscore Avg + Schnaepse in allen Vorrundentischen)
+  if (vorrundeResults.length > 0) {
+    const minVorrundeScore = Math.min(...vorrundeResults.map(r => r.avg + r.schnaepse));
+    const tischKoenigPlayers = vorrundeResults
+      .filter(r => (r.avg + r.schnaepse) === minVorrundeScore)
+      .map(r => r.playerName);
+    addAchievement('tournament_tischkoenig', tischKoenigPlayers);
+  }
+
+  // 10. Sauber geblieben (0 Schnäpse im gesamten Turnier)
+  const sauberPlayers = playerList.filter(p => {
+    const hasFinal = finalResults.some(r => r.playerName === p);
+    return hasFinal && playerStats[p].totalSchnaepse === 0;
+  });
+  addAchievement('tournament_sauber', sauberPlayers);
+
+  // 11. Eiserner Wille (Aus Second Chance ins Finale & Platz 1-3)
+  const eisernerWillePlayers = finalResults
+    .filter(r => r.rank <= 3 && scPlayerNames.includes(r.playerName))
+    .map(r => r.playerName);
+  addAchievement('tournament_eiserner_wille', eisernerWillePlayers);
+
+  // 12. Durchstarter (Ø Abstand im Finale besser als in der Vorrunde)
+  const durchstarterPlayers: string[] = [];
+  finalResults.forEach(fRes => {
+    const vRes = vorrundeResults.find(r => r.playerName === fRes.playerName);
+    if (vRes && fRes.avg < vRes.avg) {
+      durchstarterPlayers.push(fRes.playerName);
+    }
+  });
+  addAchievement('tournament_durchstarter', durchstarterPlayers);
+
+  // 13. Konstanz-Monster (In allen gespielten Tischen Ø Abstand < 15.0g)
+  const konstanzPlayers = playerList.filter(p => {
+    const hasFinal = finalResults.some(r => r.playerName === p);
+    return hasFinal && playerMap[p].every(r => r.avg < 15.0);
+  });
+  addAchievement('tournament_konstanz', konstanzPlayers);
+
+  // 14. Streber (Vorrunde Platz 1 UND Finale Platz 1)
+  const streberPlayers = finalResults
+    .filter(fRes => fRes.rank === 1)
+    .filter(fRes => {
+      const vRes = vorrundeResults.find(r => r.playerName === fRes.playerName);
+      return vRes && vRes.rank === 1;
+    })
+    .map(r => r.playerName);
+  addAchievement('tournament_streber', streberPlayers);
+
+  // 15. Tisch-Dominator (Vorrundentisch mit ≥ 10g Vorsprung auf Platz 2 gewonnen)
+  const dominatorPlayers: string[] = [];
+  Object.values(tableMap).forEach(tResults => {
+    const isVorrunde = tResults.some(r => r.tableId !== 'table_final' && r.tableId !== 'table_second_chance');
+    if (isVorrunde && tResults.length >= 2) {
+      const sortedByScore = [...tResults].sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse));
+      const rank1 = sortedByScore[0];
+      const rank2 = sortedByScore[1];
+      const lead = (rank2.avg + rank2.schnaepse) - (rank1.avg + rank1.schnaepse);
+      if (lead >= 10.0) {
+        dominatorPlayers.push(rank1.playerName);
+      }
+    }
+  });
+  addAchievement('tournament_dominator', dominatorPlayers);
+
+  // 16. Marathon-Mann (Vorrunde, Second Chance UND Finale gespielt)
+  const marathonPlayers = playerList.filter(p => {
+    const hasVorrunde = vorrundeResults.some(r => r.playerName === p);
+    const hasSecondChance = secondChanceResults.some(r => r.playerName === p);
+    const hasFinal = finalResults.some(r => r.playerName === p);
+    return hasVorrunde && hasSecondChance && hasFinal;
+  });
+  addAchievement('tournament_marathon', marathonPlayers);
+
+  // 17. Pechvogel des Turniers (Bester Ø Abstand im Finale, aber nicht Platz 1 im Finale)
+  if (finalResults.length > 0) {
+    const minFinalAvg = Math.min(...finalResults.map(r => r.avg));
+    const pechvogelPlayers = finalResults
+      .filter(r => r.avg === minFinalAvg && r.rank !== 1)
+      .map(r => r.playerName);
+    addAchievement('tournament_pechvogel', pechvogelPlayers);
+  }
+
+  // 18. Stehaufmännchen (In Vorrunde Letzter an seinem Tisch, aber im Finale nicht Letzter)
+  if (finalResults.length > 0) {
+    const maxFinalRank = Math.max(...finalResults.map(r => r.rank));
+    const stehaufPlayers: string[] = [];
+    finalResults.forEach(fRes => {
+      if (fRes.rank < maxFinalRank) {
+        const vRes = vorrundeResults.find(r => r.playerName === fRes.playerName);
+        if (vRes) {
+          const vTableResults = tableMap[vRes.tableId] || [];
+          const maxVRank = Math.max(...vTableResults.map(r => r.rank));
+          if (vRes.rank === maxVRank && maxVRank > 1) {
+            stehaufPlayers.push(fRes.playerName);
+          }
+        }
+      }
+    });
+    addAchievement('tournament_stehauf', stehaufPlayers);
+  }
+
+  // 19. Der Minimalist (Im Finale exakt Platz 4)
+  const minimalistPlayer = finalResults.find(r => r.rank === 4);
+  if (minimalistPlayer) {
+    addAchievement('tournament_minimalist', [minimalistPlayer.playerName]);
   }
 
   return earned;

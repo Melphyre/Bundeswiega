@@ -8,6 +8,11 @@ import tournamentListHandler from "./api/tournament/list";
 import tournamentGetHandler from "./api/tournament/get";
 import tournamentSaveHandler from "./api/tournament/save";
 import tournamentDeleteHandler from "./api/tournament/delete";
+import usersListHandler from "./api/users/list";
+import updatePrivacyHandler from "./api/users/update-privacy";
+import assignToAccountHandler from "./api/admin/assign-to-account";
+import publicRecordsHandler from "./api/users/public-records";
+import saveResultHandler from "./api/users/save-result";
 
 // Setup express app
 const app = express();
@@ -25,6 +30,15 @@ app.get("/api/tournament/list", tournamentListHandler);
 app.get("/api/tournament/get", tournamentGetHandler);
 app.post("/api/tournament/save", tournamentSaveHandler);
 app.post("/api/tournament/delete", tournamentDeleteHandler);
+
+// Users API routes
+app.get("/api/users/list", usersListHandler);
+app.post("/api/users/update-privacy", updatePrivacyHandler);
+app.get("/api/users/public-records", publicRecordsHandler);
+app.post("/api/users/save-result", saveResultHandler);
+
+// Admin API routes
+app.post("/api/admin/assign-to-account", assignToAccountHandler);
 
 // Express global error middleware for API routes to guarantee JSON error response
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

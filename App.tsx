@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAppUser as useUser, SafeSignInButton as SignInButton, SafeSignUpButton as SignUpButton, SafeUserButton as UserButton, SafeUserProfile as UserProfile } from './ClerkAuth';
+import { QRCodeCanvas as QRCode } from 'qrcode.react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
@@ -1106,13 +1109,14 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-  const GameTable = ({ showInputs = false, players, rounds, darkMode, currentRoundResults, setCurrentRoundResults }: { 
+  const GameTable = ({ showInputs = false, players, rounds, darkMode, currentRoundResults, setCurrentRoundResults, playerAccountLinks }: { 
     showInputs?: boolean, 
     players: Player[], 
     rounds: Round[], 
     darkMode: boolean, 
     currentRoundResults: Record<string, string>,
-    setCurrentRoundResults: (val: Record<string, string>) => void
+    setCurrentRoundResults: (val: Record<string, string>) => void,
+    playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string }>
   }) => {
     return (
       <div className={`p-2 md:p-4 rounded-3xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border shadow-sm overflow-x-auto w-full mb-6`}>
@@ -1120,11 +1124,31 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
           <thead>
             <tr className={`border-b ${darkMode ? 'border-white/20' : 'border-gray-700/20'} font-black`}>
               <th className="py-2 px-1">RND</th>
-              {players.map(p => (
-                <th key={p.id} className="text-center p-1">
-                  <VerticalText text={p.name} />
-                </th>
-              ))}
+              {players.map((p, idx) => {
+                const accountLink = playerAccountLinks?.[p.id];
+                return (
+                  <th key={p.id} className="text-center p-1">
+                    <div className="flex flex-col items-center space-y-1">
+                      {accountLink?.imageUrl ? (
+                        <img
+                          src={accountLink.imageUrl}
+                          alt={p.name}
+                          className="w-6 h-6 rounded-full object-cover border-2 shadow-sm"
+                          style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
+                        />
+                      ) : (
+                        <div
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white shadow-sm"
+                          style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
+                        >
+                          {p.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <VerticalText text={p.name} />
+                    </div>
+                  </th>
+                );
+              })}
               <th className="py-2 text-right px-1">ZIEL</th>
             </tr>
           </thead>
@@ -1250,6 +1274,43 @@ const KLASSISCH_TARGETS: Record<number, string> = {
 };
 
 const App: React.FC = () => {
+  const { isSignedIn, user } = useUser();
+  const isAdmin = (user?.publicMetadata?.role as string) === 'admin' || (user?.unsafeMetadata?.role as string) === 'admin';
+  
+  // QR Join Table States
+  const [showJoinTableModal, setShowJoinTableModal] = useState(false);
+  const [qrCodeValue, setQrCodeValue] = useState('');
+  const [qrExpiry, setQrExpiry] = useState<number | null>(null);
+
+  // QR Scanner & Player Account Link States
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [scanningForPlayerId, setScanningForPlayerId] = useState<string | null>(null);
+  const [playerAccountLinks, setPlayerAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string }>>({});
+  const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; name: string; email?: string; imageUrl?: string }>>([]);
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+  const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
+  const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
+
+  // Profile Modal State
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileUsername, setProfileUsername] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profileCurrentPw, setProfileCurrentPw] = useState('');
+  const [profileNewPw, setProfileNewPw] = useState('');
+  const [profileNewPwConfirm, setProfileNewPwConfirm] = useState('');
+  const [profileShowRecords, setProfileShowRecords] = useState(true);
+  const [profileSaveMessage, setProfileSaveMessage] = useState<{ section: string; type: 'success' | 'error'; text: string } | null>(null);
+  const [profileLoadingSection, setProfileLoadingSection] = useState<string | null>(null);
+
+  // Admin Account Assign State
+  const [assignCsvName, setAssignCsvName] = useState('');
+  const [assignTargetUserId, setAssignTargetUserId] = useState('');
+  const [assignPreviewCount, setAssignPreviewCount] = useState<number | null>(null);
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [assignMessage, setAssignMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showAdminUsersView, setShowAdminUsersView] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
   const [playerCount, setPlayerCount] = useState(2);
@@ -1417,6 +1478,154 @@ const App: React.FC = () => {
   const roundsAreaRef = useRef<HTMLDivElement>(null);
   const statsAreaRef = useRef<HTMLDivElement>(null);
 
+  // QR Expiry timer effect
+  useEffect(() => {
+    if (!qrExpiry) return;
+    const timer = setInterval(() => {
+      if (Date.now() > qrExpiry) {
+        setQrCodeValue('');
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [qrExpiry]);
+
+  // Function to open Admin Panel and load users
+  const openAdminPanel = async () => {
+    setShowAdminPanel(true);
+    setAdminUsersLoading(true);
+    setAdminUsersError(null);
+    try {
+      const res = await fetch('/api/users/list');
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`API returned non-JSON: ${text.substring(0, 100)}`);
+      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Fehler beim Laden der Nutzer');
+      setClerkUsers(json.users || []);
+    } catch (err: any) {
+      setAdminUsersError(err.message);
+      setClerkUsers([]);
+    } finally {
+      setAdminUsersLoading(false);
+    }
+  };
+
+  // Load clerk users list for player account mapping
+  useEffect(() => {
+    fetch('/api/users/list')
+      .then(r => r.json())
+      .then(data => setClerkUsers(data.users || []))
+      .catch(err => console.error('Error fetching clerk users:', err));
+  }, []);
+
+  // Sync profile form states when Profile Modal opens
+  useEffect(() => {
+    if (showProfileModal && user) {
+      setProfileUsername(user.username || user.firstName || '');
+      setProfileEmail(user.emailAddresses?.[0]?.emailAddress || '');
+      setProfileShowRecords(user.publicMetadata?.showRecords !== false);
+      setProfileCurrentPw('');
+      setProfileNewPw('');
+      setProfileNewPwConfirm('');
+      setProfileSaveMessage(null);
+    }
+  }, [showProfileModal, user]);
+
+  // QR Scanner lifecycle effect
+  useEffect(() => {
+    if (!showQrScanner) return;
+    let scanner: Html5QrcodeScanner | null = null;
+    const timer = setTimeout(() => {
+      scanner = new Html5QrcodeScanner(
+        "qr-reader",
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        false
+      );
+      scanner.render(
+        (decodedText) => {
+          try {
+            const payload = JSON.parse(atob(decodedText));
+            if (payload.expires && Date.now() > payload.expires) {
+              alert('QR-Code ist abgelaufen. Bitte neu generieren.');
+              return;
+            }
+            if (scanningForPlayerId) {
+              setPlayers(prev => prev.map(p =>
+                p.id === scanningForPlayerId ? { ...p, name: payload.userName } : p
+              ));
+              setPlayerAccountLinks(prev => ({
+                ...prev,
+                [scanningForPlayerId]: { userId: payload.userId, userName: payload.userName, imageUrl: payload.imageUrl || undefined }
+              }));
+            }
+            if (scanner) {
+              scanner.clear().catch(e => console.error(e));
+            }
+            setShowQrScanner(false);
+          } catch (err) {
+            alert('Ungültiger QR-Code.');
+          }
+        },
+        () => {}
+      );
+    }, 150);
+
+    return () => {
+      clearTimeout(timer);
+      if (scanner) {
+        scanner.clear().catch(e => console.error(e));
+      }
+    };
+  }, [showQrScanner, scanningForPlayerId]);
+
+  const generateQrCode = () => {
+    if (!user) return;
+    const clerkName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.username || user.emailAddresses?.[0]?.emailAddress || 'Spieler';
+    const expires = Date.now() + 5 * 60 * 1000;
+    const qrPayload = {
+      userId: user.id,
+      userName: clerkName,
+      email: user.emailAddresses?.[0]?.emailAddress,
+      imageUrl: user.imageUrl || null,
+      timestamp: Date.now(),
+      expires,
+    };
+    setQrCodeValue(btoa(JSON.stringify(qrPayload)));
+    setQrExpiry(expires);
+  };
+
+  const openJoinTableModal = () => {
+    generateQrCode();
+    setShowJoinTableModal(true);
+  };
+
+  const openQrScanner = (playerId: string) => {
+    setScanningForPlayerId(playerId);
+    setShowQrScanner(true);
+  };
+
+  const assignAccountToPlayer = (playerId: string, accountId: string) => {
+    if (!accountId) return;
+    const match = clerkUsers.find(u => u.id === accountId);
+    if (match) {
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, name: match.name } : p));
+      setPlayerAccountLinks(prev => ({
+        ...prev,
+        [playerId]: { userId: match.id, userName: match.name, imageUrl: match.imageUrl }
+      }));
+    }
+  };
+
+  const unlinkAccount = (playerId: string) => {
+    setPlayerAccountLinks(prev => {
+      const copy = { ...prev };
+      delete copy[playerId];
+      return copy;
+    });
+  };
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
@@ -1514,6 +1723,52 @@ const App: React.FC = () => {
         clearTimeout(noticeTimer);
       };
     }
+  }, [gameState]);
+
+  // Auto-save results to Clerk user accounts when RESULT_SCREEN is loaded
+  useEffect(() => {
+    if (gameState !== GameState.RESULT_SCREEN) return;
+
+    Object.entries(playerAccountLinks).forEach(async ([playerId, accountLink]: [string, { userId: string; userName: string; imageUrl?: string }]) => {
+      if (!accountLink.userId) return;
+      const player = players.find(p => p.id === playerId);
+      if (!player) return;
+
+      if (accountResultsSaved.includes(accountLink.userId)) return;
+
+      const avg = calculateAverageDistance(playerId, rounds);
+      const gameMode = teams.length > 0
+        ? 'Teamwiegen'
+        : isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
+      const today = new Date().toLocaleDateString('de-DE');
+
+      const playerAchievements = earnedAchievements.filter(a =>
+        a.earnedBy && a.earnedBy.includes(player.name)
+      );
+
+      try {
+        const res = await fetch('/api/users/save-result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: accountLink.userId,
+            result: {
+              date: today,
+              gameMode,
+              avg: Number(avg.toFixed(2)),
+              schnaepse: player.schnaepse,
+              total: Number((avg + player.schnaepse).toFixed(2)),
+              achievements: playerAchievements
+            }
+          })
+        });
+        if (res.ok) {
+          setAccountResultsSaved(prev => prev.includes(accountLink.userId) ? prev : [...prev, accountLink.userId]);
+        }
+      } catch (err) {
+        console.error('Auto-save to Clerk account failed:', err);
+      }
+    });
   }, [gameState]);
 
   const saveTournamentParticipants = async () => {
@@ -1770,6 +2025,8 @@ const App: React.FC = () => {
     setTournamentTableSaved(false);
     setTournamentTableSaveState('idle');
     setTournamentTableSaveMessage('');
+    setPlayerAccountLinks({});
+    setAccountResultsSaved([]);
   };
 
   const handleExitToMainMenu = () => {
@@ -2966,7 +3223,22 @@ const App: React.FC = () => {
     return items;
   };
 
+  const isLinkedToAccount = (item: { id: string; name: string }) => {
+    return Object.entries(playerAccountLinks).some(([playerId, link]: [string, { userId: string; userName: string; imageUrl?: string }]) => {
+      const player = players.find(p => p.id === playerId);
+      return (player?.name === item.name || player?.id === item.id) && !!link.userId;
+    });
+  };
+
   const openSaveModal = async () => {
+    const allItems = getParticipatingItems();
+    const guestItems = allItems.filter(item => !isLinkedToAccount(item));
+
+    if (guestItems.length === 0 && allItems.length > 0) {
+      alert('Alle Spieler haben Accounts. Ergebnisse wurden automatisch gespeichert.');
+      return;
+    }
+
     setShowSaveModal(true);
     setSaveModalLoadingCsv(true);
     setSaveModalCsvError(null);
@@ -2974,9 +3246,8 @@ const App: React.FC = () => {
     setSaveModalError(null);
     setSaveAchievementsChecked(true);
 
-    const items = getParticipatingItems();
     const initialChecked: Record<string, boolean> = {};
-    items.forEach(it => { initialChecked[it.id] = true; });
+    guestItems.forEach(it => { initialChecked[it.id] = true; });
     setSaveModalChecked(initialChecked);
 
     try {
@@ -3003,16 +3274,35 @@ const App: React.FC = () => {
         setCsvNames(sorted);
 
         const initialMappings: Record<string, string> = {};
-        items.forEach(it => {
+        guestItems.forEach(it => {
           const match = sorted.find(c => c.trim().toLowerCase() === it.name.trim().toLowerCase());
           initialMappings[it.id] = match || '__NEW__';
         });
+
+        // Teil 5: Wenn eingeloggt: versuche den eigenen Namen / Clerk Name zuzuordnen
+        if (isSignedIn && user) {
+          const clerkName = user.firstName
+            ? `${user.firstName} ${user.lastName || ''}`.trim()
+            : user.username || user.emailAddresses[0]?.emailAddress || '';
+          if (clerkName) {
+            const matchingItem = guestItems.find(it =>
+              it.name.toLowerCase() === clerkName.toLowerCase() ||
+              clerkName.toLowerCase().includes(it.name.toLowerCase()) ||
+              it.name.toLowerCase().includes(clerkName.toLowerCase())
+            );
+            if (matchingItem) {
+              const matchedCsv = sorted.find(c => c.trim().toLowerCase() === clerkName.toLowerCase());
+              initialMappings[matchingItem.id] = matchedCsv || clerkName;
+            }
+          }
+        }
+
         setSaveModalMappings(initialMappings);
       } else {
         setSaveModalCsvError('CSV-Namen konnten nicht geladen werden.');
         setCsvNames([]);
         const initialMappings: Record<string, string> = {};
-        items.forEach(it => { initialMappings[it.id] = '__NEW__'; });
+        guestItems.forEach(it => { initialMappings[it.id] = '__NEW__'; });
         setSaveModalMappings(initialMappings);
       }
     } catch (err) {
@@ -3020,7 +3310,7 @@ const App: React.FC = () => {
       setSaveModalCsvError('CSV-Namen konnten nicht geladen werden.');
       setCsvNames([]);
       const initialMappings: Record<string, string> = {};
-      items.forEach(it => { initialMappings[it.id] = '__NEW__'; });
+      guestItems.forEach(it => { initialMappings[it.id] = '__NEW__'; });
       setSaveModalMappings(initialMappings);
     } finally {
       setSaveModalLoadingCsv(false);
@@ -3192,13 +3482,50 @@ const App: React.FC = () => {
     setRecordsLoading(true);
     setRecordsError(null);
     try {
-      const res = await fetch('/api/records');
-      const json = await res.json();
-      if (res.ok) {
-        setRecordsData(json.data || []);
-      } else {
-        setRecordsError(json.error || 'Fehler beim Laden der Rekorde.');
+      const [csvRes, accountRes] = await Promise.all([
+        fetch('/api/records').catch(() => null),
+        fetch('/api/users/public-records').catch(() => null)
+      ]);
+
+      let csvData: any[][] = [];
+      if (csvRes && csvRes.ok) {
+        const json = await csvRes.json();
+        csvData = json.data || [];
       }
+
+      let accountRecords: any[] = [];
+      if (accountRes && accountRes.ok) {
+        const json = await accountRes.json();
+        accountRecords = json.records || [];
+        if (json.users && Array.isArray(json.users)) {
+          setClerkUsers(json.users);
+        }
+      }
+
+      const headerRow = csvData.length > 0 ? csvData[0] : ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Levels", "Achievements"];
+      const csvContentRows = csvData.slice(1);
+
+      const accountRows = accountRecords.map((rec: any) => [
+        rec.date || '',
+        rec.gameMode || 'Standardspiel',
+        rec.playerName || '',
+        String(rec.avg || 0),
+        String(rec.schnaepse || 0),
+        rec.levels !== undefined ? String(rec.levels) : "",
+        typeof rec.achievements === 'string' ? rec.achievements : JSON.stringify(rec.achievements || [])
+      ]);
+
+      const combinedData = [headerRow, ...csvContentRows, ...accountRows];
+      setRecordsData(combinedData);
+
+      const namesSet = new Set<string>();
+      csvContentRows.forEach((row: string[]) => {
+        if (row && row[2] && row[2].trim()) {
+          namesSet.add(row[2].trim());
+        }
+      });
+      const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+      setCsvNames(sortedNames);
     } catch (err: any) {
       setRecordsError(err.message || 'Verbindungsfehler beim Laden.');
     } finally {
@@ -3206,18 +3533,82 @@ const App: React.FC = () => {
     }
   };
 
+  // Auto-fill player 1 name from Clerk account if signed in
+  useEffect(() => {
+    if (isSignedIn && user && gameState === GameState.PLAYER_NAMES && players.length > 0) {
+      const clerkName = user.firstName
+        ? `${user.firstName} ${user.lastName || ''}`.trim()
+        : user.username || user.emailAddresses?.[0]?.emailAddress || '';
+
+      if (clerkName && (!players[0].name || players[0].name.trim() === '')) {
+        setPlayers(prev => prev.map((p, i) =>
+          i === 0 ? { ...p, name: clerkName } : p
+        ));
+        setPlayerAccountLinks(prev => ({
+          ...prev,
+          [players[0].id]: { userId: user.id, userName: clerkName }
+        }));
+      }
+    }
+  }, [gameState, isSignedIn, user]);
+
   const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
   return (
     <div className={`min-h-screen flex flex-col p-4 md:p-8 pt-safe-top pb-safe-bottom overflow-y-auto transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
-      <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
+      <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full flex-wrap gap-2">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => gameState !== GameState.START && setShowResetConfirm(true)}>
           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
           <h1 className="text-2xl font-black tracking-tighter" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
         </div>
-        <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30">
-          <i className={`fas ${darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-indigo-600'}`}></i>
-        </button>
+        <div className="flex items-center space-x-2">
+          {!isSignedIn ? (
+            <>
+              <SignInButton mode="modal">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all"
+                  style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                >
+                  Anmelden
+                </button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  Registrieren
+                </button>
+              </SignUpButton>
+            </>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!recordsData || recordsData.length === 0) fetchRecords();
+                  setShowProfileModal(true);
+                }}
+                className="px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                {user?.imageUrl ? (
+                  <img src={user.imageUrl} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
+                ) : (
+                  <i className="fas fa-user"></i>
+                )}
+                <span>Profil verwalten</span>
+                {isAdmin && <span className="text-yellow-300">👑</span>}
+              </button>
+              <UserButton />
+            </div>
+          )}
+          <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30 cursor-pointer">
+            <i className={`fas ${darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-indigo-600'}`}></i>
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto relative">
@@ -3226,6 +3617,16 @@ const App: React.FC = () => {
             <img src={LOGO_URL} className="w-64 h-64 mx-auto mb-12 drop-shadow-2xl" alt="Bundeswiega Logo" />
             <h1 className="text-5xl font-black mb-12 tracking-tighter uppercase" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
             <div className="flex flex-col space-y-4 max-w-xs mx-auto">
+              {isSignedIn && (
+                <button
+                  onClick={openJoinTableModal}
+                  className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  <i className="fas fa-qrcode"></i>
+                  <span>An Tisch teilnehmen</span>
+                </button>
+              )}
               <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-play"></i><span>Spiel starten</span>
               </button>
@@ -3241,20 +3642,33 @@ const App: React.FC = () => {
               <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-book"></i><span>Regeln</span>
               </button>
-              <div className="relative inline-block w-full">
-                {/* Animierte Sternchen für Glitzer-Effekt */}
-                <div className="absolute inset-0 pointer-events-none overflow-visible">
-                  <span className="absolute -top-2 -left-2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
-                  <span className="absolute -top-3 -right-2 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
-                  <span className="absolute -bottom-2 -left-3 text-white text-sm animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
-                  <span className="absolute -bottom-3 -right-1 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
-                  <span className="absolute top-1/2 -left-4 -translate-y-1/2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.9s', animationDelay: '0.6s' }}>✦</span>
-                  <span className="absolute top-1/2 -right-4 -translate-y-1/2 text-yellow-200 text-xs animate-twinkle" style={{ animationDuration: '2.5s', animationDelay: '1.1s' }}>✦</span>
+              {isSignedIn && (
+                <div className="relative inline-block w-full">
+                  {/* Animierte Sternchen für Glitzer-Effekt */}
+                  <div className="absolute inset-0 pointer-events-none overflow-visible">
+                    <span className="absolute -top-2 -left-2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
+                    <span className="absolute -top-3 -right-2 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
+                    <span className="absolute -bottom-2 -left-3 text-white text-sm animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
+                    <span className="absolute -bottom-3 -right-1 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
+                    <span className="absolute top-1/2 -left-4 -translate-y-1/2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.9s', animationDelay: '0.6s' }}>✦</span>
+                    <span className="absolute top-1/2 -right-4 -translate-y-1/2 text-yellow-200 text-xs animate-twinkle" style={{ animationDuration: '2.5s', animationDelay: '1.1s' }}>✦</span>
+                  </div>
+                  <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 relative z-10 cursor-pointer" style={{ backgroundColor: GOLD_COLOR }}>
+                    <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
+                  </button>
                 </div>
-                <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 relative z-10 cursor-pointer" style={{ backgroundColor: GOLD_COLOR }}>
-                  <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
+              )}
+
+              {isAdmin && (
+                <button
+                  onClick={openAdminPanel}
+                  className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  <i className="fas fa-shield-alt"></i>
+                  <span>👑 Admin Panel</span>
                 </button>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -3299,7 +3713,46 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-black mb-8 text-center">Spielernamen</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               {players.map((p, i) => (
-                <input key={p.id} type="text" value={p.name} onChange={e => setPlayers(players.map(x => x.id === p.id ? {...x, name: e.target.value} : x))} placeholder={`Spieler ${i+1}`} className={`p-3 rounded-xl border-2 bg-transparent font-bold ${darkMode ? 'text-white border-white/20' : 'text-black border-black/20'}`} style={{ borderColor: players[i].name ? BRAND_COLOR : '' }} />
+                <div key={p.id} className="flex flex-col space-y-2 p-3 rounded-2xl border bg-black/5 dark:bg-white/5 border-gray-500/20">
+                  <input
+                    type="text"
+                    value={p.name}
+                    onChange={e => setPlayers(players.map(x => x.id === p.id ? { ...x, name: e.target.value } : x))}
+                    placeholder={`Spieler ${i+1} (Gast)`}
+                    className={`w-full p-3 rounded-xl border-2 bg-transparent font-bold ${darkMode ? 'text-white border-white/20' : 'text-black border-black/20'}`}
+                    style={{ borderColor: p.name ? BRAND_COLOR : '' }}
+                  />
+                  {!playerAccountLinks[p.id] ? (
+                    <div className="flex space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => openQrScanner(p.id)}
+                        className="flex-1 py-2 rounded-xl border-2 font-bold text-xs flex items-center justify-center space-x-1 cursor-pointer hover:opacity-80 transition-all"
+                        style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                      >
+                        <i className="fas fa-qrcode"></i>
+                        <span>QR scannen</span>
+                      </button>
+
+                      <select
+                        value=""
+                        onChange={e => assignAccountToPlayer(p.id, e.target.value)}
+                        className={`flex-1 py-2 px-2 rounded-xl border-2 bg-transparent font-bold text-xs cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
+                      >
+                        <option value="">Account wählen...</option>
+                        {clerkUsers.map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2 text-xs text-emerald-500 font-bold p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                      <i className="fas fa-check-circle"></i>
+                      <span className="truncate">Verknüpft mit: {playerAccountLinks[p.id].userName}</span>
+                      <button type="button" onClick={() => unlinkAccount(p.id)} className="text-red-400 ml-auto hover:text-red-500 font-bold cursor-pointer px-1">✕</button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
             <button onClick={handlePlayerNamesConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
@@ -3991,6 +4444,7 @@ const App: React.FC = () => {
                darkMode={darkMode} 
                currentRoundResults={currentRoundResults} 
                setCurrentRoundResults={setCurrentRoundResults} 
+               playerAccountLinks={playerAccountLinks}
              />
              <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
           </div>
@@ -4175,13 +4629,23 @@ const App: React.FC = () => {
               </div>
               <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
               <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
+                {accountResultsSaved.length > 0 && (
+                  <div className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold text-center flex items-center justify-center space-x-1.5">
+                    <span>✅</span>
+                    <span>Ergebnisse automatisch in {accountResultsSaved.length} Account(s) gespeichert</span>
+                  </div>
+                )}
                 <button 
                   onClick={openSaveModal} 
                   className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
                   style={{ backgroundColor: BRAND_COLOR }}
                 >
                   <i className="fas fa-save mr-2"></i>
-                  <span>Ergebnisse speichern</span>
+                  <span>
+                    {Object.keys(playerAccountLinks).length > 0
+                      ? 'Gäste-Ergebnisse speichern'
+                      : 'Ergebnisse speichern'}
+                  </span>
                 </button>
                 <div className="text-xs font-bold text-center">
                   {resultsSaved ? (
@@ -4298,10 +4762,21 @@ const App: React.FC = () => {
             darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
           }`}>
             <div className="flex items-center justify-between border-b pb-4 border-gray-500/20">
-              <h3 className="text-2xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
-                <i className="fas fa-save mr-3 text-2xl"></i>
-                <span>Ergebnisse speichern</span>
-              </h3>
+              <div>
+                <h3 className="text-2xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-save mr-3 text-2xl"></i>
+                  <span>
+                    {Object.keys(playerAccountLinks).length > 0
+                      ? 'Gäste-Ergebnisse speichern'
+                      : 'Ergebnisse speichern'}
+                  </span>
+                </h3>
+                {Object.keys(playerAccountLinks).length > 0 && (
+                  <p className="text-xs opacity-60 font-semibold mt-1">
+                    Account-Spieler wurden bereits automatisch gespeichert.
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setShowSaveModal(false)}
@@ -4340,7 +4815,7 @@ const App: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {getParticipatingItems().map(item => {
+                      {getParticipatingItems().filter(item => !isLinkedToAccount(item)).map(item => {
                         const isChecked = saveModalChecked[item.id] !== false;
                         return (
                           <tr key={item.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-200/50'}`}>
@@ -4700,13 +5175,13 @@ const App: React.FC = () => {
                 <i className="fas fa-trophy mr-3 text-yellow-500"></i>Rekorde & Statistiken
               </h3>
               <div className="flex items-center space-x-2">
-                {SHOW_OPTIONS_BUTTON && (
+                {(SHOW_OPTIONS_BUTTON || isAdmin) && (
                   <button
                     onClick={() => { setShowAdminOptionsModal(true); setMergeMessage(null); }}
-                    className="px-3 py-1.5 rounded-xl border border-gray-500/30 text-xs font-bold hover:bg-black/10 flex items-center space-x-1.5"
+                    className="px-3 py-1.5 rounded-xl border border-gray-500/30 text-xs font-bold hover:bg-black/10 flex items-center space-x-1.5 cursor-pointer"
                   >
                     <i className="fas fa-cog text-gray-400"></i>
-                    <span>Optionen</span>
+                    <span>Optionen {isAdmin && '👑'}</span>
                   </button>
                 )}
                 <button 
@@ -6299,23 +6774,25 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setNewTournamentName('');
-                  setNewTournamentTableCount(0);
-                  setTableCountError(null);
-                  setCreateTournamentError(null);
-                  setShowCreateTournamentModal(true);
-                }}
-                className="w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
-                style={{ backgroundColor: '#238183' }}
-              >
-                <i className="fas fa-plus"></i>
-                <span>Neues Turnier erstellen</span>
-              </button>
-            </div>
+            {isSignedIn && (
+              <div className="mb-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewTournamentName('');
+                    setNewTournamentTableCount(0);
+                    setTableCountError(null);
+                    setCreateTournamentError(null);
+                    setShowCreateTournamentModal(true);
+                  }}
+                  className="w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                  style={{ backgroundColor: '#238183' }}
+                >
+                  <i className="fas fa-plus"></i>
+                  <span>Neues Turnier erstellen</span>
+                </button>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-3">
               {tournamentsLoading ? (
@@ -6365,17 +6842,19 @@ const App: React.FC = () => {
                       </div>
 
                       <div className="flex items-center space-x-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenDeleteModal(t.name);
-                          }}
-                          className="p-2 rounded-xl text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
-                          title="Turnier löschen"
-                        >
-                          <i className="fas fa-trash-alt"></i>
-                        </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDeleteModal(t.name);
+                            }}
+                            className="p-2 rounded-xl text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                            title="Turnier löschen"
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        )}
                         <i className="fas fa-chevron-right text-xs opacity-40"></i>
                       </div>
                     </div>
@@ -7682,6 +8161,676 @@ const App: React.FC = () => {
                 <span>Auswerten</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👑 Admin Panel Modal */}
+      {showAdminPanel && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 text-red-500">
+                <i className="fas fa-shield-alt"></i>
+                <span>👑 Admin Panel</span>
+              </h3>
+              <button onClick={() => setShowAdminPanel(false)} className="text-gray-400 hover:text-white transition-colors cursor-pointer">
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => { setShowAdminPanel(false); setShowAdminOptionsModal(true); setMergeMessage(null); }}
+                className="w-full p-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <i className="fas fa-compress-alt text-lg"></i>
+                  <span>Optionen / Namen zusammenführen</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  window.open('/api/records', '_blank');
+                }}
+                className="w-full p-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <i className="fas fa-file-csv text-lg"></i>
+                  <span>CSV direkt bearbeiten / anzeigen</span>
+                </div>
+                <i className="fas fa-external-link-alt opacity-60"></i>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAdminUsersView(prev => !prev)}
+                className="w-full p-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <i className="fas fa-users text-lg"></i>
+                  <span>Alle Nutzer anzeigen</span>
+                </div>
+                <i className={`fas ${showAdminUsersView ? 'fa-chevron-up' : 'fa-chevron-down'} opacity-60`}></i>
+              </button>
+
+              {showAdminUsersView && (
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-2 text-xs animate-in fade-in`}>
+                  <div className="flex justify-between items-center font-bold border-b pb-2 border-gray-500/20">
+                    <span>Eingeloggt als:</span>
+                    <span className="text-indigo-400">{user?.firstName || user?.emailAddresses?.[0]?.emailAddress || user?.username}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Benutzer ID:</span>
+                    <span className="font-mono text-[10px] opacity-75">{user?.id}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Rolle:</span>
+                    <span className="font-bold text-red-500">👑 Admin</span>
+                  </div>
+                  <div className="text-[10px] opacity-60 pt-2 border-t border-gray-500/20">
+                    Hinweis: Nutzerverwaltung &amp; Admin-Rollen werden im Clerk Dashboard verwaltet (Public Metadata: &#123; "role": "admin" &#125;).
+                  </div>
+                </div>
+              )}
+
+              {/* CSV-Daten Account zuordnen */}
+              <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-indigo-400">
+                  <i className="fas fa-link"></i>
+                  <span>CSV-Daten einem Account zuordnen</span>
+                </h4>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">CSV-Name wählen:</label>
+                    <select
+                      value={assignCsvName}
+                      onChange={e => {
+                        setAssignCsvName(e.target.value);
+                        setAssignPreviewCount(null);
+                        setAssignMessage(null);
+                      }}
+                      className={`w-full p-2.5 rounded-xl border-2 font-bold text-xs ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                    >
+                      <option value="">CSV-Eintrag wählen...</option>
+                      {csvNames.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">Clerk-Account wählen:</label>
+                    <select
+                      value={assignTargetUserId}
+                      onChange={e => {
+                        setAssignTargetUserId(e.target.value);
+                        setAssignMessage(null);
+                      }}
+                      className={`w-full p-2.5 rounded-xl border-2 font-bold text-xs ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
+                      }`}
+                    >
+                      <option value="">
+                        {adminUsersLoading
+                          ? 'Lade Accounts...'
+                          : clerkUsers.length === 0
+                            ? 'Keine Accounts gefunden'
+                            : 'Ziel-Account wählen...'}
+                      </option>
+                      {clerkUsers.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} {u.email ? `(${u.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    {adminUsersError && (
+                      <p className="text-xs text-red-500 font-bold mt-1">
+                        ❌ {adminUsersError}
+                      </p>
+                    )}
+
+                    {!adminUsersLoading && clerkUsers.length === 0 && !adminUsersError && (
+                      <div className="flex items-center space-x-2 mt-1">
+                        <p className="text-xs text-amber-500 font-bold">
+                          ⚠️ Keine Accounts geladen.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={openAdminPanel}
+                          className="text-xs font-bold underline cursor-pointer"
+                          style={{ color: BRAND_COLOR }}
+                        >
+                          Erneut laden
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {assignPreviewCount !== null && (
+                    <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold">
+                      📊 Es wurden {assignPreviewCount} Einträge in der CSV für "{assignCsvName}" gefunden.
+                    </div>
+                  )}
+
+                  {assignMessage && (
+                    <div className={`p-3 rounded-xl text-xs font-bold ${assignMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
+                      {assignMessage.text}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={!assignCsvName}
+                      onClick={() => {
+                        if (!assignCsvName || !recordsData) return;
+                        const targetName = assignCsvName.trim().toLowerCase();
+                        const matchingRows = recordsData.slice(1).filter(row => String(row[2] || '').trim().toLowerCase() === targetName);
+                        setAssignPreviewCount(matchingRows.length);
+                      }}
+                      className="flex-1 py-2.5 rounded-xl border-2 font-bold text-xs uppercase cursor-pointer hover:bg-white/5 active:scale-95 disabled:opacity-40"
+                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                    >
+                      Vorschau
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!assignCsvName || !assignTargetUserId || assignSubmitting}
+                      onClick={async () => {
+                        if (!assignCsvName || !assignTargetUserId || !user) return;
+                        setAssignSubmitting(true);
+                        setAssignMessage(null);
+                        try {
+                          const res = await fetch('/api/admin/assign-to-account', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              requesterUserId: user.id,
+                              csvName: assignCsvName,
+                              targetUserId: assignTargetUserId
+                            })
+                          });
+                          const json = await res.json();
+                          if (res.ok) {
+                            setAssignMessage({ type: 'success', text: json.message || 'Zuordnung erfolgreich!' });
+                            setAssignPreviewCount(null);
+                            setAssignCsvName('');
+                            setAssignTargetUserId('');
+                            fetchRecords();
+                          } else {
+                            setAssignMessage({ type: 'error', text: json.error || 'Fehler bei der Zuordnung.' });
+                          }
+                        } catch (err: any) {
+                          setAssignMessage({ type: 'error', text: err.message || 'Verbindungsfehler' });
+                        } finally {
+                          setAssignSubmitting(false);
+                        }
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl text-white font-bold text-xs uppercase cursor-pointer active:scale-95 shadow ${
+                        !assignCsvName || !assignTargetUserId || assignSubmitting ? 'opacity-50 cursor-not-allowed bg-gray-600' : 'hover:brightness-110'
+                      }`}
+                      style={{ backgroundColor: (assignCsvName && assignTargetUserId && !assignSubmitting) ? BRAND_COLOR : undefined }}
+                    >
+                      {assignSubmitting ? <i className="fas fa-spinner animate-spin"></i> : 'Zuordnen'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAdminPanel(false)}
+              className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider border border-gray-500/20 opacity-70 hover:opacity-100 cursor-pointer"
+            >
+              Schließen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* JOIN TABLE QR MODAL */}
+      {showJoinTableModal && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
+            <h3 className="text-xl font-black mb-2 flex items-center justify-center space-x-2" style={{ color: BRAND_COLOR }}>
+              <i className="fas fa-qrcode"></i>
+              <span>An Tisch teilnehmen</span>
+            </h3>
+            <p className="text-xs opacity-70 mb-6">Zeige diesen QR-Code dem Spielleiter:</p>
+
+            <div className="bg-white p-4 rounded-2xl shadow-inner inline-block mb-4 border border-gray-200">
+              {qrCodeValue ? (
+                <QRCode value={qrCodeValue} size={200} level="M" />
+              ) : (
+                <div className="w-[200px] h-[200px] flex flex-col items-center justify-center text-red-500 text-xs font-bold space-y-2">
+                  <i className="fas fa-exclamation-triangle text-2xl"></i>
+                  <span>QR-Code abgelaufen</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mb-4">
+              <div className="font-bold text-sm">
+                {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || 'Benutzer'}
+              </div>
+              <div className="text-xs opacity-60">
+                {user?.emailAddresses?.[0]?.emailAddress}
+              </div>
+            </div>
+
+            <div className="text-[11px] font-bold opacity-60 mb-6">
+              {qrCodeValue ? (
+                <span className="text-amber-500 animate-pulse">⏱️ QR-Code ist 5 Minuten gültig.</span>
+              ) : (
+                <span className="text-red-400">QR-Code ist abgelaufen. Bitte neu generieren.</span>
+              )}
+            </div>
+
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={generateQrCode}
+                className="flex-1 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                Neu generieren
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowJoinTableModal(false)}
+                className="flex-1 py-3 rounded-xl border-2 font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95"
+                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR SCANNER MODAL */}
+      {showQrScanner && (
+        <div className="fixed inset-0 z-[750] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className={`rounded-3xl p-6 max-w-md w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
+            <h3 className="text-xl font-black mb-2 flex items-center justify-center space-x-2" style={{ color: BRAND_COLOR }}>
+              <i className="fas fa-camera"></i>
+              <span>Spieler QR-Code scannen</span>
+            </h3>
+            <p className="text-xs opacity-70 mb-4">Halte den QR-Code des Spielers in die Kamera</p>
+
+            <div id="qr-reader" className="w-full rounded-2xl overflow-hidden mb-6 bg-black"></div>
+
+            <button
+              type="button"
+              onClick={() => setShowQrScanner(false)}
+              className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider border-2 cursor-pointer active:scale-95"
+              style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PROFILE MANAGMENT MODAL */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border-2 flex flex-col space-y-6 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
+            <div className="flex justify-between items-center border-b pb-4 border-gray-500/20">
+              <h3 className="text-2xl font-black uppercase flex items-center" style={{ color: BRAND_COLOR }}>
+                <i className="fas fa-user-circle mr-3"></i>Profil verwalten
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Custom User Stats */}
+            {(() => {
+              const currentUserName = (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || user?.emailAddresses?.[0]?.emailAddress || '').toLowerCase();
+              let gamesPlayed = 0;
+              let totalSchnaepse = 0;
+              let bestAvg = null as number | null;
+              let totalAchievementsCount = 0;
+
+              if (recordsData && Array.isArray(recordsData)) {
+                recordsData.forEach(row => {
+                  const pName = String(row[1] || '').trim().toLowerCase();
+                  if (pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) {
+                    gamesPlayed += 1;
+                    const schnaepse = parseInt(row[4]) || 0;
+                    totalSchnaepse += schnaepse;
+                    const avg = parseFloat(row[3]);
+                    if (!isNaN(avg)) {
+                      if (bestAvg === null || avg < bestAvg) bestAvg = avg;
+                    }
+                    if (row[5]) {
+                      try {
+                        const parsedAch = typeof row[5] === 'string' ? JSON.parse(row[5]) : row[5];
+                        if (Array.isArray(parsedAch)) totalAchievementsCount += parsedAch.length;
+                      } catch (e) {}
+                    }
+                  }
+                });
+              }
+
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-emerald-400">{gamesPlayed}</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-amber-400">{totalSchnaepse} 🥃</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-cyan-400">{bestAvg !== null ? `${bestAvg.toFixed(1)}g` : '-'}</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-purple-400">{totalAchievementsCount} 🏆</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Custom Profile Forms */}
+            <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+              {profileSaveMessage && (
+                <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between ${
+                  profileSaveMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                }`}>
+                  <span>{profileSaveMessage.text}</span>
+                  <button type="button" onClick={() => setProfileSaveMessage(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
+                </div>
+              )}
+
+              {/* 1. Profilbild */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-camera"></i>
+                  <span>Profilbild</span>
+                </h4>
+                <div className="flex items-center space-x-4">
+                  <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-slate-700 flex items-center justify-center flex-shrink-0 shadow">
+                    {user?.imageUrl ? (
+                      <img src={user.imageUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl font-black text-gray-300">
+                        {(user?.firstName || user?.username || 'U')[0].toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="py-2.5 px-4 rounded-xl text-white font-bold text-xs cursor-pointer active:scale-95 shadow flex items-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
+                      <i className="fas fa-upload"></i>
+                      <span>📷 Bild hochladen</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file || !user) return;
+                          setProfileLoadingSection('avatar');
+                          setProfileSaveMessage(null);
+                          try {
+                            await user.setProfileImage({ file });
+                            setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
+                          } catch (err: any) {
+                            setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Hochladen' });
+                          } finally {
+                            setProfileLoadingSection(null);
+                          }
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={profileLoadingSection === 'avatar'}
+                      onClick={async () => {
+                        if (!user) return;
+                        setProfileLoadingSection('avatar');
+                        setProfileSaveMessage(null);
+                        try {
+                          await user.setProfileImage({ file: null });
+                          setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
+                        } catch (err: any) {
+                          setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Entfernen' });
+                        } finally {
+                          setProfileLoadingSection(null);
+                        }
+                      }}
+                      className="py-2.5 px-4 rounded-xl border-2 border-red-500/40 text-red-400 font-bold text-xs hover:bg-red-500/10 active:scale-95 cursor-pointer"
+                    >
+                      Bild entfernen
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Nutzername */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-user"></i>
+                  <span>Nutzername</span>
+                </h4>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={profileUsername}
+                    onChange={e => setProfileUsername(e.target.value)}
+                    placeholder="Nutzername"
+                    className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                  />
+                  <button
+                    type="button"
+                    disabled={profileLoadingSection === 'username' || !profileUsername.trim()}
+                    onClick={async () => {
+                      if (!user || !profileUsername.trim()) return;
+                      setProfileLoadingSection('username');
+                      setProfileSaveMessage(null);
+                      try {
+                        if (user.username !== undefined) {
+                          await user.update({ username: profileUsername.trim() });
+                        } else {
+                          await user.update({ firstName: profileUsername.trim() });
+                        }
+                        setProfileSaveMessage({ section: 'username', type: 'success', text: 'Nutzername erfolgreich gespeichert!' });
+                      } catch (err: any) {
+                        setProfileSaveMessage({ section: 'username', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern' });
+                      } finally {
+                        setProfileLoadingSection(null);
+                      }
+                    }}
+                    className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    {profileLoadingSection === 'username' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. E-Mail Adresse */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-envelope"></i>
+                  <span>E-Mail Adresse</span>
+                </h4>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={profileEmail}
+                    onChange={e => setProfileEmail(e.target.value)}
+                    placeholder="E-Mail Adresse"
+                    className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                  />
+                  <button
+                    type="button"
+                    disabled={profileLoadingSection === 'email' || !profileEmail.trim()}
+                    onClick={async () => {
+                      if (!user || !profileEmail.trim()) return;
+                      setProfileLoadingSection('email');
+                      setProfileSaveMessage(null);
+                      try {
+                        const emailObj = await user.createEmailAddress({ email: profileEmail.trim() });
+                        await emailObj.prepareVerification({ strategy: 'email_code' });
+                        setProfileSaveMessage({ section: 'email', type: 'success', text: 'Bestätigungs-Code per E-Mail gesendet! Bitte prüfe dein Postfach.' });
+                      } catch (err: any) {
+                        setProfileSaveMessage({ section: 'email', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern der E-Mail' });
+                      } finally {
+                        setProfileLoadingSection(null);
+                      }
+                    }}
+                    className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    {profileLoadingSection === 'email' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Passwort ändern */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-key"></i>
+                  <span>Passwort ändern</span>
+                </h4>
+                <div className="space-y-3">
+                  <input
+                    type="password"
+                    value={profileCurrentPw}
+                    onChange={e => setProfileCurrentPw(e.target.value)}
+                    placeholder="Aktuelles Passwort"
+                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                  />
+                  <input
+                    type="password"
+                    value={profileNewPw}
+                    onChange={e => setProfileNewPw(e.target.value)}
+                    placeholder="Neues Passwort"
+                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                  />
+                  <input
+                    type="password"
+                    value={profileNewPwConfirm}
+                    onChange={e => setProfileNewPwConfirm(e.target.value)}
+                    placeholder="Neues Passwort bestätigen"
+                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                  />
+                  <button
+                    type="button"
+                    disabled={profileLoadingSection === 'password' || !profileCurrentPw || !profileNewPw}
+                    onClick={async () => {
+                      if (!user) return;
+                      if (profileNewPw !== profileNewPwConfirm) {
+                        setProfileSaveMessage({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
+                        return;
+                      }
+                      setProfileLoadingSection('password');
+                      setProfileSaveMessage(null);
+                      try {
+                        await user.updatePassword({
+                          currentPassword: profileCurrentPw,
+                          newPassword: profileNewPw
+                        });
+                        setProfileCurrentPw('');
+                        setProfileNewPw('');
+                        setProfileNewPwConfirm('');
+                        setProfileSaveMessage({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
+                      } catch (err: any) {
+                        setProfileSaveMessage({ section: 'password', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Ändern des Passworts' });
+                      } finally {
+                        setProfileLoadingSection(null);
+                      }
+                    }}
+                    className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    {profileLoadingSection === 'password' ? <i className="fas fa-spinner animate-spin"></i> : 'Passwort ändern'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 5. Datenschutz & Sichtbarkeit */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                  <i className="fas fa-shield-alt"></i>
+                  <span>Datenschutz &amp; Sichtbarkeit</span>
+                </h4>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="showRecordsCheck"
+                    checked={profileShowRecords}
+                    onChange={e => setProfileShowRecords(e.target.checked)}
+                    className="w-5 h-5 accent-[#238183] cursor-pointer"
+                  />
+                  <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
+                    Meine Statistiken in der öffentlichen Rekorde-Tabelle anzeigen
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={profileLoadingSection === 'privacy'}
+                  onClick={async () => {
+                    if (!user) return;
+                    setProfileLoadingSection('privacy');
+                    setProfileSaveMessage(null);
+                    try {
+                      const res = await fetch('/api/users/update-privacy', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          userId: user.id,
+                          showRecords: profileShowRecords
+                        })
+                      });
+                      const json = await res.json();
+                      if (res.ok) {
+                        await user.reload();
+                        setProfileSaveMessage({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
+                        fetchRecords();
+                      } else {
+                        setProfileSaveMessage({ section: 'privacy', type: 'error', text: json.error || 'Fehler beim Speichern.' });
+                      }
+                    } catch (err: any) {
+                      setProfileSaveMessage({ section: 'privacy', type: 'error', text: err.message || 'Verbindungsfehler' });
+                    } finally {
+                      setProfileLoadingSection(null);
+                    }
+                  }}
+                  className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  {profileLoadingSection === 'privacy' ? <i className="fas fa-spinner animate-spin"></i> : 'Einstellungen speichern'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(false)}
+              className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow active:scale-95 cursor-pointer"
+              style={{ backgroundColor: BRAND_COLOR }}
+            >
+              Schließen
+            </button>
           </div>
         </div>
       )}

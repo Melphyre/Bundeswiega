@@ -6,12 +6,32 @@ import {
   UserButton as RawUserButton,
   useUser as useRawUser,
   UserProfile as RawUserProfile,
+  useClerk,
 } from '@clerk/clerk-react';
 
-const PUBLISHABLE_KEY =
-  (typeof process !== 'undefined' && (process.env?.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || process.env?.VITE_CLERK_PUBLISHABLE_KEY || process.env?.CLERK_PUBLISHABLE_KEY)) ||
-  (typeof import.meta !== 'undefined' && ((import.meta as any).env?.VITE_CLERK_PUBLISHABLE_KEY || (import.meta as any).env?.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)) ||
-  '';
+export const getPublishableKey = (): string => {
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    if (process.env.VITE_CLERK_PUBLISHABLE_KEY) return process.env.VITE_CLERK_PUBLISHABLE_KEY;
+    if (process.env.CLERK_PUBLISHABLE_KEY) return process.env.CLERK_PUBLISHABLE_KEY;
+  }
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    const env = (import.meta as any).env;
+    if (env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    if (env.VITE_CLERK_PUBLISHABLE_KEY) return env.VITE_CLERK_PUBLISHABLE_KEY;
+    if (env.CLERK_PUBLISHABLE_KEY) return env.CLERK_PUBLISHABLE_KEY;
+  }
+  if (typeof window !== 'undefined') {
+    const win = window as any;
+    if (win.__ENV__?.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return win.__ENV__.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    if (win.__ENV__?.VITE_CLERK_PUBLISHABLE_KEY) return win.__ENV__.VITE_CLERK_PUBLISHABLE_KEY;
+    if (win.__ENV__?.CLERK_PUBLISHABLE_KEY) return win.__ENV__.CLERK_PUBLISHABLE_KEY;
+    if (win.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return win.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    if (win.VITE_CLERK_PUBLISHABLE_KEY) return win.VITE_CLERK_PUBLISHABLE_KEY;
+    if (win.CLERK_PUBLISHABLE_KEY) return win.CLERK_PUBLISHABLE_KEY;
+  }
+  return '';
+};
 
 export const isValidClerkKey = (key: string): boolean => {
   if (!key || typeof key !== 'string') return false;
@@ -25,22 +45,42 @@ interface AuthContextType {
   isSignedIn: boolean;
   user: any;
   isClerkAvailable: boolean;
+  openSignIn: () => void;
+  openSignUp: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   isSignedIn: false,
   user: null,
   isClerkAvailable: false,
+  openSignIn: () => {},
+  openSignUp: () => {},
 });
 
 function ClerkStateProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn, user } = useRawUser();
+  const clerk = useClerk();
+
+  const openSignIn = () => {
+    if (clerk?.openSignIn) {
+      clerk.openSignIn({});
+    }
+  };
+
+  const openSignUp = () => {
+    if (clerk?.openSignUp) {
+      clerk.openSignUp({});
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
         isSignedIn: !!isSignedIn,
         user,
         isClerkAvailable: true,
+        openSignIn,
+        openSignUp,
       }}
     >
       {children}
@@ -49,18 +89,31 @@ function ClerkStateProvider({ children }: { children: React.ReactNode }) {
 }
 
 export const SafeClerkProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const isAvailable = isValidClerkKey(PUBLISHABLE_KEY);
+  const key = getPublishableKey();
+  const isAvailable = isValidClerkKey(key);
 
   if (!isAvailable) {
+    const fallbackAuth: AuthContextType = {
+      isSignedIn: false,
+      user: null,
+      isClerkAvailable: false,
+      openSignIn: () => {
+        alert('Clerk ist nicht konfiguriert. Bitte stelle sicher, dass NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in den Environment Variables gesetzt ist.');
+      },
+      openSignUp: () => {
+        alert('Clerk ist nicht konfiguriert. Bitte stelle sicher, dass NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in den Environment Variables gesetzt ist.');
+      },
+    };
+
     return (
-      <AuthContext.Provider value={{ isSignedIn: false, user: null, isClerkAvailable: false }}>
+      <AuthContext.Provider value={fallbackAuth}>
         {children}
       </AuthContext.Provider>
     );
   }
 
   return (
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+    <ClerkProvider publishableKey={key}>
       <ClerkStateProvider>{children}</ClerkStateProvider>
     </ClerkProvider>
   );
@@ -71,23 +124,33 @@ export const useAppUser = () => {
 };
 
 export const SafeSignInButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ mode = 'modal', children }) => {
-  const { isClerkAvailable } = useAppUser();
+  const { isClerkAvailable, openSignIn } = useAppUser();
 
   if (isClerkAvailable) {
     return <RawSignInButton mode={mode}>{children}</RawSignInButton>;
   }
 
-  return children;
+  return React.cloneElement(children, {
+    onClick: (e: React.MouseEvent) => {
+      if (children.props.onClick) children.props.onClick(e);
+      openSignIn();
+    }
+  });
 };
 
 export const SafeSignUpButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ mode = 'modal', children }) => {
-  const { isClerkAvailable } = useAppUser();
+  const { isClerkAvailable, openSignUp } = useAppUser();
 
   if (isClerkAvailable) {
     return <RawSignUpButton mode={mode}>{children}</RawSignUpButton>;
   }
 
-  return children;
+  return React.cloneElement(children, {
+    onClick: (e: React.MouseEvent) => {
+      if (children.props.onClick) children.props.onClick(e);
+      openSignUp();
+    }
+  });
 };
 
 export const SafeUserButton: React.FC = () => {

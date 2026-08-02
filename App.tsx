@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppUser as useUser, SafeSignInButton as SignInButton, SafeSignUpButton as SignUpButton, SafeUserButton as UserButton, SafeUserProfile as UserProfile } from './ClerkAuth';
+import { useAppUser as useUser, SafeUserButton as UserButton, SafeUserProfile as UserProfile } from './ClerkAuth';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
@@ -3600,7 +3600,7 @@ const App: React.FC = () => {
                 <span>Profil verwalten</span>
                 {isAdmin && <span className="text-yellow-300">👑</span>}
               </button>
-              <UserButton />
+              <UserButton afterSignOutUrl="/" />
             </div>
           )}
           <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30 cursor-pointer">

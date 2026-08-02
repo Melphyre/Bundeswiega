@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import {
   ClerkProvider,
   UserButton as RawUserButton,
@@ -17,13 +17,40 @@ const sanitizeKey = (k?: string): string => {
 };
 
 /**
- * Liest den Publishable Key aus den Vercel / Environment Variablen aus.
+ * Liest den Publishable Key aus URL, localStorage, Environment-Variablen oder Window aus.
  */
 export const getPublishableKey = (): string => {
   let key = '';
 
-  // 1. Check für Next.js / Node.js Process Environment
-  if (typeof process !== 'undefined' && process.env) {
+  // 0. Check URL search params in AI Studio preview (e.g. ?clerk_key=pk_test_...)
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlKey = urlParams.get('clerk_key') || urlParams.get('clerk_publishable_key');
+      if (urlKey && isValidClerkKey(urlKey)) {
+        localStorage.setItem('CLERK_PUBLISHABLE_KEY', sanitizeKey(urlKey));
+        key = urlKey;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 1. Check localStorage (manual entry in AI Studio preview)
+  if (!key && typeof window !== 'undefined') {
+    try {
+      key =
+        localStorage.getItem('CLERK_PUBLISHABLE_KEY') ||
+        localStorage.getItem('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY') ||
+        localStorage.getItem('VITE_CLERK_PUBLISHABLE_KEY') ||
+        '';
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 2. Check Next.js / Node.js Process Environment
+  if (!key && typeof process !== 'undefined' && process.env) {
     key =
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
       process.env.VITE_CLERK_PUBLISHABLE_KEY ||
@@ -32,7 +59,7 @@ export const getPublishableKey = (): string => {
       '';
   }
 
-  // 2. Check für Vite Environment (import.meta.env)
+  // 3. Check Vite Environment (import.meta.env)
   if (!key && typeof import.meta !== 'undefined' && (import.meta as any).env) {
     const env = (import.meta as any).env;
     key =
@@ -43,7 +70,7 @@ export const getPublishableKey = (): string => {
       '';
   }
 
-  // 3. Check für globale Fenster-Objekte (z. B. bei Custom Injections)
+  // 4. Check globale Fenster-Objekte (z. B. bei Custom Injections)
   if (!key && typeof window !== 'undefined') {
     const win = window as any;
     key =
@@ -73,6 +100,83 @@ export const isValidClerkKey = (key: string): boolean => {
   return trimmed.length > 20;
 };
 
+export const KeyConfigModal: React.FC<{ currentKey: string; onClose?: () => void }> = ({ currentKey, onClose }) => {
+  const [inputKey, setInputKey] = useState(currentKey || '');
+  const [error, setError] = useState('');
+
+  const handleSave = () => {
+    const trimmed = sanitizeKey(inputKey);
+    if (!trimmed) {
+      setError('Bitte gib einen gültigen Clerk Key ein.');
+      return;
+    }
+    if (!trimmed.startsWith('pk_test_') && !trimmed.startsWith('pk_live_')) {
+      setError('Der Key muss mit pk_test_ oder pk_live_ beginnen.');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('CLERK_PUBLISHABLE_KEY', trimmed);
+      window.location.reload();
+    }
+  };
+
+  const handleReset = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('CLERK_PUBLISHABLE_KEY');
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="max-w-md w-full bg-gray-800 border border-gray-700 rounded-2xl p-6 shadow-2xl text-white space-y-4">
+      <div className="flex items-center space-x-3">
+        <div className="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+          🔑
+        </div>
+        <div>
+          <h2 className="text-base font-bold">Clerk Key in AI Studio Vorschau</h2>
+          <p className="text-xs text-gray-400">Gib deinen Clerk Publishable Key ein, um Anmelden/Registrieren in der Vorschau zu testen.</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">Clerk Publishable Key:</label>
+        <input
+          type="text"
+          value={inputKey}
+          onChange={(e) => { setInputKey(e.target.value); setError(''); }}
+          placeholder="pk_test_..."
+          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+        />
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-2">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-xs font-bold text-gray-200 cursor-pointer"
+          >
+            Abbrechen
+          </button>
+        )}
+        <button
+          onClick={handleReset}
+          className="px-3 py-2 bg-red-900/40 hover:bg-red-900/60 border border-red-700/50 rounded-xl text-xs font-bold text-red-300 cursor-pointer"
+        >
+          Zurücksetzen
+        </button>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white cursor-pointer active:scale-95 transition-all"
+        >
+          Speichern & Neustarten
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface AuthContextType {
   isSignedIn: boolean;
   user: any;
@@ -92,6 +196,7 @@ const AuthContext = createContext<AuthContextType>({
 function ClerkStateProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn, user, isLoaded } = useRawUser();
   const clerk = useClerk();
+  const [showKeyConfig, setShowKeyConfig] = useState(false);
 
   const openSignIn = () => {
     try {
@@ -126,15 +231,26 @@ function ClerkStateProvider({ children }: { children: React.ReactNode }) {
   if (pathname.startsWith('/sign-in')) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-        <div className="mb-4">
+        <div className="mb-4 flex items-center space-x-3">
           <button
             onClick={() => { window.location.href = '/'; }}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-bold border border-gray-700 active:scale-95 cursor-pointer"
           >
             ← Zurück zum Spiel
           </button>
+          <button
+            onClick={() => setShowKeyConfig(!showKeyConfig)}
+            className="px-3 py-2 bg-indigo-900/50 hover:bg-indigo-800/60 rounded-xl text-xs font-bold border border-indigo-700/50 cursor-pointer"
+          >
+            🔑 Key konfigurieren
+          </button>
         </div>
-        <SignIn routing="path" path="/sign-in" redirectUrl="/" />
+
+        {showKeyConfig ? (
+          <KeyConfigModal currentKey={getPublishableKey()} onClose={() => setShowKeyConfig(false)} />
+        ) : (
+          <SignIn routing="path" path="/sign-in" redirectUrl="/" />
+        )}
       </div>
     );
   }
@@ -142,15 +258,26 @@ function ClerkStateProvider({ children }: { children: React.ReactNode }) {
   if (pathname.startsWith('/sign-up')) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-        <div className="mb-4">
+        <div className="mb-4 flex items-center space-x-3">
           <button
             onClick={() => { window.location.href = '/'; }}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-bold border border-gray-700 active:scale-95 cursor-pointer"
           >
             ← Zurück zum Spiel
           </button>
+          <button
+            onClick={() => setShowKeyConfig(!showKeyConfig)}
+            className="px-3 py-2 bg-indigo-900/50 hover:bg-indigo-800/60 rounded-xl text-xs font-bold border border-indigo-700/50 cursor-pointer"
+          >
+            🔑 Key konfigurieren
+          </button>
         </div>
-        <SignUp routing="path" path="/sign-up" redirectUrl="/" />
+
+        {showKeyConfig ? (
+          <KeyConfigModal currentKey={getPublishableKey()} onClose={() => setShowKeyConfig(false)} />
+        ) : (
+          <SignUp routing="path" path="/sign-up" redirectUrl="/" />
+        )}
       </div>
     );
   }
@@ -203,18 +330,7 @@ export const SafeClerkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')) {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-          <div className="max-w-md w-full bg-gray-800 border border-gray-700 rounded-2xl p-6 text-center space-y-4">
-            <h2 className="text-xl font-bold text-yellow-400">Clerk Key Konfiguration erforderlich</h2>
-            <p className="text-sm text-gray-300">
-              Bitte hinterlege deinen Clerk Publishable Key (<code className="bg-gray-900 px-2 py-1 rounded text-xs text-green-400">pk_test_...</code>) in Vercel oder in den Umgebungsvariablen (<code className="bg-gray-900 px-2 py-1 rounded text-xs text-green-400">NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code>).
-            </p>
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold text-sm active:scale-95 text-white cursor-pointer"
-            >
-              Zurück zum Spiel
-            </button>
-          </div>
+          <KeyConfigModal currentKey={key} />
         </div>
       );
     }
@@ -252,4 +368,5 @@ export const SafeUserProfile: React.FC<{ appearance?: any }> = ({ appearance }) 
   }
   return null;
 };
+
 

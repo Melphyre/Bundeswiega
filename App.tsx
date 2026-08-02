@@ -1274,7 +1274,7 @@ const KLASSISCH_TARGETS: Record<number, string> = {
 };
 
 const App: React.FC = () => {
-  const { isSignedIn, user } = useUser();
+  const { isSignedIn, user, openSignIn, openSignUp } = useUser();
   const isAdmin = (user?.publicMetadata?.role as string) === 'admin' || (user?.unsafeMetadata?.role as string) === 'admin';
   
   // QR Join Table States
@@ -3564,24 +3564,22 @@ const App: React.FC = () => {
         <div className="flex items-center space-x-2">
           {!isSignedIn ? (
             <>
-              <SignInButton mode="modal">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all"
-                  style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-                >
-                  Anmelden
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  Registrieren
-                </button>
-              </SignUpButton>
+              <button
+                type="button"
+                onClick={() => openSignIn()}
+                className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
+                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+              >
+                Anmelden
+              </button>
+              <button
+                type="button"
+                onClick={() => openSignUp()}
+                className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                Registrieren
+              </button>
             </>
           ) : (
             <div className="flex items-center space-x-2">

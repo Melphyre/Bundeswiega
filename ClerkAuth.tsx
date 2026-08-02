@@ -1,8 +1,6 @@
 import React, { createContext, useContext } from 'react';
 import {
   ClerkProvider,
-  SignInButton as RawSignInButton,
-  SignUpButton as RawSignUpButton,
   UserButton as RawUserButton,
   useUser as useRawUser,
   UserProfile as RawUserProfile,
@@ -123,34 +121,38 @@ export const useAppUser = () => {
   return useContext(AuthContext);
 };
 
-export const SafeSignInButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ mode = 'modal', children }) => {
-  const { isClerkAvailable, openSignIn } = useAppUser();
+export const SafeSignInButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ children }) => {
+  const { openSignIn } = useAppUser();
 
-  if (isClerkAvailable) {
-    return <RawSignInButton mode={mode}>{children}</RawSignInButton>;
+  if (React.isValidElement(children)) {
+    return React.cloneElement(children as React.ReactElement<any>, {
+      onClick: (e: React.MouseEvent) => {
+        if (children.props && typeof children.props.onClick === 'function') {
+          children.props.onClick(e);
+        }
+        openSignIn();
+      }
+    });
   }
 
-  return React.cloneElement(children, {
-    onClick: (e: React.MouseEvent) => {
-      if (children.props.onClick) children.props.onClick(e);
-      openSignIn();
-    }
-  });
+  return <button onClick={() => openSignIn()}>{children}</button>;
 };
 
-export const SafeSignUpButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ mode = 'modal', children }) => {
-  const { isClerkAvailable, openSignUp } = useAppUser();
+export const SafeSignUpButton: React.FC<{ mode?: 'modal' | 'redirect'; children: React.ReactElement }> = ({ children }) => {
+  const { openSignUp } = useAppUser();
 
-  if (isClerkAvailable) {
-    return <RawSignUpButton mode={mode}>{children}</RawSignUpButton>;
+  if (React.isValidElement(children)) {
+    return React.cloneElement(children as React.ReactElement<any>, {
+      onClick: (e: React.MouseEvent) => {
+        if (children.props && typeof children.props.onClick === 'function') {
+          children.props.onClick(e);
+        }
+        openSignUp();
+      }
+    });
   }
 
-  return React.cloneElement(children, {
-    onClick: (e: React.MouseEvent) => {
-      if (children.props.onClick) children.props.onClick(e);
-      openSignUp();
-    }
-  });
+  return <button onClick={() => openSignUp()}>{children}</button>;
 };
 
 export const SafeUserButton: React.FC = () => {

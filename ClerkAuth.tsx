@@ -98,10 +98,10 @@ export const SafeClerkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       user: null,
       isClerkAvailable: false,
       openSignIn: () => {
-        alert('Clerk ist nicht konfiguriert. Bitte stelle sicher, dass NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in den Environment Variables gesetzt ist.');
+        console.warn('Clerk publishable key is not configured or invalid.');
       },
       openSignUp: () => {
-        alert('Clerk ist nicht konfiguriert. Bitte stelle sicher, dass NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in den Environment Variables gesetzt ist.');
+        console.warn('Clerk publishable key is not configured or invalid.');
       },
     };
 

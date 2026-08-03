@@ -1,6 +1,10 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { createClerkClient } from "@clerk/backend";
+
+export const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
+
 import uploadHandler from "./api/upload";
 import recordsHandler from "./api/records";
 import renameHandler from "./api/admin/rename";

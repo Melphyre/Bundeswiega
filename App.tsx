@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useClerk, useUser, UserButton, UserProfile } from '@clerk/clerk-react';
+import { supabase } from './supabaseClient';
+import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
@@ -1274,9 +1275,94 @@ const KLASSISCH_TARGETS: Record<number, string> = {
 };
 
 const App: React.FC = () => {
-  const { isSignedIn, user } = useUser();
-  const { openSignIn, openSignUp, signOut } = useClerk();
-  const isAdmin = (user?.publicMetadata?.role as string) === 'admin' || (user?.unsafeMetadata?.role as string) === 'admin';
+  const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
+  const [supabaseSession, setSupabaseSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const isSignedIn = !!supabaseUser;
+  const user = supabaseUser;
+  const isAdmin = supabaseUser?.user_metadata?.role === 'admin';
+
+  // Auth Modal States
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitLoading, setAuthSubmitLoading] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSupabaseSession(session);
+      setSupabaseUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSupabaseSession(session);
+        setSupabaseUser(session?.user ?? null);
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignIn = async () => {
+    setAuthSubmitLoading(true);
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword
+    });
+    if (error) setAuthError(error.message);
+    else setShowAuthModal(false);
+    setAuthSubmitLoading(false);
+  };
+
+  const handleSignUp = async () => {
+    setAuthSubmitLoading(true);
+    setAuthError(null);
+    if (!authUsername.trim()) {
+      setAuthError('Bitte gib einen Nutzernamen ein.');
+      setAuthSubmitLoading(false);
+      return;
+    }
+    // Check if username is taken
+    try {
+      const res = await fetch(`/api/users/check-username?username=${encodeURIComponent(authUsername.trim())}`);
+      const checkJson = await res.json();
+      if (checkJson.taken) {
+        setAuthError('Dieser Nutzername ist bereits vergeben.');
+        setAuthSubmitLoading(false);
+        return;
+      }
+    } catch (e) {}
+
+    const { error } = await supabase.auth.signUp({
+      email: authEmail,
+      password: authPassword,
+      options: {
+        data: {
+          username: authUsername.trim(),
+          role: 'user'
+        }
+      }
+    });
+    if (error) setAuthError(error.message);
+    else {
+      setAuthError(null);
+      setShowAuthModal(false);
+    }
+    setAuthSubmitLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSupabaseUser(null);
+    window.location.reload();
+  };
   
   // QR Join Table States
   const [showJoinTableModal, setShowJoinTableModal] = useState(false);
@@ -1315,9 +1401,8 @@ const App: React.FC = () => {
     if (!profileUsername.trim()) return;
     setProfileSaveState(prev => ({ ...prev, username: 'loading' }));
     try {
-      // Prüfen ob Name bereits vergeben
       const checkRes = await fetch(
-        `/api/users/check-username?username=${encodeURIComponent(profileUsername.trim())}&currentUserId=${user?.id || ''}`
+        `/api/users/check-username?username=${encodeURIComponent(profileUsername.trim())}&currentUserId=${supabaseUser?.id || ''}`
       );
       const checkJson = await checkRes.json();
 
@@ -1330,12 +1415,10 @@ const App: React.FC = () => {
         return;
       }
 
-      // Name ist frei → speichern
-      if (user?.username !== undefined) {
-        await user?.update({ username: profileUsername.trim() });
-      } else {
-        await user?.update({ firstName: profileUsername.trim() });
-      }
+      const { error } = await supabase.auth.updateUser({
+        data: { username: profileUsername.trim() }
+      });
+      if (error) throw error;
       setProfileSaveState(prev => ({ ...prev, username: 'success' }));
       setProfileSaveMessage(prev => ({ ...prev, username: 'Nutzername gespeichert!' }));
     } catch (err: any) {
@@ -1345,18 +1428,17 @@ const App: React.FC = () => {
   };
 
   const handleDeleteProfile = async () => {
-    if (deleteProfileInput !== 'delete') return;
+    if (deleteProfileInput !== 'delete' || !supabaseUser) return;
     setDeletingProfile(true);
     try {
       const res = await fetch('/api/users/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user?.id })
+        body: JSON.stringify({ userId: supabaseUser.id })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      await signOut();
-      window.location.reload();
+      await handleSignOut();
     } catch (err: any) {
       alert(`Fehler beim Löschen: ${err.message}`);
     } finally {
@@ -1536,6 +1618,7 @@ const App: React.FC = () => {
   const [resultsSaved, setResultsSaved] = useState(false);
   const [showExitWithoutSaveConfirm, setShowExitWithoutSaveConfirm] = useState(false);
   const [csvNames, setCsvNames] = useState<string[]>([]);
+  const [csvNamesError, setCsvNamesError] = useState<string | null>(null);
   const [saveModalLoadingCsv, setSaveModalLoadingCsv] = useState(false);
   const [saveModalCsvError, setSaveModalCsvError] = useState<string | null>(null);
   const [saveModalChecked, setSaveModalChecked] = useState<Record<string, boolean>>({});
@@ -1566,6 +1649,37 @@ const App: React.FC = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [qrExpiry]);
+
+  const loadCsvNames = async () => {
+    try {
+      const res = await fetch('/api/records');
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Non-JSON: ${text.substring(0, 100)}`);
+      }
+      const json = await res.json();
+
+      // Alle eindeutigen Spielernamen aus CSV extrahieren
+      const allRows = json.data || [];
+      const uniqueNames = [...new Set(
+        allRows
+          .filter((row: string[]) => row[2] && row[2] !== 'Name')
+          .map((row: string[]) => row[2])
+      )].sort();
+
+      setCsvNames(uniqueNames as string[]);
+    } catch (err: any) {
+      console.error('CSV Namen laden Fehler:', err);
+      setCsvNamesError(err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (showAdminPanel) {
+      loadCsvNames();
+    }
+  }, [showAdminPanel]);
 
   // Function to open Admin Panel and load users
   const openAdminPanel = async () => {
@@ -1600,11 +1714,11 @@ const App: React.FC = () => {
 
   // Sync profile form states when Profile Modal opens
   useEffect(() => {
-    if (showProfileModal && user) {
+    if (showProfileModal && supabaseUser) {
       setProfileTab('profil');
-      setProfileUsername(user.username || user.firstName || '');
-      setProfileEmail(user.emailAddresses?.[0]?.emailAddress || '');
-      setProfileShowRecords(user.publicMetadata?.showRecords !== false);
+      setProfileUsername(supabaseUser.user_metadata?.username || '');
+      setProfileEmail(supabaseUser.email || '');
+      setProfileShowRecords(supabaseUser.user_metadata?.showRecords !== false);
       setProfileCurrentPw('');
       setProfileNewPw('');
       setProfileNewPwConfirm('');
@@ -1612,7 +1726,7 @@ const App: React.FC = () => {
       setProfileSaveState({});
       setProfileSaveMessage({});
     }
-  }, [showProfileModal, user]);
+  }, [showProfileModal, supabaseUser]);
 
   // QR Scanner lifecycle effect
   useEffect(() => {
@@ -1662,14 +1776,13 @@ const App: React.FC = () => {
   }, [showQrScanner, scanningForPlayerId]);
 
   const generateQrCode = () => {
-    if (!user) return;
-    const clerkName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.username || user.emailAddresses?.[0]?.emailAddress || 'Spieler';
+    if (!supabaseUser) return;
+    const userName = supabaseUser.user_metadata?.username || supabaseUser.email || 'Spieler';
     const expires = Date.now() + 5 * 60 * 1000;
     const qrPayload = {
-      userId: user.id,
-      userName: clerkName,
-      email: user.emailAddresses?.[0]?.emailAddress,
-      imageUrl: user.imageUrl || null,
+      userId: supabaseUser.id,
+      userName: userName,
+      imageUrl: supabaseUser.user_metadata?.avatar_url || null,
       timestamp: Date.now(),
       expires,
     };
@@ -3360,20 +3473,18 @@ const App: React.FC = () => {
           initialMappings[it.id] = match || '__NEW__';
         });
 
-        // Teil 5: Wenn eingeloggt: versuche den eigenen Namen / Clerk Name zuzuordnen
-        if (isSignedIn && user) {
-          const clerkName = user.firstName
-            ? `${user.firstName} ${user.lastName || ''}`.trim()
-            : user.username || user.emailAddresses[0]?.emailAddress || '';
-          if (clerkName) {
+        // Teil 5: Wenn eingeloggt: versuche den eigenen Namen zuzuordnen
+        if (isSignedIn && supabaseUser) {
+          const userName = supabaseUser.user_metadata?.username || supabaseUser.email || '';
+          if (userName) {
             const matchingItem = guestItems.find(it =>
-              it.name.toLowerCase() === clerkName.toLowerCase() ||
-              clerkName.toLowerCase().includes(it.name.toLowerCase()) ||
-              it.name.toLowerCase().includes(clerkName.toLowerCase())
+              it.name.toLowerCase() === userName.toLowerCase() ||
+              userName.toLowerCase().includes(it.name.toLowerCase()) ||
+              it.name.toLowerCase().includes(userName.toLowerCase())
             );
             if (matchingItem) {
-              const matchedCsv = sorted.find(c => c.trim().toLowerCase() === clerkName.toLowerCase());
-              initialMappings[matchingItem.id] = matchedCsv || clerkName;
+              const matchedCsv = sorted.find(c => c.trim().toLowerCase() === userName.toLowerCase());
+              initialMappings[matchingItem.id] = matchedCsv || userName;
             }
           }
         }
@@ -3614,24 +3725,22 @@ const App: React.FC = () => {
     }
   };
 
-  // Auto-fill player 1 name from Clerk account if signed in
+  // Auto-fill player 1 name from Supabase account if signed in
   useEffect(() => {
-    if (isSignedIn && user && gameState === GameState.PLAYER_NAMES && players.length > 0) {
-      const clerkName = user.firstName
-        ? `${user.firstName} ${user.lastName || ''}`.trim()
-        : user.username || user.emailAddresses?.[0]?.emailAddress || '';
+    if (isSignedIn && supabaseUser && gameState === GameState.PLAYER_NAMES && players.length > 0) {
+      const userName = supabaseUser.user_metadata?.username || supabaseUser.email || '';
 
-      if (clerkName && (!players[0].name || players[0].name.trim() === '')) {
+      if (userName && (!players[0].name || players[0].name.trim() === '')) {
         setPlayers(prev => prev.map((p, i) =>
-          i === 0 ? { ...p, name: clerkName } : p
+          i === 0 ? { ...p, name: userName } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
-          [players[0].id]: { userId: user.id, userName: clerkName }
+          [players[0].id]: { userId: supabaseUser.id, userName, imageUrl: supabaseUser.user_metadata?.avatar_url }
         }));
       }
     }
-  }, [gameState, isSignedIn, user]);
+  }, [gameState, isSignedIn, supabaseUser]);
 
   const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
@@ -3647,7 +3756,7 @@ const App: React.FC = () => {
             <>
               <button
                 type="button"
-                onClick={() => openSignIn()}
+                onClick={() => { setAuthMode('login'); setAuthError(null); setShowAuthModal(true); }}
                 className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
                 style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
               >
@@ -3655,7 +3764,7 @@ const App: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => openSignUp()}
+                onClick={() => { setAuthMode('register'); setAuthError(null); setShowAuthModal(true); }}
                 className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
                 style={{ backgroundColor: BRAND_COLOR }}
               >
@@ -3670,18 +3779,24 @@ const App: React.FC = () => {
                   if (!recordsData || recordsData.length === 0) fetchRecords();
                   setShowProfileModal(true);
                 }}
-                className="px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
+                className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
                 style={{ backgroundColor: BRAND_COLOR }}
               >
-                {user?.imageUrl ? (
-                  <img src={user.imageUrl} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
+                {supabaseUser?.user_metadata?.avatar_url ? (
+                  <img src={supabaseUser.user_metadata.avatar_url} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
                 ) : (
                   <i className="fas fa-user"></i>
                 )}
                 <span>Profil verwalten</span>
                 {isAdmin && <span className="text-yellow-300">👑</span>}
               </button>
-              <UserButton afterSignOutUrl="/" />
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="px-3 py-2 rounded-xl border border-gray-500/30 font-bold text-xs opacity-60 hover:opacity-100 cursor-pointer"
+              >
+                <i className="fas fa-sign-out-alt"></i>
+              </button>
             </div>
           )}
           <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30 cursor-pointer">
@@ -8305,14 +8420,14 @@ const App: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <span>Benutzer ID:</span>
-                    <span className="font-mono text-[10px] opacity-75">{user?.id}</span>
+                    <span className="font-mono text-[10px] opacity-75">{supabaseUser?.id}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span>Rolle:</span>
                     <span className="font-bold text-red-500">👑 Admin</span>
                   </div>
                   <div className="text-[10px] opacity-60 pt-2 border-t border-gray-500/20">
-                    Hinweis: Nutzerverwaltung &amp; Admin-Rollen werden im Clerk Dashboard verwaltet (Public Metadata: &#123; "role": "admin" &#125;).
+                    Hinweis: Nutzerverwaltung &amp; Admin-Rollen werden im Supabase Dashboard verwaltet (user_metadata: &#123; "role": "admin" &#125;).
                   </div>
                 </div>
               )}
@@ -8341,10 +8456,20 @@ const App: React.FC = () => {
                         <option key={name} value={name}>{name}</option>
                       ))}
                     </select>
+
+                    {csvNamesError && (
+                      <p className="text-xs text-red-500 font-bold mt-1">❌ {csvNamesError}</p>
+                    )}
+
+                    {csvNames.length === 0 && !csvNamesError && (
+                      <p className="text-xs text-amber-500 font-bold mt-1">
+                        ⚠️ Keine CSV-Einträge gefunden
+                      </p>
+                    )}
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">Clerk-Account wählen:</label>
+                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">Account wählen:</label>
                     <select
                       value={assignTargetUserId}
                       onChange={e => {
@@ -8424,7 +8549,7 @@ const App: React.FC = () => {
                       type="button"
                       disabled={!assignCsvName || !assignTargetUserId || assignSubmitting}
                       onClick={async () => {
-                        if (!assignCsvName || !assignTargetUserId || !user) return;
+                        if (!assignCsvName || !assignTargetUserId || !supabaseUser) return;
                         setAssignSubmitting(true);
                         setAssignMessage(null);
                         try {
@@ -8432,7 +8557,7 @@ const App: React.FC = () => {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                              requesterUserId: user.id,
+                              requesterUserId: supabaseUser.id,
                               csvName: assignCsvName,
                               targetUserId: assignTargetUserId
                             })
@@ -8499,10 +8624,10 @@ const App: React.FC = () => {
 
             <div className="mb-4">
               <div className="font-bold text-sm">
-                {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || 'Benutzer'}
+                {supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Benutzer'}
               </div>
               <div className="text-xs opacity-60">
-                {user?.emailAddresses?.[0]?.emailAddress}
+                {supabaseUser?.email}
               </div>
             </div>
 
@@ -8607,7 +8732,7 @@ const App: React.FC = () => {
               <>
                 {/* Custom User Stats */}
                 {(() => {
-                  const currentUserName = (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || user?.emailAddresses?.[0]?.emailAddress || '').toLowerCase();
+                  const currentUserName = (supabaseUser?.user_metadata?.username || supabaseUser?.email || '').toLowerCase();
                   let gamesPlayed = 0;
                   let totalSchnaepse = 0;
                   let bestAvg = null as number | null;
@@ -8658,12 +8783,12 @@ const App: React.FC = () => {
 
                 {/* Custom Profile Forms */}
                 <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-                  {profileSaveMessage && (
+                  {profileSaveMessageOld && (
                     <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between ${
-                      profileSaveMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                      profileSaveMessageOld.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
                     }`}>
-                      <span>{profileSaveMessage.text}</span>
-                      <button type="button" onClick={() => setProfileSaveMessage(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
+                      <span>{profileSaveMessageOld.text}</span>
+                      <button type="button" onClick={() => setProfileSaveMessageOld(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
                     </div>
                   )}
 
@@ -8675,11 +8800,11 @@ const App: React.FC = () => {
                     </h4>
                     <div className="flex items-center space-x-4">
                       <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-slate-700 flex items-center justify-center flex-shrink-0 shadow">
-                        {user?.imageUrl ? (
-                          <img src={user.imageUrl} alt="Avatar" className="w-full h-full object-cover" />
+                        {supabaseUser?.user_metadata?.avatar_url ? (
+                          <img src={supabaseUser.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
                           <span className="text-2xl font-black text-gray-300">
-                            {(user?.firstName || user?.username || 'U')[0].toUpperCase()}
+                            {(supabaseUser?.user_metadata?.username || supabaseUser?.email || 'U')[0].toUpperCase()}
                           </span>
                         )}
                       </div>
@@ -8693,14 +8818,29 @@ const App: React.FC = () => {
                             className="hidden"
                             onChange={async (e) => {
                               const file = e.target.files?.[0];
-                              if (!file || !user) return;
+                              if (!file || !supabaseUser) return;
                               setProfileLoadingSection('avatar');
-                              setProfileSaveMessage(null);
+                              setProfileSaveMessageOld(null);
                               try {
-                                await user.setProfileImage({ file });
-                                setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
+                                let avatarUrl = '';
+                                const { data, error: uploadErr } = await supabase.storage
+                                  .from('avatars')
+                                  .upload(`${supabaseUser.id}/avatar_${Date.now()}.jpg`, file, { upsert: true });
+
+                                if (!uploadErr && data) {
+                                  avatarUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl;
+                                } else {
+                                  avatarUrl = await new Promise<string>((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  });
+                                }
+                                const { error } = await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
+                                if (error) throw error;
+                                setProfileSaveMessageOld({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
                               } catch (err: any) {
-                                setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Hochladen' });
+                                setProfileSaveMessageOld({ section: 'avatar', type: 'error', text: err.message || 'Fehler beim Hochladen' });
                               } finally {
                                 setProfileLoadingSection(null);
                               }
@@ -8711,14 +8851,15 @@ const App: React.FC = () => {
                           type="button"
                           disabled={profileLoadingSection === 'avatar'}
                           onClick={async () => {
-                            if (!user) return;
+                            if (!supabaseUser) return;
                             setProfileLoadingSection('avatar');
-                            setProfileSaveMessage(null);
+                            setProfileSaveMessageOld(null);
                             try {
-                              await user.setProfileImage({ file: null });
-                              setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
+                              const { error } = await supabase.auth.updateUser({ data: { avatar_url: null } });
+                              if (error) throw error;
+                              setProfileSaveMessageOld({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
                             } catch (err: any) {
-                              setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Entfernen' });
+                              setProfileSaveMessageOld({ section: 'avatar', type: 'error', text: err.message || 'Fehler beim Entfernen' });
                             } finally {
                               setProfileLoadingSection(null);
                             }
@@ -8788,15 +8929,15 @@ const App: React.FC = () => {
                         type="button"
                         disabled={profileLoadingSection === 'email' || !profileEmail.trim()}
                         onClick={async () => {
-                          if (!user || !profileEmail.trim()) return;
+                          if (!supabaseUser || !profileEmail.trim()) return;
                           setProfileLoadingSection('email');
-                          setProfileSaveMessage(null);
+                          setProfileSaveMessageOld(null);
                           try {
-                            const emailObj = await user.createEmailAddress({ email: profileEmail.trim() });
-                            await emailObj.prepareVerification({ strategy: 'email_code' });
-                            setProfileSaveMessage({ section: 'email', type: 'success', text: 'Bestätigungs-Code per E-Mail gesendet! Bitte prüfe dein Postfach.' });
+                            const { error } = await supabase.auth.updateUser({ email: profileEmail.trim() });
+                            if (error) throw error;
+                            setProfileSaveMessageOld({ section: 'email', type: 'success', text: 'Bestätigungs-E-Mail gesendet! Bitte prüfe dein Postfach.' });
                           } catch (err: any) {
-                            setProfileSaveMessage({ section: 'email', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern der E-Mail' });
+                            setProfileSaveMessageOld({ section: 'email', type: 'error', text: err.message || 'Fehler beim Speichern der E-Mail' });
                           } finally {
                             setProfileLoadingSection(null);
                           }
@@ -8839,26 +8980,24 @@ const App: React.FC = () => {
                       />
                       <button
                         type="button"
-                        disabled={profileLoadingSection === 'password' || !profileCurrentPw || !profileNewPw}
+                        disabled={profileLoadingSection === 'password' || !profileNewPw}
                         onClick={async () => {
-                          if (!user) return;
+                          if (!supabaseUser) return;
                           if (profileNewPw !== profileNewPwConfirm) {
-                            setProfileSaveMessage({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
+                            setProfileSaveMessageOld({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
                             return;
                           }
                           setProfileLoadingSection('password');
-                          setProfileSaveMessage(null);
+                          setProfileSaveMessageOld(null);
                           try {
-                            await user.updatePassword({
-                              currentPassword: profileCurrentPw,
-                              newPassword: profileNewPw
-                            });
+                            const { error } = await supabase.auth.updateUser({ password: profileNewPw });
+                            if (error) throw error;
                             setProfileCurrentPw('');
                             setProfileNewPw('');
                             setProfileNewPwConfirm('');
-                            setProfileSaveMessage({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
+                            setProfileSaveMessageOld({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
                           } catch (err: any) {
-                            setProfileSaveMessage({ section: 'password', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Ändern des Passworts' });
+                            setProfileSaveMessageOld({ section: 'password', type: 'error', text: err.message || 'Fehler beim Ändern des Passworts' });
                           } finally {
                             setProfileLoadingSection(null);
                           }
@@ -8893,28 +9032,18 @@ const App: React.FC = () => {
                       type="button"
                       disabled={profileLoadingSection === 'privacy'}
                       onClick={async () => {
-                        if (!user) return;
+                        if (!supabaseUser) return;
                         setProfileLoadingSection('privacy');
-                        setProfileSaveMessage(null);
+                        setProfileSaveMessageOld(null);
                         try {
-                          const res = await fetch('/api/users/update-privacy', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              userId: user.id,
-                              showRecords: profileShowRecords
-                            })
+                          const { error } = await supabase.auth.updateUser({
+                            data: { showRecords: profileShowRecords }
                           });
-                          const json = await res.json();
-                          if (res.ok) {
-                            await user.reload();
-                            setProfileSaveMessage({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
-                            fetchRecords();
-                          } else {
-                            setProfileSaveMessage({ section: 'privacy', type: 'error', text: json.error || 'Fehler beim Speichern.' });
-                          }
+                          if (error) throw error;
+                          setProfileSaveMessageOld({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
+                          fetchRecords();
                         } catch (err: any) {
-                          setProfileSaveMessage({ section: 'privacy', type: 'error', text: err.message || 'Verbindungsfehler' });
+                          setProfileSaveMessageOld({ section: 'privacy', type: 'error', text: err.message || 'Fehler beim Speichern.' });
                         } finally {
                           setProfileLoadingSection(null);
                         }
@@ -8931,7 +9060,7 @@ const App: React.FC = () => {
                     {/* Ausloggen */}
                     <button
                       type="button"
-                      onClick={() => signOut()}
+                      onClick={() => handleSignOut()}
                       className="w-full py-3 rounded-2xl border-2 font-bold flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition-all"
                       style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
                     >
@@ -9123,6 +9252,83 @@ const App: React.FC = () => {
                 className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 {deletingProfile ? 'Wird gelöscht...' : 'Löschen bestätigen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AUTH MODAL (LOGIN / REGISTER) */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-[800] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className={`w-full md:max-w-sm rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20">
+              <h3 className="text-xl font-black" style={{ color: BRAND_COLOR }}>
+                {authMode === 'login' ? '🔑 Anmelden' : '✨ Registrieren'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(false)}
+                className="opacity-50 hover:opacity-100 text-xl font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {authMode === 'register' && (
+                <div>
+                  <label className="text-xs font-black uppercase opacity-60 block mb-1">Nutzername</label>
+                  <input
+                    type="text"
+                    value={authUsername}
+                    onChange={e => setAuthUsername(e.target.value)}
+                    placeholder="dein_nutzername"
+                    className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                  />
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-black uppercase opacity-60 block mb-1">E-Mail</label>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                  placeholder="email@beispiel.de"
+                  className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase opacity-60 block mb-1">Passwort</label>
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                />
+              </div>
+              {authError && (
+                <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
+              )}
+              <button
+                type="button"
+                onClick={authMode === 'login' ? handleSignIn : handleSignUp}
+                disabled={authSubmitLoading}
+                className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                {authSubmitLoading ? '...' : authMode === 'login' ? 'Anmelden' : 'Registrieren'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  setAuthError(null);
+                }}
+                className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
+              >
+                {authMode === 'login' ? 'Noch kein Account? Registrieren' : 'Bereits registriert? Anmelden'}
               </button>
             </div>
           </div>

@@ -1,19 +1,16 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { createClerkClient } from "@clerk/backend";
+import { createClient } from "@supabase/supabase-js";
 
-const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || 'placeholder-secret-key';
 
-if (!clerkSecretKey) {
-  console.error('CLERK_SECRET_KEY fehlt in Environment Variables!');
-} else {
-  console.log('CLERK_SECRET_KEY vorhanden:', clerkSecretKey.substring(0, 10) + '...');
+if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+  console.warn('VITE_SUPABASE_URL oder SUPABASE_SECRET_KEY fehlt in Environment Variables!');
 }
 
-export const clerk = createClerkClient({
-  secretKey: clerkSecretKey || ''
-});
+export const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey);
 
 import uploadHandler from "./api/upload";
 import recordsHandler from "./api/records";
@@ -50,16 +47,17 @@ app.get("/api/users/list", usersListHandler);
 app.post("/api/users/update-privacy", updatePrivacyHandler);
 app.get("/api/users/public-records", publicRecordsHandler);
 app.post("/api/users/save-result", saveResultHandler);
+
 app.get('/api/users/check-username', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { username, currentUserId } = req.query as { username?: string; currentUserId?: string };
     if (!username) return res.status(400).json({ error: 'Username fehlt' });
 
-    const users = await clerk.users.getUserList({ limit: 100 });
-    const taken = users.data.some(u =>
-      (u.username?.toLowerCase() === username.toLowerCase() ||
-       (`${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase() === username.toLowerCase())) &&
+    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error) throw error;
+    const taken = (users || []).some((u: any) =>
+      (u.user_metadata?.username?.toLowerCase() === username.toLowerCase()) &&
       u.id !== currentUserId
     );
     return res.status(200).json({ taken, username });
@@ -67,13 +65,31 @@ app.get('/api/users/check-username', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
 app.post('/api/users/delete', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId fehlt' });
-    await clerk.users.deleteUser(userId);
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) throw error;
     return res.status(200).json({ message: 'Account gelöscht' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/set-role', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { targetUserId, role } = req.body;
+    const { data: { user }, error: getErr } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
+    if (getErr || !user) throw getErr || new Error('User nicht gefunden');
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+      user_metadata: { ...user.user_metadata, role }
+    });
+    if (error) throw error;
+    return res.status(200).json({ message: 'Rolle gesetzt' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

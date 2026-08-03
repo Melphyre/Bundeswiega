@@ -1275,7 +1275,7 @@ const KLASSISCH_TARGETS: Record<number, string> = {
 
 const App: React.FC = () => {
   const { isSignedIn, user } = useUser();
-  const { openSignIn, openSignUp } = useClerk();
+  const { openSignIn, openSignUp, signOut } = useClerk();
   const isAdmin = (user?.publicMetadata?.role as string) === 'admin' || (user?.unsafeMetadata?.role as string) === 'admin';
   
   // QR Join Table States
@@ -1294,6 +1294,12 @@ const App: React.FC = () => {
 
   // Profile Modal State
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde'>('profil');
+  const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
+  const [deleteProfileInput, setDeleteProfileInput] = useState('');
+  const [deletingProfile, setDeletingProfile] = useState(false);
+  const [recordsSortBy, setRecordsSortBy] = useState<'datum' | 'avg' | 'schnaepse' | 'total'>('datum');
+  const [recordsSortDir, setRecordsSortDir] = useState<'asc' | 'desc'>('desc');
   const [profileUsername, setProfileUsername] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
   const [profileCurrentPw, setProfileCurrentPw] = useState('');
@@ -1302,6 +1308,42 @@ const App: React.FC = () => {
   const [profileShowRecords, setProfileShowRecords] = useState(true);
   const [profileSaveMessage, setProfileSaveMessage] = useState<{ section: string; type: 'success' | 'error'; text: string } | null>(null);
   const [profileLoadingSection, setProfileLoadingSection] = useState<string | null>(null);
+
+  const handleDeleteProfile = async () => {
+    if (deleteProfileInput !== 'delete') return;
+    setDeletingProfile(true);
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      await signOut();
+      window.location.reload();
+    } catch (err: any) {
+      alert(`Fehler beim Löschen: ${err.message}`);
+    } finally {
+      setDeletingProfile(false);
+    }
+  };
+
+  const myGameData = (user?.publicMetadata?.gameData as any[]) || [];
+
+  const sortedGameData = [...myGameData].sort((a, b) => {
+    let valA: any, valB: any;
+    switch (recordsSortBy) {
+      case 'datum':
+        valA = new Date(a.date ? a.date.split('.').reverse().join('-') : 0).getTime();
+        valB = new Date(b.date ? b.date.split('.').reverse().join('-') : 0).getTime();
+        break;
+      case 'avg': valA = a.avg || 0; valB = b.avg || 0; break;
+      case 'schnaepse': valA = a.schnaepse || 0; valB = b.schnaepse || 0; break;
+      case 'total': valA = a.total || 0; valB = b.total || 0; break;
+    }
+    return recordsSortDir === 'asc' ? valA - valB : valB - valA;
+  });
 
   // Admin Account Assign State
   const [assignCsvName, setAssignCsvName] = useState('');
@@ -1524,6 +1566,7 @@ const App: React.FC = () => {
   // Sync profile form states when Profile Modal opens
   useEffect(() => {
     if (showProfileModal && user) {
+      setProfileTab('profil');
       setProfileUsername(user.username || user.firstName || '');
       setProfileEmail(user.emailAddresses?.[0]?.emailAddress || '');
       setProfileShowRecords(user.publicMetadata?.showRecords !== false);
@@ -8497,330 +8540,500 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            {/* Custom User Stats */}
-            {(() => {
-              const currentUserName = (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || user?.emailAddresses?.[0]?.emailAddress || '').toLowerCase();
-              let gamesPlayed = 0;
-              let totalSchnaepse = 0;
-              let bestAvg = null as number | null;
-              let totalAchievementsCount = 0;
+            {/* Reiter Header */}
+            <div className="flex border-b border-gray-500/20 px-6">
+              <button
+                type="button"
+                onClick={() => setProfileTab('profil')}
+                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer ${
+                  profileTab === 'profil'
+                    ? 'border-[#238183] text-[#238183]'
+                    : 'border-transparent opacity-50'
+                }`}
+              >
+                👤 Profil
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileTab('rekorde')}
+                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer ${
+                  profileTab === 'rekorde'
+                    ? 'border-[#238183] text-[#238183]'
+                    : 'border-transparent opacity-50'
+                }`}
+              >
+                📊 Rekorde
+              </button>
+            </div>
 
-              if (recordsData && Array.isArray(recordsData)) {
-                recordsData.forEach(row => {
-                  const pName = String(row[1] || '').trim().toLowerCase();
-                  if (pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) {
-                    gamesPlayed += 1;
-                    const schnaepse = parseInt(row[4]) || 0;
-                    totalSchnaepse += schnaepse;
-                    const avg = parseFloat(row[3]);
-                    if (!isNaN(avg)) {
-                      if (bestAvg === null || avg < bestAvg) bestAvg = avg;
-                    }
-                    if (row[5]) {
-                      try {
-                        const parsedAch = typeof row[5] === 'string' ? JSON.parse(row[5]) : row[5];
-                        if (Array.isArray(parsedAch)) totalAchievementsCount += parsedAch.length;
-                      } catch (e) {}
-                    }
+            {profileTab === 'profil' && (
+              <>
+                {/* Custom User Stats */}
+                {(() => {
+                  const currentUserName = (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.username || user?.emailAddresses?.[0]?.emailAddress || '').toLowerCase();
+                  let gamesPlayed = 0;
+                  let totalSchnaepse = 0;
+                  let bestAvg = null as number | null;
+                  let totalAchievementsCount = 0;
+
+                  if (recordsData && Array.isArray(recordsData)) {
+                    recordsData.forEach(row => {
+                      const pName = String(row[1] || '').trim().toLowerCase();
+                      if (pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) {
+                        gamesPlayed += 1;
+                        const schnaepse = parseInt(row[4]) || 0;
+                        totalSchnaepse += schnaepse;
+                        const avg = parseFloat(row[3]);
+                        if (!isNaN(avg)) {
+                          if (bestAvg === null || avg < bestAvg) bestAvg = avg;
+                        }
+                        if (row[5]) {
+                          try {
+                            const parsedAch = typeof row[5] === 'string' ? JSON.parse(row[5]) : row[5];
+                            if (Array.isArray(parsedAch)) totalAchievementsCount += parsedAch.length;
+                          } catch (e) {}
+                        }
+                      }
+                    });
                   }
-                });
-              }
 
-              return (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-emerald-400">{gamesPlayed}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-amber-400">{totalSchnaepse} 🥃</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-cyan-400">{bestAvg !== null ? `${bestAvg.toFixed(1)}g` : '-'}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-purple-400">{totalAchievementsCount} 🏆</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
-                  </div>
-                </div>
-              );
-            })()}
+                  return (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="text-2xl font-black text-emerald-400">{gamesPlayed}</div>
+                        <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
+                      </div>
+                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="text-2xl font-black text-amber-400">{totalSchnaepse} 🥃</div>
+                        <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
+                      </div>
+                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="text-2xl font-black text-cyan-400">{bestAvg !== null ? `${bestAvg.toFixed(1)}g` : '-'}</div>
+                        <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
+                      </div>
+                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="text-2xl font-black text-purple-400">{totalAchievementsCount} 🏆</div>
+                        <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-            {/* Custom Profile Forms */}
-            <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-              {profileSaveMessage && (
-                <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between ${
-                  profileSaveMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
-                }`}>
-                  <span>{profileSaveMessage.text}</span>
-                  <button type="button" onClick={() => setProfileSaveMessage(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
-                </div>
-              )}
+                {/* Custom Profile Forms */}
+                <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+                  {profileSaveMessage && (
+                    <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between ${
+                      profileSaveMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                    }`}>
+                      <span>{profileSaveMessage.text}</span>
+                      <button type="button" onClick={() => setProfileSaveMessage(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
+                    </div>
+                  )}
 
-              {/* 1. Profilbild */}
-              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                  <i className="fas fa-camera"></i>
-                  <span>Profilbild</span>
-                </h4>
-                <div className="flex items-center space-x-4">
-                  <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-slate-700 flex items-center justify-center flex-shrink-0 shadow">
-                    {user?.imageUrl ? (
-                      <img src={user.imageUrl} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-2xl font-black text-gray-300">
-                        {(user?.firstName || user?.username || 'U')[0].toUpperCase()}
-                      </span>
-                    )}
+                  {/* 1. Profilbild */}
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                      <i className="fas fa-camera"></i>
+                      <span>Profilbild</span>
+                    </h4>
+                    <div className="flex items-center space-x-4">
+                      <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-slate-700 flex items-center justify-center flex-shrink-0 shadow">
+                        {user?.imageUrl ? (
+                          <img src={user.imageUrl} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-2xl font-black text-gray-300">
+                            {(user?.firstName || user?.username || 'U')[0].toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="py-2.5 px-4 rounded-xl text-white font-bold text-xs cursor-pointer active:scale-95 shadow flex items-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
+                          <i className="fas fa-upload"></i>
+                          <span>📷 Bild hochladen</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file || !user) return;
+                              setProfileLoadingSection('avatar');
+                              setProfileSaveMessage(null);
+                              try {
+                                await user.setProfileImage({ file });
+                                setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
+                              } catch (err: any) {
+                                setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Hochladen' });
+                              } finally {
+                                setProfileLoadingSection(null);
+                              }
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={profileLoadingSection === 'avatar'}
+                          onClick={async () => {
+                            if (!user) return;
+                            setProfileLoadingSection('avatar');
+                            setProfileSaveMessage(null);
+                            try {
+                              await user.setProfileImage({ file: null });
+                              setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
+                            } catch (err: any) {
+                              setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Entfernen' });
+                            } finally {
+                              setProfileLoadingSection(null);
+                            }
+                          }}
+                          className="py-2.5 px-4 rounded-xl border-2 border-red-500/40 text-red-400 font-bold text-xs hover:bg-red-500/10 active:scale-95 cursor-pointer"
+                        >
+                          Bild entfernen
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <label className="py-2.5 px-4 rounded-xl text-white font-bold text-xs cursor-pointer active:scale-95 shadow flex items-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
-                      <i className="fas fa-upload"></i>
-                      <span>📷 Bild hochladen</span>
+
+                  {/* 2. Nutzername */}
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                      <i className="fas fa-user"></i>
+                      <span>Nutzername</span>
+                    </h4>
+                    <div className="flex gap-2">
                       <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file || !user) return;
-                          setProfileLoadingSection('avatar');
+                        type="text"
+                        value={profileUsername}
+                        onChange={e => setProfileUsername(e.target.value)}
+                        placeholder="Nutzername"
+                        className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                      />
+                      <button
+                        type="button"
+                        disabled={profileLoadingSection === 'username' || !profileUsername.trim()}
+                        onClick={async () => {
+                          if (!user || !profileUsername.trim()) return;
+                          setProfileLoadingSection('username');
                           setProfileSaveMessage(null);
                           try {
-                            await user.setProfileImage({ file });
-                            setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
+                            if (user.username !== undefined) {
+                              await user.update({ username: profileUsername.trim() });
+                            } else {
+                              await user.update({ firstName: profileUsername.trim() });
+                            }
+                            setProfileSaveMessage({ section: 'username', type: 'success', text: 'Nutzername erfolgreich gespeichert!' });
                           } catch (err: any) {
-                            setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Hochladen' });
+                            setProfileSaveMessage({ section: 'username', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern' });
                           } finally {
                             setProfileLoadingSection(null);
                           }
                         }}
+                        className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: BRAND_COLOR }}
+                      >
+                        {profileLoadingSection === 'username' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. E-Mail Adresse */}
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                      <i className="fas fa-envelope"></i>
+                      <span>E-Mail Adresse</span>
+                    </h4>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={profileEmail}
+                        onChange={e => setProfileEmail(e.target.value)}
+                        placeholder="E-Mail Adresse"
+                        className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
                       />
-                    </label>
+                      <button
+                        type="button"
+                        disabled={profileLoadingSection === 'email' || !profileEmail.trim()}
+                        onClick={async () => {
+                          if (!user || !profileEmail.trim()) return;
+                          setProfileLoadingSection('email');
+                          setProfileSaveMessage(null);
+                          try {
+                            const emailObj = await user.createEmailAddress({ email: profileEmail.trim() });
+                            await emailObj.prepareVerification({ strategy: 'email_code' });
+                            setProfileSaveMessage({ section: 'email', type: 'success', text: 'Bestätigungs-Code per E-Mail gesendet! Bitte prüfe dein Postfach.' });
+                          } catch (err: any) {
+                            setProfileSaveMessage({ section: 'email', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern der E-Mail' });
+                          } finally {
+                            setProfileLoadingSection(null);
+                          }
+                        }}
+                        className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: BRAND_COLOR }}
+                      >
+                        {profileLoadingSection === 'email' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4. Passwort ändern */}
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                      <i className="fas fa-key"></i>
+                      <span>Passwort ändern</span>
+                    </h4>
+                    <div className="space-y-3">
+                      <input
+                        type="password"
+                        value={profileCurrentPw}
+                        onChange={e => setProfileCurrentPw(e.target.value)}
+                        placeholder="Aktuelles Passwort"
+                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                      />
+                      <input
+                        type="password"
+                        value={profileNewPw}
+                        onChange={e => setProfileNewPw(e.target.value)}
+                        placeholder="Neues Passwort"
+                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                      />
+                      <input
+                        type="password"
+                        value={profileNewPwConfirm}
+                        onChange={e => setProfileNewPwConfirm(e.target.value)}
+                        placeholder="Neues Passwort bestätigen"
+                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                      />
+                      <button
+                        type="button"
+                        disabled={profileLoadingSection === 'password' || !profileCurrentPw || !profileNewPw}
+                        onClick={async () => {
+                          if (!user) return;
+                          if (profileNewPw !== profileNewPwConfirm) {
+                            setProfileSaveMessage({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
+                            return;
+                          }
+                          setProfileLoadingSection('password');
+                          setProfileSaveMessage(null);
+                          try {
+                            await user.updatePassword({
+                              currentPassword: profileCurrentPw,
+                              newPassword: profileNewPw
+                            });
+                            setProfileCurrentPw('');
+                            setProfileNewPw('');
+                            setProfileNewPwConfirm('');
+                            setProfileSaveMessage({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
+                          } catch (err: any) {
+                            setProfileSaveMessage({ section: 'password', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Ändern des Passworts' });
+                          } finally {
+                            setProfileLoadingSection(null);
+                          }
+                        }}
+                        className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: BRAND_COLOR }}
+                      >
+                        {profileLoadingSection === 'password' ? <i className="fas fa-spinner animate-spin"></i> : 'Passwort ändern'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 5. Datenschutz & Sichtbarkeit */}
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                      <i className="fas fa-shield-alt"></i>
+                      <span>Datenschutz &amp; Sichtbarkeit</span>
+                    </h4>
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="showRecordsCheck"
+                        checked={profileShowRecords}
+                        onChange={e => setProfileShowRecords(e.target.checked)}
+                        className="w-5 h-5 accent-[#238183] cursor-pointer"
+                      />
+                      <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
+                        Meine Statistiken in der öffentlichen Rekorde-Tabelle anzeigen
+                      </label>
+                    </div>
                     <button
                       type="button"
-                      disabled={profileLoadingSection === 'avatar'}
+                      disabled={profileLoadingSection === 'privacy'}
                       onClick={async () => {
                         if (!user) return;
-                        setProfileLoadingSection('avatar');
+                        setProfileLoadingSection('privacy');
                         setProfileSaveMessage(null);
                         try {
-                          await user.setProfileImage({ file: null });
-                          setProfileSaveMessage({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
+                          const res = await fetch('/api/users/update-privacy', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              userId: user.id,
+                              showRecords: profileShowRecords
+                            })
+                          });
+                          const json = await res.json();
+                          if (res.ok) {
+                            await user.reload();
+                            setProfileSaveMessage({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
+                            fetchRecords();
+                          } else {
+                            setProfileSaveMessage({ section: 'privacy', type: 'error', text: json.error || 'Fehler beim Speichern.' });
+                          }
                         } catch (err: any) {
-                          setProfileSaveMessage({ section: 'avatar', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Entfernen' });
+                          setProfileSaveMessage({ section: 'privacy', type: 'error', text: err.message || 'Verbindungsfehler' });
                         } finally {
                           setProfileLoadingSection(null);
                         }
                       }}
-                      className="py-2.5 px-4 rounded-xl border-2 border-red-500/40 text-red-400 font-bold text-xs hover:bg-red-500/10 active:scale-95 cursor-pointer"
+                      className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: BRAND_COLOR }}
                     >
-                      Bild entfernen
+                      {profileLoadingSection === 'privacy' ? <i className="fas fa-spinner animate-spin"></i> : 'Einstellungen speichern'}
+                    </button>
+                  </div>
+
+                  {/* Ausloggen und Profil löschen */}
+                  <div className="border-t border-gray-500/20 pt-6 mt-6 space-y-3">
+                    {/* Ausloggen */}
+                    <button
+                      type="button"
+                      onClick={() => signOut()}
+                      className="w-full py-3 rounded-2xl border-2 font-bold flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition-all"
+                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                    >
+                      <i className="fas fa-sign-out-alt"></i>
+                      <span>Ausloggen</span>
+                    </button>
+
+                    {/* Profil löschen */}
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteProfileModal(true)}
+                      className="w-full py-3 rounded-2xl border-2 border-red-500 text-red-500 font-bold flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <i className="fas fa-trash"></i>
+                      <span>Profil löschen</span>
                     </button>
                   </div>
                 </div>
-              </div>
+              </>
+            )}
 
-              {/* 2. Nutzername */}
-              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                  <i className="fas fa-user"></i>
-                  <span>Nutzername</span>
-                </h4>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={profileUsername}
-                    onChange={e => setProfileUsername(e.target.value)}
-                    placeholder="Nutzername"
-                    className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                  />
-                  <button
-                    type="button"
-                    disabled={profileLoadingSection === 'username' || !profileUsername.trim()}
-                    onClick={async () => {
-                      if (!user || !profileUsername.trim()) return;
-                      setProfileLoadingSection('username');
-                      setProfileSaveMessage(null);
-                      try {
-                        if (user.username !== undefined) {
-                          await user.update({ username: profileUsername.trim() });
+            {profileTab === 'rekorde' && (
+              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+
+                {/* Statistik-Übersicht */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <p className="text-lg font-black" style={{ color: BRAND_COLOR }}>{myGameData.length}</p>
+                    <p className="text-[10px] font-bold opacity-60 uppercase">Spiele</p>
+                  </div>
+                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <p className="text-lg font-black text-emerald-500">
+                      {myGameData.length > 0
+                        ? (myGameData.reduce((s: number, r: any) => s + (r.avg || 0), 0) / myGameData.length).toFixed(1)
+                        : '-'}g
+                    </p>
+                    <p className="text-[10px] font-bold opacity-60 uppercase">Ø Abstand</p>
+                  </div>
+                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <p className="text-lg font-black text-amber-500">
+                      {myGameData.reduce((s: number, r: any) => s + (r.schnaepse || 0), 0)}
+                    </p>
+                    <p className="text-[10px] font-bold opacity-60 uppercase">Schnäpse</p>
+                  </div>
+                </div>
+
+                {/* Sortier-Buttons */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(['datum', 'avg', 'schnaepse', 'total'] as const).map(sort => (
+                    <button
+                      key={sort}
+                      type="button"
+                      onClick={() => {
+                        if (recordsSortBy === sort) {
+                          setRecordsSortDir(d => d === 'asc' ? 'desc' : 'asc');
                         } else {
-                          await user.update({ firstName: profileUsername.trim() });
+                          setRecordsSortBy(sort);
+                          setRecordsSortDir('desc');
                         }
-                        setProfileSaveMessage({ section: 'username', type: 'success', text: 'Nutzername erfolgreich gespeichert!' });
-                      } catch (err: any) {
-                        setProfileSaveMessage({ section: 'username', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern' });
-                      } finally {
-                        setProfileLoadingSection(null);
-                      }
-                    }}
-                    className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: BRAND_COLOR }}
-                  >
-                    {profileLoadingSection === 'username' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
-                  </button>
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center space-x-1 cursor-pointer transition-all ${
+                        recordsSortBy === sort
+                          ? 'text-white'
+                          : darkMode ? 'bg-white/10' : 'bg-black/10'
+                      }`}
+                      style={recordsSortBy === sort ? { backgroundColor: BRAND_COLOR } : {}}
+                    >
+                      <span>
+                        {sort === 'datum' && '📅 Datum'}
+                        {sort === 'avg' && '🎯 Durchschnitt'}
+                        {sort === 'schnaepse' && '🥂 Schnäpse'}
+                        {sort === 'total' && '📊 Total'}
+                      </span>
+                      {recordsSortBy === sort && (
+                        <i className={`fas fa-arrow-${recordsSortDir === 'asc' ? 'up' : 'down'} text-[10px]`}></i>
+                      )}
+                    </button>
+                  ))}
                 </div>
-              </div>
 
-              {/* 3. E-Mail Adresse */}
-              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                  <i className="fas fa-envelope"></i>
-                  <span>E-Mail Adresse</span>
-                </h4>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={profileEmail}
-                    onChange={e => setProfileEmail(e.target.value)}
-                    placeholder="E-Mail Adresse"
-                    className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                  />
-                  <button
-                    type="button"
-                    disabled={profileLoadingSection === 'email' || !profileEmail.trim()}
-                    onClick={async () => {
-                      if (!user || !profileEmail.trim()) return;
-                      setProfileLoadingSection('email');
-                      setProfileSaveMessage(null);
-                      try {
-                        const emailObj = await user.createEmailAddress({ email: profileEmail.trim() });
-                        await emailObj.prepareVerification({ strategy: 'email_code' });
-                        setProfileSaveMessage({ section: 'email', type: 'success', text: 'Bestätigungs-Code per E-Mail gesendet! Bitte prüfe dein Postfach.' });
-                      } catch (err: any) {
-                        setProfileSaveMessage({ section: 'email', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern der E-Mail' });
-                      } finally {
-                        setProfileLoadingSection(null);
-                      }
-                    }}
-                    className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: BRAND_COLOR }}
-                  >
-                    {profileLoadingSection === 'email' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
-                  </button>
-                </div>
-              </div>
+                {/* Spiele-Liste */}
+                {sortedGameData.length === 0 ? (
+                  <p className="text-xs opacity-60 text-center py-8">
+                    Noch keine gespeicherten Spiele.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {sortedGameData.map((r: any, idx: number) => (
+                      <div key={idx} className={`p-3 rounded-xl flex justify-between items-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                        <div>
+                          <p className="text-xs font-black">{r.gameMode}</p>
+                          <p className="text-[10px] opacity-60">{r.date}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-black text-emerald-500">Ø {r.avg?.toFixed(2)}g</p>
+                          <p className="text-[10px] opacity-60">{r.schnaepse} Pkt • Total: {r.total?.toFixed(1)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-              {/* 4. Passwort ändern */}
-              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                  <i className="fas fa-key"></i>
-                  <span>Passwort ändern</span>
-                </h4>
-                <div className="space-y-3">
-                  <input
-                    type="password"
-                    value={profileCurrentPw}
-                    onChange={e => setProfileCurrentPw(e.target.value)}
-                    placeholder="Aktuelles Passwort"
-                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                  />
-                  <input
-                    type="password"
-                    value={profileNewPw}
-                    onChange={e => setProfileNewPw(e.target.value)}
-                    placeholder="Neues Passwort"
-                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                  />
-                  <input
-                    type="password"
-                    value={profileNewPwConfirm}
-                    onChange={e => setProfileNewPwConfirm(e.target.value)}
-                    placeholder="Neues Passwort bestätigen"
-                    className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                  />
-                  <button
-                    type="button"
-                    disabled={profileLoadingSection === 'password' || !profileCurrentPw || !profileNewPw}
-                    onClick={async () => {
-                      if (!user) return;
-                      if (profileNewPw !== profileNewPwConfirm) {
-                        setProfileSaveMessage({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
-                        return;
-                      }
-                      setProfileLoadingSection('password');
-                      setProfileSaveMessage(null);
-                      try {
-                        await user.updatePassword({
-                          currentPassword: profileCurrentPw,
-                          newPassword: profileNewPw
-                        });
-                        setProfileCurrentPw('');
-                        setProfileNewPw('');
-                        setProfileNewPwConfirm('');
-                        setProfileSaveMessage({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
-                      } catch (err: any) {
-                        setProfileSaveMessage({ section: 'password', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Ändern des Passworts' });
-                      } finally {
-                        setProfileLoadingSection(null);
-                      }
-                    }}
-                    className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: BRAND_COLOR }}
-                  >
-                    {profileLoadingSection === 'password' ? <i className="fas fa-spinner animate-spin"></i> : 'Passwort ändern'}
-                  </button>
+                {/* Achievements */}
+                <div>
+                  <h4 className="font-black uppercase text-sm mb-3" style={{ color: BRAND_COLOR }}>
+                    🏆 Freigeschaltete Achievements
+                  </h4>
+                  {(() => {
+                    const myAchievements = myGameData
+                      .flatMap((r: any) => r.achievements || [])
+                      .filter((a: any, idx: number, arr: any[]) =>
+                        arr.findIndex(x => x.id === a.id) === idx
+                      );
+                    return myAchievements.length === 0 ? (
+                      <p className="text-xs opacity-60">Noch keine Achievements freigeschaltet.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {myAchievements.map((a: any) => (
+                          <div key={a.id} className={`p-2 rounded-xl flex items-center space-x-2 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                            <span className="text-lg">{a.icon}</span>
+                            <div>
+                              <p className="text-xs font-black">{a.title}</p>
+                              <p className={`text-[10px] font-bold ${
+                                a.rarity === 'legendary' ? 'text-yellow-500' :
+                                a.rarity === 'epic' ? 'text-purple-500' :
+                                a.rarity === 'rare' ? 'text-blue-500' : 'text-gray-400'
+                              }`}>{a.rarity}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
-
-              {/* 5. Datenschutz & Sichtbarkeit */}
-              <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                  <i className="fas fa-shield-alt"></i>
-                  <span>Datenschutz &amp; Sichtbarkeit</span>
-                </h4>
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="showRecordsCheck"
-                    checked={profileShowRecords}
-                    onChange={e => setProfileShowRecords(e.target.checked)}
-                    className="w-5 h-5 accent-[#238183] cursor-pointer"
-                  />
-                  <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
-                    Meine Statistiken in der öffentlichen Rekorde-Tabelle anzeigen
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  disabled={profileLoadingSection === 'privacy'}
-                  onClick={async () => {
-                    if (!user) return;
-                    setProfileLoadingSection('privacy');
-                    setProfileSaveMessage(null);
-                    try {
-                      const res = await fetch('/api/users/update-privacy', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          userId: user.id,
-                          showRecords: profileShowRecords
-                        })
-                      });
-                      const json = await res.json();
-                      if (res.ok) {
-                        await user.reload();
-                        setProfileSaveMessage({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
-                        fetchRecords();
-                      } else {
-                        setProfileSaveMessage({ section: 'privacy', type: 'error', text: json.error || 'Fehler beim Speichern.' });
-                      }
-                    } catch (err: any) {
-                      setProfileSaveMessage({ section: 'privacy', type: 'error', text: err.message || 'Verbindungsfehler' });
-                    } finally {
-                      setProfileLoadingSection(null);
-                    }
-                  }}
-                  className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  {profileLoadingSection === 'privacy' ? <i className="fas fa-spinner animate-spin"></i> : 'Einstellungen speichern'}
-                </button>
-              </div>
-            </div>
+            )}
 
             <button
               type="button"
@@ -8830,6 +9043,54 @@ const App: React.FC = () => {
             >
               Schließen
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* PROFIL LÖSCHEN MODAL */}
+      {showDeleteProfileModal && (
+        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-6 max-w-sm w-full shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
+            <h3 className="text-xl font-black text-red-500 mb-2">
+              ⚠️ Profil löschen
+            </h3>
+            <p className={`text-sm mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              Möchtest du dein Profil wirklich unwiderruflich löschen?
+              Alle deine gespeicherten Ergebnisse und Achievements gehen verloren.
+            </p>
+            <p className="text-xs font-bold mb-2 opacity-70">
+              Bitte gib <span className="font-black text-red-500">"delete"</span> ein um zu bestätigen:
+            </p>
+            <input
+              type="text"
+              value={deleteProfileInput}
+              onChange={e => setDeleteProfileInput(e.target.value)}
+              placeholder="delete"
+              className={`w-full p-3 rounded-xl border-2 font-bold mb-4 bg-transparent ${
+                deleteProfileInput === 'delete' ? 'border-red-500' : 'border-gray-500/30'
+              }`}
+            />
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteProfileModal(false);
+                  setDeleteProfileInput('');
+                }}
+                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer"
+                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={deleteProfileInput !== 'delete' || deletingProfile}
+                onClick={handleDeleteProfile}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {deletingProfile ? 'Wird gelöscht...' : 'Löschen bestätigen'}
+              </button>
+            </div>
           </div>
         </div>
       )}

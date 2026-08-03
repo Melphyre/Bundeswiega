@@ -40,6 +40,17 @@ app.get("/api/users/list", usersListHandler);
 app.post("/api/users/update-privacy", updatePrivacyHandler);
 app.get("/api/users/public-records", publicRecordsHandler);
 app.post("/api/users/save-result", saveResultHandler);
+app.post('/api/users/delete', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+    await clerk.users.deleteUser(userId);
+    return res.status(200).json({ message: 'Account gelöscht' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // Admin API routes
 app.post("/api/admin/assign-to-account", assignToAccountHandler);

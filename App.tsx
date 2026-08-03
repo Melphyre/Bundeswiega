@@ -1301,13 +1301,48 @@ const App: React.FC = () => {
   const [recordsSortBy, setRecordsSortBy] = useState<'datum' | 'avg' | 'schnaepse' | 'total'>('datum');
   const [recordsSortDir, setRecordsSortDir] = useState<'asc' | 'desc'>('desc');
   const [profileUsername, setProfileUsername] = useState('');
+  const [profileSaveState, setProfileSaveState] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({});
+  const [profileSaveMessage, setProfileSaveMessage] = useState<Record<string, string>>({});
   const [profileEmail, setProfileEmail] = useState('');
   const [profileCurrentPw, setProfileCurrentPw] = useState('');
   const [profileNewPw, setProfileNewPw] = useState('');
   const [profileNewPwConfirm, setProfileNewPwConfirm] = useState('');
   const [profileShowRecords, setProfileShowRecords] = useState(true);
-  const [profileSaveMessage, setProfileSaveMessage] = useState<{ section: string; type: 'success' | 'error'; text: string } | null>(null);
+  const [profileSaveMessageOld, setProfileSaveMessageOld] = useState<{ section: string; type: 'success' | 'error'; text: string } | null>(null);
   const [profileLoadingSection, setProfileLoadingSection] = useState<string | null>(null);
+
+  const handleUsernameChange = async () => {
+    if (!profileUsername.trim()) return;
+    setProfileSaveState(prev => ({ ...prev, username: 'loading' }));
+    try {
+      // Prüfen ob Name bereits vergeben
+      const checkRes = await fetch(
+        `/api/users/check-username?username=${encodeURIComponent(profileUsername.trim())}&currentUserId=${user?.id || ''}`
+      );
+      const checkJson = await checkRes.json();
+
+      if (checkJson.taken) {
+        setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+        setProfileSaveMessage(prev => ({
+          ...prev,
+          username: `"${profileUsername.trim()}" ist bereits vergeben. Bitte wähle einen anderen Namen.`
+        }));
+        return;
+      }
+
+      // Name ist frei → speichern
+      if (user?.username !== undefined) {
+        await user?.update({ username: profileUsername.trim() });
+      } else {
+        await user?.update({ firstName: profileUsername.trim() });
+      }
+      setProfileSaveState(prev => ({ ...prev, username: 'success' }));
+      setProfileSaveMessage(prev => ({ ...prev, username: 'Nutzername gespeichert!' }));
+    } catch (err: any) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({ ...prev, username: err.message || 'Fehler beim Speichern' }));
+    }
+  };
 
   const handleDeleteProfile = async () => {
     if (deleteProfileInput !== 'delete') return;
@@ -1573,7 +1608,9 @@ const App: React.FC = () => {
       setProfileCurrentPw('');
       setProfileNewPw('');
       setProfileNewPwConfirm('');
-      setProfileSaveMessage(null);
+      setProfileSaveMessageOld(null);
+      setProfileSaveState({});
+      setProfileSaveMessage({});
     }
   }, [showProfileModal, user]);
 
@@ -8704,36 +8741,33 @@ const App: React.FC = () => {
                       <input
                         type="text"
                         value={profileUsername}
-                        onChange={e => setProfileUsername(e.target.value)}
+                        onChange={e => {
+                          setProfileUsername(e.target.value);
+                          setProfileSaveState(prev => ({ ...prev, username: 'idle' }));
+                        }}
                         placeholder="Nutzername"
                         className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
                       />
                       <button
                         type="button"
-                        disabled={profileLoadingSection === 'username' || !profileUsername.trim()}
-                        onClick={async () => {
-                          if (!user || !profileUsername.trim()) return;
-                          setProfileLoadingSection('username');
-                          setProfileSaveMessage(null);
-                          try {
-                            if (user.username !== undefined) {
-                              await user.update({ username: profileUsername.trim() });
-                            } else {
-                              await user.update({ firstName: profileUsername.trim() });
-                            }
-                            setProfileSaveMessage({ section: 'username', type: 'success', text: 'Nutzername erfolgreich gespeichert!' });
-                          } catch (err: any) {
-                            setProfileSaveMessage({ section: 'username', type: 'error', text: err.errors?.[0]?.message || err.message || 'Fehler beim Speichern' });
-                          } finally {
-                            setProfileLoadingSection(null);
-                          }
-                        }}
+                        disabled={profileSaveState['username'] === 'loading' || !profileUsername.trim()}
+                        onClick={handleUsernameChange}
                         className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
                         style={{ backgroundColor: BRAND_COLOR }}
                       >
-                        {profileLoadingSection === 'username' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
+                        {profileSaveState['username'] === 'loading' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
                       </button>
                     </div>
+                    {profileSaveState['username'] === 'error' && (
+                      <p className="text-xs text-red-500 font-bold mt-1">
+                        ❌ {profileSaveMessage['username']}
+                      </p>
+                    )}
+                    {profileSaveState['username'] === 'success' && (
+                      <p className="text-xs text-emerald-500 font-bold mt-1">
+                        ✅ {profileSaveMessage['username']}
+                      </p>
+                    )}
                   </div>
 
                   {/* 3. E-Mail Adresse */}

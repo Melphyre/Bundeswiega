@@ -3,7 +3,17 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { createClerkClient } from "@clerk/backend";
 
-export const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
+const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+
+if (!clerkSecretKey) {
+  console.error('CLERK_SECRET_KEY fehlt in Environment Variables!');
+} else {
+  console.log('CLERK_SECRET_KEY vorhanden:', clerkSecretKey.substring(0, 10) + '...');
+}
+
+export const clerk = createClerkClient({
+  secretKey: clerkSecretKey || ''
+});
 
 import uploadHandler from "./api/upload";
 import recordsHandler from "./api/records";
@@ -40,6 +50,23 @@ app.get("/api/users/list", usersListHandler);
 app.post("/api/users/update-privacy", updatePrivacyHandler);
 app.get("/api/users/public-records", publicRecordsHandler);
 app.post("/api/users/save-result", saveResultHandler);
+app.get('/api/users/check-username', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { username, currentUserId } = req.query as { username?: string; currentUserId?: string };
+    if (!username) return res.status(400).json({ error: 'Username fehlt' });
+
+    const users = await clerk.users.getUserList({ limit: 100 });
+    const taken = users.data.some(u =>
+      (u.username?.toLowerCase() === username.toLowerCase() ||
+       (`${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase() === username.toLowerCase())) &&
+      u.id !== currentUserId
+    );
+    return res.status(200).json({ taken, username });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 app.post('/api/users/delete', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {

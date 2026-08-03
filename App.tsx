@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppUser as useUser, SafeUserButton as UserButton, SafeUserProfile as UserProfile } from './ClerkAuth';
+import { useClerk, useUser, UserButton, UserProfile } from '@clerk/clerk-react';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
@@ -1274,7 +1274,8 @@ const KLASSISCH_TARGETS: Record<number, string> = {
 };
 
 const App: React.FC = () => {
-  const { isSignedIn, user, openSignIn, openSignUp } = useUser();
+  const { isSignedIn, user } = useUser();
+  const { openSignIn, openSignUp } = useClerk();
   const isAdmin = (user?.publicMetadata?.role as string) === 'admin' || (user?.unsafeMetadata?.role as string) === 'admin';
   
   // QR Join Table States

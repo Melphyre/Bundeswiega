@@ -1,36 +1,28 @@
 import { Request, Response } from 'express';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function publicRecordsHandler(req: Request, res: Response) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const secretKey = process.env.CLERK_SECRET_KEY;
-    if (!secretKey) {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
+    if (!supabaseUrl || !supabaseSecretKey) {
       return res.status(200).json({ records: [] });
     }
 
-    const response = await fetch('https://api.clerk.com/v1/users?limit=100', {
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
+    const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey);
+    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !users) {
       return res.status(200).json({ records: [] });
     }
-
-    const data = await response.json();
-    const usersList = Array.isArray(data) ? data : data?.data || [];
 
     const publicRecords: any[] = [];
 
-    usersList.forEach((u: any) => {
-      const meta = u.public_metadata || {};
+    users.forEach((u: any) => {
+      const meta = u.user_metadata || {};
       if (meta.showRecords !== false) {
         const gameData = Array.isArray(meta.gameData) ? meta.gameData : [];
-        const name = u.first_name
-          ? `${u.first_name} ${u.last_name || ''}`.trim()
-          : u.username || u.email_addresses?.[0]?.email_address || 'Unbekannt';
+        const name = meta.username || u.email || 'Unbekannt';
 
         gameData.forEach((entry: any) => {
           publicRecords.push({

@@ -3,14 +3,26 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || 'placeholder-secret-key';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
 
-if (!process.env.VITE_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
-  console.warn('VITE_SUPABASE_URL oder SUPABASE_SECRET_KEY fehlt in Environment Variables!');
+const isSupabaseConfigured = () => {
+  return (
+    !!supabaseUrl &&
+    !!supabaseSecretKey &&
+    !supabaseUrl.includes('placeholder') &&
+    !supabaseSecretKey.includes('placeholder')
+  );
+};
+
+if (!isSupabaseConfigured()) {
+  console.warn('VITE_SUPABASE_URL oder SUPABASE_SECRET_KEY fehlt oder ist Platzhalter.');
 }
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey);
+export const supabaseAdmin = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseSecretKey || 'placeholder-secret-key'
+);
 
 import uploadHandler from "./api/upload";
 import recordsHandler from "./api/records";
@@ -52,16 +64,16 @@ app.get('/api/users/find-by-username', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { username } = req.query as { username: string };
-    if (!username) return res.status(400).json({ email: null });
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
-    if (error) throw error;
-    const user = (users || []).find((u: any) =>
+    if (!username || !isSupabaseConfigured()) return res.status(404).json({ email: null });
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) return res.status(404).json({ email: null });
+    const user = data.users.find((u: any) =>
       u.user_metadata?.username?.toLowerCase() === username.toLowerCase()
     );
     if (!user) return res.status(404).json({ email: null });
     return res.status(200).json({ email: user.email });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(404).json({ email: null });
   }
 });
 
@@ -70,16 +82,17 @@ app.get('/api/users/check-username', async (req, res) => {
   try {
     const { username, currentUserId } = req.query as { username?: string; currentUserId?: string };
     if (!username) return res.status(400).json({ error: 'Username fehlt' });
+    if (!isSupabaseConfigured()) return res.status(200).json({ taken: false, username });
 
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
-    if (error) throw error;
-    const taken = (users || []).some((u: any) =>
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) return res.status(200).json({ taken: false, username });
+    const taken = data.users.some((u: any) =>
       (u.user_metadata?.username?.toLowerCase() === username.toLowerCase()) &&
       u.id !== currentUserId
     );
     return res.status(200).json({ taken, username });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(200).json({ taken: false });
   }
 });
 
@@ -88,11 +101,12 @@ app.post('/api/users/delete', async (req, res) => {
   try {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+    if (!isSupabaseConfigured()) return res.status(500).json({ error: 'Supabase nicht konfiguriert' });
     const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
     if (error) throw error;
     return res.status(200).json({ message: 'Account gelöscht' });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message || 'Fehler beim Löschen des Accounts' });
   }
 });
 

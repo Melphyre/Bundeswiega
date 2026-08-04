@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
@@ -1286,7 +1286,7 @@ const App: React.FC = () => {
   // Auth Modal States
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [authEmail, setAuthEmail] = useState('');
+  const [authEmailOrUsername, setAuthEmailOrUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authUsername, setAuthUsername] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
@@ -1312,11 +1312,34 @@ const App: React.FC = () => {
   const handleSignIn = async () => {
     setAuthSubmitLoading(true);
     setAuthError(null);
+
+    let emailToUse = authEmailOrUsername.trim();
+
+    // Prüfen ob Username oder E-Mail eingegeben wurde
+    if (!emailToUse.includes('@')) {
+      try {
+        const res = await fetch(
+          `/api/users/find-by-username?username=${encodeURIComponent(emailToUse)}`
+        );
+        const json = await res.json();
+        if (!json.email) {
+          setAuthError('Kein Account mit diesem Benutzernamen gefunden.');
+          setAuthSubmitLoading(false);
+          return;
+        }
+        emailToUse = json.email;
+      } catch (e) {
+        setAuthError('Fehler beim Suchen des Benutzernamens.');
+        setAuthSubmitLoading(false);
+        return;
+      }
+    }
+
     const { error } = await supabase.auth.signInWithPassword({
-      email: authEmail,
+      email: emailToUse,
       password: authPassword
     });
-    if (error) setAuthError(error.message);
+    if (error) setAuthError('Benutzername/E-Mail oder Passwort falsch.');
     else setShowAuthModal(false);
     setAuthSubmitLoading(false);
   };
@@ -1341,7 +1364,7 @@ const App: React.FC = () => {
     } catch (e) {}
 
     const { error } = await supabase.auth.signUp({
-      email: authEmail,
+      email: authEmailOrUsername.trim(),
       password: authPassword,
       options: {
         data: {
@@ -1372,15 +1395,32 @@ const App: React.FC = () => {
   // QR Scanner & Player Account Link States
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [scanningForPlayerId, setScanningForPlayerId] = useState<string | null>(null);
+  const qrScannerRef = useRef<Html5Qrcode | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
   const [playerAccountLinks, setPlayerAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string }>>({});
+  const [teamMemberAccountLinks, setTeamMemberAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string }>>({});
   const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; name: string; email?: string; imageUrl?: string }>>([]);
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
 
+  // Friends & Privacy States
+  const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
+  const [pendingRequests, setPendingRequests] = useState<Array<{ id: string; requesterName: string; requesterId: string }>>([]);
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
+  const [friendRequestError, setFriendRequestError] = useState<string | null>(null);
+  const [friendRequestSuccess, setFriendRequestSuccess] = useState<string | null>(null);
+  const [privacyState, setPrivacyState] = useState<Record<string, boolean>>({
+    showRecords: true,
+    showStandardspiel: true,
+    showSpeedwiegen: true,
+    showTeamwiegen: true,
+    showAchievements: true,
+  });
+
   // Profile Modal State
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde'>('profil');
+  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'freunde'>('profil');
   const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
   const [deleteProfileInput, setDeleteProfileInput] = useState('');
   const [deletingProfile, setDeletingProfile] = useState(false);
@@ -1713,67 +1753,139 @@ const App: React.FC = () => {
   }, []);
 
   // Sync profile form states when Profile Modal opens
-  useEffect(() => {
-    if (showProfileModal && supabaseUser) {
-      setProfileTab('profil');
-      setProfileUsername(supabaseUser.user_metadata?.username || '');
-      setProfileEmail(supabaseUser.email || '');
-      setProfileShowRecords(supabaseUser.user_metadata?.showRecords !== false);
-      setProfileCurrentPw('');
-      setProfileNewPw('');
-      setProfileNewPwConfirm('');
-      setProfileSaveMessageOld(null);
-      setProfileSaveState({});
-      setProfileSaveMessage({});
-    }
-  }, [showProfileModal, supabaseUser]);
+  const refreshUserData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) setSupabaseUser(user);
+  };
 
-  // QR Scanner lifecycle effect
   useEffect(() => {
-    if (!showQrScanner) return;
-    let scanner: Html5QrcodeScanner | null = null;
-    const timer = setTimeout(() => {
-      scanner = new Html5QrcodeScanner(
-        "qr-reader",
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        false
-      );
-      scanner.render(
-        (decodedText) => {
-          try {
-            const payload = JSON.parse(atob(decodedText));
-            if (payload.expires && Date.now() > payload.expires) {
-              alert('QR-Code ist abgelaufen. Bitte neu generieren.');
-              return;
-            }
-            if (scanningForPlayerId) {
-              setPlayers(prev => prev.map(p =>
-                p.id === scanningForPlayerId ? { ...p, name: payload.userName } : p
-              ));
-              setPlayerAccountLinks(prev => ({
-                ...prev,
-                [scanningForPlayerId]: { userId: payload.userId, userName: payload.userName, imageUrl: payload.imageUrl || undefined }
-              }));
-            }
-            if (scanner) {
-              scanner.clear().catch(e => console.error(e));
-            }
-            setShowQrScanner(false);
-          } catch (err) {
-            alert('Ungültiger QR-Code.');
-          }
-        },
-        () => {}
-      );
-    }, 150);
-
-    return () => {
-      clearTimeout(timer);
-      if (scanner) {
-        scanner.clear().catch(e => console.error(e));
+    if (showProfileModal) {
+      refreshUserData();
+      if (supabaseUser) {
+        setProfileUsername(supabaseUser.user_metadata?.username || '');
+        setProfileEmail(supabaseUser.email || '');
+        const p = supabaseUser.user_metadata?.privacy || {};
+        setPrivacyState({
+          showRecords: p.showRecords ?? (supabaseUser.user_metadata?.showRecords ?? true),
+          showStandardspiel: p.showStandardspiel ?? true,
+          showSpeedwiegen: p.showSpeedwiegen ?? true,
+          showTeamwiegen: p.showTeamwiegen ?? true,
+          showAchievements: p.showAchievements ?? true,
+        });
+        setProfileCurrentPw('');
+        setProfileNewPw('');
+        setProfileNewPwConfirm('');
+        setProfileSaveMessageOld(null);
+        setProfileSaveState({});
+        setProfileSaveMessage({});
       }
-    };
-  }, [showQrScanner, scanningForPlayerId]);
+    }
+  }, [showProfileModal]);
+
+  // Speedwiegen auto fill logged in username
+  useEffect(() => {
+    if (gameState === GameState.SPEED_SETUP && isSignedIn && supabaseUser) {
+      const username = supabaseUser.user_metadata?.username || supabaseUser.email || '';
+      if (username) setSpeedPlayerName(username);
+    }
+  }, [gameState, isSignedIn, supabaseUser]);
+
+  // QR Scanner Functions (html5-qrcode)
+  const startQrScanner = async (playerId: string) => {
+    setScanningForPlayerId(playerId);
+    setShowQrScanner(true);
+    setQrError(null);
+
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    const html5QrCode = new Html5Qrcode('qr-reader');
+    qrScannerRef.current = html5QrCode;
+
+    try {
+      await html5QrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          handleQrScan(decodedText, playerId);
+          html5QrCode.stop().catch(() => {});
+          qrScannerRef.current = null;
+          setShowQrScanner(false);
+          setScanningForPlayerId(null);
+        },
+        (_errorMessage) => {}
+      );
+    } catch (err) {
+      setQrError('Kamera konnte nicht gestartet werden.');
+    }
+  };
+
+  const stopQrScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        await qrScannerRef.current.stop();
+        qrScannerRef.current = null;
+      } catch {}
+    }
+    setShowQrScanner(false);
+    setScanningForPlayerId(null);
+    setQrError(null);
+  };
+
+  const handleQrScan = (decodedText: string, playerId: string) => {
+    try {
+      const payload = JSON.parse(atob(decodedText));
+
+      if (Date.now() > payload.expires) {
+        setQrError('QR-Code ist abgelaufen. Bitte neu generieren.');
+        return;
+      }
+
+      if (!payload.userId || !payload.userName) {
+        setQrError('Falscher QR-Code. Bitte einen Bundeswiega QR-Code scannen.');
+        return;
+      }
+
+      const usedUserIds = [
+        ...(Object.values(playerAccountLinks) as Array<{ userId: string }>).map(l => l.userId),
+        ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string }>).map(l => l.userId)
+      ];
+      if (usedUserIds.includes(payload.userId)) {
+        setQrError(`${payload.userName} ist bereits einem anderen Spieler zugewiesen.`);
+        return;
+      }
+
+      const isStandardPlayer = players.some(p => p.id === playerId);
+      if (isStandardPlayer) {
+        setPlayers(prev => prev.map(p =>
+          p.id === playerId ? { ...p, name: payload.userName } : p
+        ));
+        setPlayerAccountLinks(prev => ({
+          ...prev,
+          [playerId]: {
+            userId: payload.userId,
+            userName: payload.userName,
+            imageUrl: payload.imageUrl || undefined
+          }
+        }));
+      } else {
+        setTeamMemberAccountLinks(prev => ({
+          ...prev,
+          [playerId]: {
+            userId: payload.userId,
+            userName: payload.userName,
+            imageUrl: payload.imageUrl || undefined
+          }
+        }));
+        setTeams(prevTeams => prevTeams.map(t => ({
+          ...t,
+          members: t.members.map(m => m.id === playerId ? { ...m, name: payload.userName } : m)
+        })));
+      }
+      setQrError(null);
+    } catch {
+      setQrError('Falscher QR-Code. Bitte einen gültigen Bundeswiega QR-Code scannen.');
+    }
+  };
 
   const generateQrCode = () => {
     if (!supabaseUser) return;
@@ -1795,9 +1907,22 @@ const App: React.FC = () => {
     setShowJoinTableModal(true);
   };
 
-  const openQrScanner = (playerId: string) => {
-    setScanningForPlayerId(playerId);
-    setShowQrScanner(true);
+  const getAvailableAccountsForDropdown = (currentAssignedId?: string) => {
+    const usedIds = [
+      ...(Object.values(playerAccountLinks) as Array<{ userId: string }>).map(l => l.userId),
+      ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string }>).map(l => l.userId)
+    ];
+    const friendUserIds = new Set(friends.map(f => f.id));
+
+    return clerkUsers
+      .filter(u => !usedIds.includes(u.id) || u.id === currentAssignedId)
+      .sort((a, b) => {
+        const aIsFriend = friendUserIds.has(a.id);
+        const bIsFriend = friendUserIds.has(b.id);
+        if (aIsFriend && !bIsFriend) return -1;
+        if (!aIsFriend && bIsFriend) return 1;
+        return a.name.localeCompare(b.name, 'de');
+      });
   };
 
   const assignAccountToPlayer = (playerId: string, accountId: string) => {
@@ -1819,6 +1944,152 @@ const App: React.FC = () => {
       return copy;
     });
   };
+
+  const assignAccountToTeamMember = (teamId: string, memberId: string, accountId: string) => {
+    if (!accountId) return;
+    const match = clerkUsers.find(u => u.id === accountId);
+    if (match) {
+      setTeams(prevTeams => prevTeams.map(t => t.id === teamId ? {
+        ...t,
+        members: t.members.map(m => m.id === memberId ? { ...m, name: match.name } : m)
+      } : t));
+      setTeamMemberAccountLinks(prev => ({
+        ...prev,
+        [memberId]: { userId: match.id, userName: match.name, imageUrl: match.imageUrl }
+      }));
+    }
+  };
+
+  const unlinkTeamMemberAccount = (memberId: string) => {
+    setTeamMemberAccountLinks(prev => {
+      const copy = { ...prev };
+      delete copy[memberId];
+      return copy;
+    });
+  };
+
+  // Friends Functions & Effects
+  const loadFriends = async () => {
+    if (!supabaseUser) return;
+    const { data } = await supabase
+      .from('friendships')
+      .select('*')
+      .or(`requester_id.eq.${supabaseUser.id},receiver_id.eq.${supabaseUser.id}`)
+      .eq('status', 'accepted');
+
+    const friendIds = (data || []).map(f =>
+      f.requester_id === supabaseUser.id ? f.receiver_id : f.requester_id
+    );
+    try {
+      const res = await fetch(`/api/users/list`);
+      const json = await res.json();
+      const allUsers = json.users || [];
+      const friendList = friendIds.map(id => {
+        const u = allUsers.find((u: any) => u.id === id);
+        const friendship = (data || []).find(f => f.requester_id === id || f.receiver_id === id);
+        return u ? { ...u, friendshipId: friendship?.id } : null;
+      }).filter(Boolean);
+      setFriends(friendList.sort((a: any, b: any) => a.name.localeCompare(b.name, 'de')));
+    } catch (err) {
+      console.error('Error loading friends:', err);
+    }
+  };
+
+  const loadPendingRequests = async () => {
+    if (!supabaseUser) return;
+    const { data } = await supabase
+      .from('friendships')
+      .select('*')
+      .eq('receiver_id', supabaseUser.id)
+      .eq('status', 'pending');
+
+    try {
+      const res = await fetch('/api/users/list');
+      const json = await res.json();
+      const allUsers = json.users || [];
+      const requests = (data || []).map(f => {
+        const requester = allUsers.find((u: any) => u.id === f.requester_id);
+        return { id: f.id, requesterId: f.requester_id, requesterName: requester?.name || 'Unbekannt' };
+      });
+      setPendingRequests(requests);
+    } catch (err) {
+      console.error('Error loading pending requests:', err);
+    }
+  };
+
+  const sendFriendRequest = async () => {
+    setFriendRequestError(null);
+    setFriendRequestSuccess(null);
+    if (!friendSearchQuery.trim()) return;
+    try {
+      const res = await fetch('/api/users/list');
+      const json = await res.json();
+      const targetUser = (json.users || []).find((u: any) =>
+        u.name.toLowerCase() === friendSearchQuery.trim().toLowerCase()
+      );
+      if (!targetUser) {
+        setFriendRequestError('Kein Nutzer mit diesem Benutzernamen gefunden.');
+        return;
+      }
+      if (targetUser.id === supabaseUser?.id) {
+        setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
+        return;
+      }
+      const { error } = await supabase.from('friendships').insert({
+        requester_id: supabaseUser?.id,
+        receiver_id: targetUser.id,
+        status: 'pending'
+      });
+      if (error) setFriendRequestError('Anfrage konnte nicht gesendet werden.');
+      else {
+        setFriendRequestSuccess(`Anfrage an ${targetUser.name} gesendet!`);
+        setFriendSearchQuery('');
+      }
+    } catch (err: any) {
+      setFriendRequestError('Fehler beim Senden der Anfrage.');
+    }
+  };
+
+  const acceptFriendRequest = async (friendshipId: string) => {
+    await supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
+    loadFriends();
+    loadPendingRequests();
+  };
+
+  const rejectFriendRequest = async (friendshipId: string) => {
+    await supabase.from('friendships').update({ status: 'rejected' }).eq('id', friendshipId);
+    loadPendingRequests();
+  };
+
+  const removeFriend = async (friendshipId: string) => {
+    await supabase.from('friendships').delete().eq('id', friendshipId);
+    loadFriends();
+  };
+
+  useEffect(() => {
+    if (showProfileModal && profileTab === 'freunde') {
+      loadFriends();
+      loadPendingRequests();
+    }
+  }, [showProfileModal, profileTab]);
+
+  useEffect(() => {
+    if (!supabaseUser) return;
+    const channel = supabase
+      .channel('friendships')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'friendships',
+        filter: `receiver_id=eq.${supabaseUser.id}`
+      }, () => {
+        loadPendingRequests();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabaseUser]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -3920,7 +4191,7 @@ const App: React.FC = () => {
                     <div className="flex space-x-2">
                       <button
                         type="button"
-                        onClick={() => openQrScanner(p.id)}
+                        onClick={() => startQrScanner(p.id)}
                         className="flex-1 py-2 rounded-xl border-2 font-bold text-xs flex items-center justify-center space-x-1 cursor-pointer hover:opacity-80 transition-all"
                         style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
                       >
@@ -3934,9 +4205,14 @@ const App: React.FC = () => {
                         className={`flex-1 py-2 px-2 rounded-xl border-2 bg-transparent font-bold text-xs cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
                       >
                         <option value="">Account wählen...</option>
-                        {clerkUsers.map(u => (
-                          <option key={u.id} value={u.id}>{u.name}</option>
-                        ))}
+                        {getAvailableAccountsForDropdown(playerAccountLinks[p.id]?.userId).map(u => {
+                          const isFriend = friends.some(f => f.id === u.id);
+                          return (
+                            <option key={u.id} value={u.id}>
+                              {isFriend ? `⭐ ${u.name}` : u.name}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   ) : (
@@ -4066,11 +4342,54 @@ const App: React.FC = () => {
               {teams.map((t, tIdx) => (
                 <div key={t.id} className="p-4 rounded-2xl bg-black/10 border-l-4" style={{ borderColor: PLAYER_COLORS[tIdx % PLAYER_COLORS.length] }}>
                   <input type="text" value={t.name} onChange={e => setTeams(teams.map(x => x.id === t.id ? {...x, name: e.target.value} : x))} className="w-full text-xl font-black bg-transparent mb-4 border-b border-white/20" placeholder={`Name für ${t.id}`} />
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {t.playerIds.map(pid => {
                       const p = players.find(px => px.id === pid);
                       return (
-                        <input key={pid} type="text" value={p?.name || ''} onChange={e => setPlayers(players.map(x => x.id === pid ? {...x, name: e.target.value} : x))} className="p-2 rounded-lg border bg-transparent font-bold text-sm" placeholder="Spieler Name" />
+                        <div key={pid} className="flex flex-col space-y-2 p-3 rounded-2xl border bg-black/5 dark:bg-white/5 border-gray-500/20">
+                          <input
+                            type="text"
+                            value={p?.name || ''}
+                            onChange={e => setPlayers(players.map(x => x.id === pid ? { ...x, name: e.target.value } : x))}
+                            className="w-full p-2.5 rounded-xl border-2 bg-transparent font-bold text-sm"
+                            placeholder="Spieler Name (Gast)"
+                            style={{ borderColor: p?.name ? BRAND_COLOR : '' }}
+                          />
+                          {!teamMemberAccountLinks[pid] ? (
+                            <div className="flex space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => startQrScanner(pid)}
+                                className="flex-1 py-1.5 rounded-xl border-2 font-bold text-[11px] flex items-center justify-center space-x-1 cursor-pointer hover:opacity-80 transition-all"
+                                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                              >
+                                <i className="fas fa-qrcode"></i>
+                                <span>QR</span>
+                              </button>
+                              <select
+                                value=""
+                                onChange={e => assignAccountToTeamMember(t.id, pid, e.target.value)}
+                                className={`flex-1 py-1.5 px-2 rounded-xl border-2 bg-transparent font-bold text-[11px] cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
+                              >
+                                <option value="">Account...</option>
+                                {getAvailableAccountsForDropdown(teamMemberAccountLinks[pid]?.userId).map(u => {
+                                  const isFriend = friends.some(f => f.id === u.id);
+                                  return (
+                                    <option key={u.id} value={u.id}>
+                                      {isFriend ? `⭐ ${u.name}` : u.name}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1 text-[11px] text-emerald-500 font-bold p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                              <i className="fas fa-check-circle"></i>
+                              <span className="truncate">{teamMemberAccountLinks[pid].userName}</span>
+                              <button type="button" onClick={() => unlinkTeamMemberAccount(pid)} className="text-red-400 ml-auto hover:text-red-500 font-bold cursor-pointer px-1">✕</button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -9289,12 +9608,14 @@ const App: React.FC = () => {
                 </div>
               )}
               <div>
-                <label className="text-xs font-black uppercase opacity-60 block mb-1">E-Mail</label>
+                <label className="text-xs font-black uppercase opacity-60 block mb-1">
+                  {authMode === 'login' ? 'Benutzername oder E-Mail' : 'E-Mail'}
+                </label>
                 <input
-                  type="email"
-                  value={authEmail}
-                  onChange={e => setAuthEmail(e.target.value)}
-                  placeholder="email@beispiel.de"
+                  type="text"
+                  value={authEmailOrUsername}
+                  onChange={e => setAuthEmailOrUsername(e.target.value)}
+                  placeholder={authMode === 'login' ? 'benutzername oder email@beispiel.de' : 'email@beispiel.de'}
                   className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
                 />
               </div>

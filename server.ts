@@ -48,6 +48,23 @@ app.post("/api/users/update-privacy", updatePrivacyHandler);
 app.get("/api/users/public-records", publicRecordsHandler);
 app.post("/api/users/save-result", saveResultHandler);
 
+app.get('/api/users/find-by-username', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { username } = req.query as { username: string };
+    if (!username) return res.status(400).json({ email: null });
+    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error) throw error;
+    const user = (users || []).find((u: any) =>
+      u.user_metadata?.username?.toLowerCase() === username.toLowerCase()
+    );
+    if (!user) return res.status(404).json({ email: null });
+    return res.status(200).json({ email: user.email });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/users/check-username', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {

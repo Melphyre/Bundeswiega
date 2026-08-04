@@ -20,23 +20,34 @@ export default async function publicRecordsHandler(req: Request, res: Response) 
 
     users.forEach((u: any) => {
       const meta = u.user_metadata || {};
-      if (meta.showRecords !== false) {
-        const gameData = Array.isArray(meta.gameData) ? meta.gameData : [];
-        const name = meta.username || u.email || 'Unbekannt';
+      const privacy = meta.privacy || {};
 
-        gameData.forEach((entry: any) => {
-          publicRecords.push({
-            date: entry.date || '',
-            gameMode: entry.gameMode || 'Standardspiel',
-            playerName: name,
-            avg: entry.avg || 0,
-            schnaepse: entry.schnaepse || 0,
-            levels: entry.levels,
-            achievements: entry.achievements || '',
-            source: 'account'
-          });
+      if (meta.showRecords === false || privacy.showRecords === false) return;
+
+      const gameData = Array.isArray(meta.gameData) ? meta.gameData : [];
+      const name = meta.username || u.email || 'Unbekannt';
+
+      gameData.forEach((entry: any) => {
+        const mode = entry.gameMode || 'Standardspiel';
+
+        if (mode === 'Standardspiel' && privacy.showStandardspiel === false) return;
+        if (mode === 'Speedwiegen' && privacy.showSpeedwiegen === false) return;
+        if (mode === 'Teamwiegen' && privacy.showTeamwiegen === false) return;
+
+        let achievements = entry.achievements || '';
+        if (privacy.showAchievements === false) achievements = '';
+
+        publicRecords.push({
+          date: entry.date || '',
+          gameMode: mode,
+          playerName: name,
+          avg: entry.avg || 0,
+          schnaepse: entry.schnaepse || 0,
+          levels: entry.levels,
+          achievements: achievements,
+          source: 'account'
         });
-      }
+      });
     });
 
     return res.status(200).json({ records: publicRecords });

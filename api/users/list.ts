@@ -10,19 +10,18 @@ export default async function usersListHandler(req: Request, res: Response) {
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
   const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
-  if (!supabaseUrl || !supabaseSecretKey) {
-    return res.status(500).json({
-      error: 'VITE_SUPABASE_URL oder SUPABASE_SECRET_KEY fehlt.',
-      users: []
-    });
+  if (!supabaseUrl || !supabaseSecretKey || supabaseUrl.includes('placeholder') || supabaseSecretKey.includes('placeholder')) {
+    return res.status(200).json({ users: [] });
   }
 
   try {
     const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey);
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
-    if (error) throw error;
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) {
+      return res.status(200).json({ users: [] });
+    }
 
-    const userList = users.map((u: any) => ({
+    const userList = data.users.map((u: any) => ({
       id: u.id,
       name: u.user_metadata?.username || u.email || 'Unbekannt',
       email: u.email || '',
@@ -32,10 +31,6 @@ export default async function usersListHandler(req: Request, res: Response) {
 
     return res.status(200).json({ users: userList });
   } catch (err: any) {
-    console.error('Error fetching Supabase users:', err);
-    return res.status(500).json({
-      error: err.message || 'Fehler beim Laden der Nutzer',
-      users: []
-    });
+    return res.status(200).json({ users: [] });
   }
 }

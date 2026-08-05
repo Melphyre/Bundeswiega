@@ -1285,11 +1285,12 @@ const App: React.FC = () => {
 
   // Auth Modal States
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [authEmailOrUsername, setAuthEmailOrUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authUsername, setAuthUsername] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [authSubmitLoading, setAuthSubmitLoading] = useState(false);
 
   useEffect(() => {
@@ -1381,6 +1382,24 @@ const App: React.FC = () => {
     setAuthSubmitLoading(false);
   };
 
+  const handleForgotPassword = async () => {
+    setAuthSubmitLoading(true);
+    setAuthError(null);
+    setAuthSuccess(null);
+    const emailToUse = authEmailOrUsername.trim();
+    if (!emailToUse) {
+      setAuthError('Bitte gib deine E-Mail-Adresse ein.');
+      setAuthSubmitLoading(false);
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(emailToUse, {
+      redirectTo: window.location.origin || 'https://bundeswiega.vercel.app'
+    });
+    if (error) setAuthError(error.message);
+    else setAuthSuccess('Reset-Link wurde gesendet! Prüfe dein E-Mail Postfach.');
+    setAuthSubmitLoading(false);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setSupabaseUser(null);
@@ -1403,6 +1422,11 @@ const App: React.FC = () => {
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
+
+  // Admin Migration States
+  const [showMigrateModal, setShowMigrateModal] = useState(false);
+  const [migrateProgress, setMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
+  const [migrateResult, setMigrateResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Friends & Privacy States
   const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
@@ -1436,6 +1460,228 @@ const App: React.FC = () => {
   const [profileShowRecords, setProfileShowRecords] = useState(true);
   const [profileSaveMessageOld, setProfileSaveMessageOld] = useState<{ section: string; type: 'success' | 'error'; text: string } | null>(null);
   const [profileLoadingSection, setProfileLoadingSection] = useState<string | null>(null);
+
+  const [myGameData, setMyGameData] = useState<any[]>([]);
+  const [myAchievementsData, setMyAchievementsData] = useState<any[]>([]);
+
+  const loadMyProfileData = async () => {
+    if (!supabaseUser) return;
+    try {
+      const { data: resData } = await supabase
+        .from('game_results')
+        .select('*')
+        .eq('user_id', supabaseUser.id)
+        .order('created_at', { ascending: false });
+
+      if (resData) setMyGameData(resData);
+
+      const { data: achData } = await supabase
+        .from('achievements')
+        .select('*')
+        .eq('user_id', supabaseUser.id)
+        .order('created_at', { ascending: false });
+
+      if (achData) setMyAchievementsData(achData);
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements')
+        .eq('id', supabaseUser.id)
+        .maybeSingle();
+
+      if (prof) {
+        setPrivacyState({
+          showRecords: prof.show_records ?? true,
+          showStandardspiel: prof.show_standardspiel ?? true,
+          showSpeedwiegen: prof.show_speedwiegen ?? true,
+          showTeamwiegen: prof.show_teamwiegen ?? true,
+          showAchievements: prof.show_achievements ?? true,
+        });
+        setProfileShowRecords(prof.show_records ?? true);
+      }
+    } catch (e) {
+      console.error('Error loading profile data:', e);
+    }
+  };
+
+  const loadFriendships = async () => {
+    if (!supabaseUser) return;
+    try {
+      const { data: rels } = await supabase
+        .from('friendships')
+        .select('*')
+        .or(`requester_id.eq.${supabaseUser.id},receiver_id.eq.${supabaseUser.id}`);
+
+      if (!rels) return;
+
+      const accepted = rels.filter(r => r.status === 'accepted');
+      const pendingIncoming = rels.filter(r => r.status === 'pending' && r.receiver_id === supabaseUser.id);
+
+      const friendUserIds = accepted.map(r => r.requester_id === supabaseUser.id ? r.receiver_id : r.requester_id);
+      if (friendUserIds.length > 0) {
+        const { data: friendProfiles } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .in('id', friendUserIds);
+
+        if (friendProfiles) {
+          const formattedFriends = friendProfiles.map(p => {
+            const rel = accepted.find(r => r.requester_id === p.id || r.receiver_id === p.id);
+            return {
+              id: p.id,
+              name: p.username || 'Benutzer',
+              imageUrl: p.avatar_url,
+              friendshipId: rel?.id
+            };
+          });
+          setFriends(formattedFriends);
+        }
+      } else {
+        setFriends([]);
+      }
+
+      const requesterIds = pendingIncoming.map(r => r.requester_id);
+      if (requesterIds.length > 0) {
+        const { data: requesterProfiles } = await supabase
+          .from('profiles')
+          .select('id, username')
+          .in('id', requesterIds);
+
+        if (requesterProfiles) {
+          const formattedRequests = pendingIncoming.map(r => {
+            const p = requesterProfiles.find(p => p.id === r.requester_id);
+            return {
+              id: r.id,
+              requesterId: r.requester_id,
+              requesterName: p?.username || 'Unbekannt'
+            };
+          });
+          setPendingRequests(formattedRequests);
+        }
+      } else {
+        setPendingRequests([]);
+      }
+    } catch (e) {
+      console.error('Error loading friendships:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (showProfileModal && supabaseUser) {
+      loadMyProfileData();
+      loadFriendships();
+    }
+  }, [showProfileModal, supabaseUser]);
+
+  const handleSendFriendRequest = async () => {
+    if (!supabaseUser || !friendSearchQuery.trim()) return;
+    setFriendRequestError(null);
+    setFriendRequestSuccess(null);
+
+    try {
+      const { data: foundProfiles } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .or(`username.ilike.${friendSearchQuery.trim()},email.ilike.${friendSearchQuery.trim()}`)
+        .limit(1);
+
+      if (!foundProfiles || foundProfiles.length === 0) {
+        setFriendRequestError('Kein Benutzer mit diesem Namen oder E-Mail gefunden.');
+        return;
+      }
+
+      const target = foundProfiles[0];
+      if (target.id === supabaseUser.id) {
+        setFriendRequestError('Du kannst dir selbst keine Freundschaftsanfrage senden.');
+        return;
+      }
+
+      const { data: existing } = await supabase
+        .from('friendships')
+        .select('id, status')
+        .or(`and(requester_id.eq.${supabaseUser.id},receiver_id.eq.${target.id}),and(requester_id.eq.${target.id},receiver_id.eq.${supabaseUser.id})`);
+
+      if (existing && existing.length > 0) {
+        setFriendRequestError('Eine Freundschaft oder Anfrage existiert bereits.');
+        return;
+      }
+
+      const { error: insErr } = await supabase
+        .from('friendships')
+        .insert({
+          requester_id: supabaseUser.id,
+          receiver_id: target.id,
+          status: 'pending'
+        });
+
+      if (insErr) throw insErr;
+
+      setFriendRequestSuccess(`Freundschaftsanfrage an ${target.username} gesendet!`);
+      setFriendSearchQuery('');
+      loadFriendships();
+    } catch (err: any) {
+      setFriendRequestError(err.message || 'Fehler beim Senden der Anfrage.');
+    }
+  };
+
+  const handleAcceptFriendRequest = async (friendshipId: string) => {
+    try {
+      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
+      loadFriendships();
+    } catch (e) {
+      console.error('Error accepting friend request:', e);
+    }
+  };
+
+  const handleRejectFriendRequest = async (friendshipId: string) => {
+    try {
+      await supabase.from('friendships').delete().eq('id', friendshipId);
+      loadFriendships();
+    } catch (e) {
+      console.error('Error rejecting friend request:', e);
+    }
+  };
+
+  const handleRemoveFriend = async (friendshipId: string) => {
+    try {
+      await supabase.from('friendships').delete().eq('id', friendshipId);
+      loadFriendships();
+    } catch (e) {
+      console.error('Error removing friend:', e);
+    }
+  };
+
+  const handleSavePrivacy = async () => {
+    if (!supabaseUser) return;
+    setProfileLoadingSection('privacy');
+    setProfileSaveMessageOld(null);
+    try {
+      const { error: dbErr } = await supabase
+        .from('profiles')
+        .update({
+          show_records: privacyState.showRecords,
+          show_standardspiel: privacyState.showStandardspiel,
+          show_speedwiegen: privacyState.showSpeedwiegen,
+          show_teamwiegen: privacyState.showTeamwiegen,
+          show_achievements: privacyState.showAchievements,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', supabaseUser.id);
+
+      if (dbErr) throw dbErr;
+
+      await supabase.auth.updateUser({
+        data: { showRecords: privacyState.showRecords }
+      });
+
+      setProfileSaveMessageOld({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen erfolgreich in Supabase gespeichert!' });
+      fetchRecords();
+    } catch (err: any) {
+      setProfileSaveMessageOld({ section: 'privacy', type: 'error', text: err.message || 'Fehler beim Speichern der Datenschutzeinstellungen.' });
+    } finally {
+      setProfileLoadingSection(null);
+    }
+  };
 
   const handleUsernameChange = async () => {
     if (!profileUsername.trim()) return;
@@ -1485,8 +1731,6 @@ const App: React.FC = () => {
       setDeletingProfile(false);
     }
   };
-
-  const myGameData = (user?.publicMetadata?.gameData as any[]) || [];
 
   const sortedGameData = [...myGameData].sort((a, b) => {
     let valA: any, valB: any;
@@ -1741,6 +1985,94 @@ const App: React.FC = () => {
       setClerkUsers([]);
     } finally {
       setAdminUsersLoading(false);
+    }
+  };
+
+  const handleMigrateToSQL = async () => {
+    setMigrateProgress({ percent: 5, message: 'Lade CSV-Daten & User-Liste...' });
+    setMigrateResult(null);
+
+    try {
+      const csvRes = await fetch('/api/records');
+      const csvJson = await csvRes.json();
+      const csvRows: string[][] = csvJson.data || [];
+
+      const usersRes = await fetch('/api/users/list');
+      const usersJson = await usersRes.json();
+      const users: Array<{ id: string; name: string; email?: string }> = usersJson.users || [];
+
+      setMigrateProgress({ percent: 20, message: 'Verarbeite CSV-Einträge...' });
+      const dataRows = csvRows.filter(row => row && row.length >= 5 && row[0] !== 'Datum');
+
+      let migratedCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const [date, gameMode, playerName, avgStr, schnaepseStr, totalStr, achievementsStr] = row;
+
+        const percent = 20 + Math.floor(((i + 1) / dataRows.length) * 75);
+        setMigrateProgress({ percent, message: `Verarbeite Zeile ${i + 1} von ${dataRows.length} (${playerName})...` });
+
+        const matchedUser = users.find(u => u.name && u.name.trim().toLowerCase() === playerName?.trim().toLowerCase());
+        if (!matchedUser) {
+          skippedCount++;
+          continue;
+        }
+
+        const avg = parseFloat(avgStr) || 0;
+        const schnaepse = parseInt(schnaepseStr) || 0;
+        const total = parseFloat(totalStr) || (avg + schnaepse);
+
+        const { error: resErr } = await supabase.from('game_results').insert({
+          user_id: matchedUser.id,
+          game_mode: gameMode || 'Standardspiel',
+          date: date || new Date().toLocaleDateString('de-DE'),
+          avg: Number(avg.toFixed(2)),
+          schnaepse,
+          total: Number(total.toFixed(2))
+        });
+
+        if (resErr) {
+          errorCount++;
+        } else {
+          migratedCount++;
+        }
+
+        if (achievementsStr && achievementsStr.trim().startsWith('[')) {
+          try {
+            const achievementsList = JSON.parse(achievementsStr);
+            if (Array.isArray(achievementsList)) {
+              for (const ach of achievementsList) {
+                await supabase.from('achievements').upsert({
+                  user_id: matchedUser.id,
+                  achievement_id: ach.id || `ach_${Date.now()}`,
+                  title: ach.title || 'Achievement',
+                  description: ach.description || '',
+                  icon: ach.icon || '🏆',
+                  rarity: ach.rarity || 'common',
+                  game_mode: gameMode || 'Standardspiel',
+                  earned_with: ach.earnedBy || [playerName],
+                  earned_together: ach.earnedTogether || false,
+                  date: date || new Date().toLocaleDateString('de-DE')
+                }, { onConflict: 'user_id,achievement_id,date' });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      setMigrateProgress({ percent: 100, message: 'Migration abgeschlossen!' });
+      setMigrateResult({
+        success: true,
+        message: `✅ Migration abgeschlossen: ${migratedCount} Ergebnisse übertragen, ${skippedCount} Gast-Einträge übersprungen, ${errorCount} Fehler.`
+      });
+    } catch (err: any) {
+      setMigrateResult({
+        success: false,
+        message: `❌ Fehler bei der Migration: ${err.message || 'Unbekannter Fehler'}`
+      });
     }
   };
 
@@ -3924,6 +4256,46 @@ const App: React.FC = () => {
           }
         }
 
+        // Save authenticated user's result to Supabase if logged in
+        if (supabaseUser) {
+          try {
+            const userMetaName = (supabaseUser.user_metadata?.username || supabaseUser.email || '').toLowerCase();
+            const userResult = resultsToUpload.find(r => r.name.toLowerCase() === userMetaName || userMetaName.includes(r.name.toLowerCase()));
+
+            if (userResult) {
+              await supabase.from('game_results').insert({
+                user_id: supabaseUser.id,
+                game_mode: gameMode,
+                date: today,
+                avg: Number(userResult.avg.toFixed(2)),
+                schnaepse: userResult.schnaepse,
+                total: Number((userResult.avg + userResult.schnaepse).toFixed(2)),
+                levels: userResult.levels !== undefined ? userResult.levels : null
+              });
+            }
+
+            for (const ach of achievementsToUpload) {
+              const earnedByUser = ach.earnedBy?.some((eb: string) => eb.toLowerCase() === userMetaName || userMetaName.includes(eb.toLowerCase()));
+              if (earnedByUser) {
+                await supabase.from('achievements').upsert({
+                  user_id: supabaseUser.id,
+                  achievement_id: ach.id,
+                  title: ach.title,
+                  description: ach.description || '',
+                  icon: ach.icon || '🏆',
+                  rarity: ach.rarity || 'common',
+                  game_mode: gameMode,
+                  earned_with: ach.earnedBy,
+                  earned_together: ach.earnedTogether || false,
+                  date: today
+                }, { onConflict: 'user_id,achievement_id,date' });
+              }
+            }
+          } catch (sbSaveErr) {
+            console.error('Error saving to Supabase:', sbSaveErr);
+          }
+        }
+
         setSaveModalSuccess(true);
         setResultsSaved(true);
         setTimeout(() => {
@@ -3965,6 +4337,48 @@ const App: React.FC = () => {
         }
       }
 
+      let supabaseRows: any[][] = [];
+      try {
+        const { data: sbResults } = await supabase
+          .from('game_results')
+          .select(`
+            *,
+            profiles!inner (
+              username,
+              show_records,
+              show_standardspiel,
+              show_speedwiegen,
+              show_teamwiegen,
+              show_achievements
+            )
+          `)
+          .eq('profiles.show_records', true);
+
+        if (sbResults && Array.isArray(sbResults)) {
+          supabaseRows = sbResults
+            .filter(r => {
+              const p = r.profiles;
+              if (!p) return true;
+              const mode = r.game_mode || '';
+              if (mode.includes('Standardspiel') && p.show_standardspiel === false) return false;
+              if (mode.includes('Speedwiegen') && p.show_speedwiegen === false) return false;
+              if (mode.includes('Teamwiegen') && p.show_teamwiegen === false) return false;
+              return true;
+            })
+            .map(r => [
+              r.date || '',
+              r.game_mode || 'Standardspiel',
+              r.profiles?.username || 'Unbekannt',
+              String(r.avg || 0),
+              String(r.schnaepse || 0),
+              r.levels !== undefined && r.levels !== null ? String(r.levels) : "",
+              ""
+            ]);
+        }
+      } catch (e) {
+        console.error('Supabase records fetch error:', e);
+      }
+
       const headerRow = csvData.length > 0 ? csvData[0] : ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Levels", "Achievements"];
       const csvContentRows = csvData.slice(1);
 
@@ -3978,7 +4392,7 @@ const App: React.FC = () => {
         typeof rec.achievements === 'string' ? rec.achievements : JSON.stringify(rec.achievements || [])
       ]);
 
-      const combinedData = [headerRow, ...csvContentRows, ...accountRows];
+      const combinedData = [headerRow, ...csvContentRows, ...accountRows, ...supabaseRows];
       setRecordsData(combinedData);
 
       const namesSet = new Set<string>();
@@ -8721,6 +9135,19 @@ const App: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setShowMigrateModal(true)}
+                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
+                style={{ backgroundColor: '#7C3AED' }}
+              >
+                <div className="flex items-center space-x-3">
+                  <i className="fas fa-database text-lg"></i>
+                  <span>Ergebnisse in SQL übertragen</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowAdminUsersView(prev => !prev)}
                 className="w-full p-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
               >
@@ -8920,6 +9347,73 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* 🗄️ SQL MIGRATION MODAL */}
+      {showMigrateModal && (
+        <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5 border-2 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
+            <div className="flex justify-between items-center border-b pb-4 border-gray-500/20">
+              <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2" style={{ color: '#7C3AED' }}>
+                <i className="fas fa-database"></i>
+                <span>Ergebnisse in SQL übertragen</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => { setShowMigrateModal(false); setMigrateProgress(null); setMigrateResult(null); }}
+                className="w-8 h-8 rounded-full flex items-center justify-center font-bold opacity-50 hover:opacity-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs opacity-70 leading-relaxed">
+              Hierüber werden alle historischen Ergebnisse aus der CSV-Datei in die Supabase-Datenbank übertragen, die zu registrierten Benutzer-Accounts passen.
+            </p>
+
+            {migrateProgress && (
+              <div className="space-y-2 p-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-gray-500/20">
+                <div className="flex justify-between text-xs font-bold">
+                  <span>{migrateProgress.message}</span>
+                  <span>{migrateProgress.percent}%</span>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${migrateProgress.percent}%`, backgroundColor: '#7C3AED' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {migrateResult && (
+              <div className={`p-4 rounded-2xl text-xs font-bold ${migrateResult.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
+                {migrateResult.message}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => { setShowMigrateModal(false); setMigrateProgress(null); setMigrateResult(null); }}
+                className={`flex-1 py-3 rounded-xl border-2 font-bold text-xs uppercase cursor-pointer ${darkMode ? 'border-gray-700 text-gray-300 hover:bg-white/5' : 'border-gray-300 text-gray-700 hover:bg-black/5'}`}
+              >
+                Schließen
+              </button>
+              {!migrateResult && (
+                <button
+                  type="button"
+                  onClick={handleMigrateToSQL}
+                  disabled={!!migrateProgress}
+                  className="flex-1 py-3 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow active:scale-95 disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: '#7C3AED' }}
+                >
+                  {migrateProgress ? 'Wird übertragen...' : 'Starten'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* JOIN TABLE QR MODAL */}
       {showJoinTableModal && (
         <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -9044,6 +9538,22 @@ const App: React.FC = () => {
                 }`}
               >
                 📊 Rekorde
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileTab('freunde')}
+                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer flex items-center space-x-2 ${
+                  profileTab === 'freunde'
+                    ? 'border-[#238183] text-[#238183]'
+                    : 'border-transparent opacity-50'
+                }`}
+              >
+                <span>🤝 Freunde</span>
+                {pendingRequests.length > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center">
+                    {pendingRequests.length}
+                  </span>
+                )}
               </button>
             </div>
 
@@ -9329,44 +9839,78 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* 5. Datenschutz & Sichtbarkeit */}
+                  {/* 5. Datenschutz & Sicherheit */}
                   <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
                     <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
                       <i className="fas fa-shield-alt"></i>
-                      <span>Datenschutz &amp; Sichtbarkeit</span>
+                      <span>Datenschutz &amp; Sicherheit</span>
                     </h4>
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        id="showRecordsCheck"
-                        checked={profileShowRecords}
-                        onChange={e => setProfileShowRecords(e.target.checked)}
-                        className="w-5 h-5 accent-[#238183] cursor-pointer"
-                      />
-                      <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
-                        Meine Statistiken in der öffentlichen Rekorde-Tabelle anzeigen
-                      </label>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
+                          In öffentlicher Rekorde-Liste anzeigen
+                        </label>
+                        <input
+                          type="checkbox"
+                          id="showRecordsCheck"
+                          checked={privacyState.showRecords}
+                          onChange={e => setPrivacyState(prev => ({ ...prev, showRecords: e.target.checked }))}
+                          className="w-5 h-5 accent-[#238183] cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="showStandardCheck" className="font-bold text-xs cursor-pointer select-none">
+                          Standardspiel Ergebnisse anzeigen
+                        </label>
+                        <input
+                          type="checkbox"
+                          id="showStandardCheck"
+                          checked={privacyState.showStandardspiel}
+                          onChange={e => setPrivacyState(prev => ({ ...prev, showStandardspiel: e.target.checked }))}
+                          className="w-5 h-5 accent-[#238183] cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="showSpeedCheck" className="font-bold text-xs cursor-pointer select-none">
+                          Speedwiegen Ergebnisse anzeigen
+                        </label>
+                        <input
+                          type="checkbox"
+                          id="showSpeedCheck"
+                          checked={privacyState.showSpeedwiegen}
+                          onChange={e => setPrivacyState(prev => ({ ...prev, showSpeedwiegen: e.target.checked }))}
+                          className="w-5 h-5 accent-[#238183] cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="showTeamCheck" className="font-bold text-xs cursor-pointer select-none">
+                          Teamwiegen Ergebnisse anzeigen
+                        </label>
+                        <input
+                          type="checkbox"
+                          id="showTeamCheck"
+                          checked={privacyState.showTeamwiegen}
+                          onChange={e => setPrivacyState(prev => ({ ...prev, showTeamwiegen: e.target.checked }))}
+                          className="w-5 h-5 accent-[#238183] cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="showAchievementsCheck" className="font-bold text-xs cursor-pointer select-none">
+                          Achievements im Profil anzeigen
+                        </label>
+                        <input
+                          type="checkbox"
+                          id="showAchievementsCheck"
+                          checked={privacyState.showAchievements}
+                          onChange={e => setPrivacyState(prev => ({ ...prev, showAchievements: e.target.checked }))}
+                          className="w-5 h-5 accent-[#238183] cursor-pointer"
+                        />
+                      </div>
                     </div>
                     <button
                       type="button"
                       disabled={profileLoadingSection === 'privacy'}
-                      onClick={async () => {
-                        if (!supabaseUser) return;
-                        setProfileLoadingSection('privacy');
-                        setProfileSaveMessageOld(null);
-                        try {
-                          const { error } = await supabase.auth.updateUser({
-                            data: { showRecords: profileShowRecords }
-                          });
-                          if (error) throw error;
-                          setProfileSaveMessageOld({ section: 'privacy', type: 'success', text: 'Datenschutzeinstellungen gespeichert!' });
-                          fetchRecords();
-                        } catch (err: any) {
-                          setProfileSaveMessageOld({ section: 'privacy', type: 'error', text: err.message || 'Fehler beim Speichern.' });
-                        } finally {
-                          setProfileLoadingSection(null);
-                        }
-                      }}
+                      onClick={handleSavePrivacy}
                       className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
                       style={{ backgroundColor: BRAND_COLOR }}
                     >
@@ -9517,6 +10061,106 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {profileTab === 'freunde' && (
+              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+                {/* 1. Freund suchen & Anfrage senden */}
+                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+                  <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                    <i className="fas fa-user-plus"></i>
+                    <span>Freundschaftsanfrage senden</span>
+                  </h4>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={friendSearchQuery}
+                      onChange={e => setFriendSearchQuery(e.target.value)}
+                      placeholder="Benutzername oder E-Mail..."
+                      className={`flex-1 p-3 rounded-xl border-2 font-bold text-xs ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendFriendRequest}
+                      disabled={!friendSearchQuery.trim()}
+                      className="px-5 py-3 rounded-xl text-white font-black text-xs uppercase shadow active:scale-95 cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: BRAND_COLOR }}
+                    >
+                      Senden
+                    </button>
+                  </div>
+                  {friendRequestError && (
+                    <p className="text-xs text-red-500 font-bold">❌ {friendRequestError}</p>
+                  )}
+                  {friendRequestSuccess && (
+                    <p className="text-xs text-emerald-500 font-bold">✅ {friendRequestSuccess}</p>
+                  )}
+                </div>
+
+                {/* 2. Offene Anfragen */}
+                {pendingRequests.length > 0 && (
+                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-amber-500">
+                      <i className="fas fa-clock"></i>
+                      <span>Offene Anfragen ({pendingRequests.length})</span>
+                    </h4>
+                    <div className="space-y-2">
+                      {pendingRequests.map(req => (
+                        <div key={req.id} className={`p-3 rounded-xl flex items-center justify-between ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                          <span className="font-bold text-xs">{req.requesterName}</span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptFriendRequest(req.id)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-white font-bold text-xs shadow active:scale-95 cursor-pointer"
+                            >
+                              Annehmen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectFriendRequest(req.id)}
+                              className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 font-bold text-xs hover:bg-red-500/30 active:scale-95 cursor-pointer"
+                            >
+                              Ablehnen
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Meine Freunde */}
+                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+                  <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                    <i className="fas fa-users"></i>
+                    <span>Meine Freunde ({friends.length})</span>
+                  </h4>
+                  {friends.length === 0 ? (
+                    <p className="text-xs opacity-60">Du hast noch keine Freunde hinzugefügt.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {friends.map(fr => (
+                        <div key={fr.id} className={`p-3 rounded-xl flex items-center justify-between ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center text-xs font-bold text-white">
+                              {fr.imageUrl ? <img src={fr.imageUrl} alt={fr.name} className="w-full h-full object-cover" /> : fr.name[0].toUpperCase()}
+                            </div>
+                            <span className="font-bold text-xs">{fr.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFriend(fr.friendshipId)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 hover:bg-red-500/10 cursor-pointer"
+                          >
+                            Entfernen
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setShowProfileModal(false)}
@@ -9577,17 +10221,17 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* AUTH MODAL (LOGIN / REGISTER) */}
+      {/* AUTH MODAL (LOGIN / REGISTER / FORGOT) */}
       {showAuthModal && (
         <div className="fixed inset-0 z-[800] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className={`w-full md:max-w-sm rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
             <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20">
               <h3 className="text-xl font-black" style={{ color: BRAND_COLOR }}>
-                {authMode === 'login' ? '🔑 Anmelden' : '✨ Registrieren'}
+                {authMode === 'login' ? '🔑 Anmelden' : authMode === 'register' ? '✨ Registrieren' : '🔑 Passwort zurücksetzen'}
               </h3>
               <button
                 type="button"
-                onClick={() => setShowAuthModal(false)}
+                onClick={() => { setShowAuthModal(false); setAuthSuccess(null); setAuthError(null); }}
                 className="opacity-50 hover:opacity-100 text-xl font-bold cursor-pointer"
               >
                 ✕
@@ -9595,62 +10239,128 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {authMode === 'register' && (
-                <div>
-                  <label className="text-xs font-black uppercase opacity-60 block mb-1">Nutzername</label>
-                  <input
-                    type="text"
-                    value={authUsername}
-                    onChange={e => setAuthUsername(e.target.value)}
-                    placeholder="dein_nutzername"
-                    className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                  />
-                </div>
+              {authMode === 'forgot' ? (
+                <>
+                  <p className="text-xs opacity-70">
+                    Gib deine E-Mail-Adresse ein. Wir senden dir einen Link zum Zurücksetzen deines Passworts.
+                  </p>
+                  <div>
+                    <label className="text-xs font-black uppercase opacity-60 block mb-1">E-Mail</label>
+                    <input
+                      type="email"
+                      value={authEmailOrUsername}
+                      onChange={e => setAuthEmailOrUsername(e.target.value)}
+                      placeholder="email@beispiel.de"
+                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                    />
+                  </div>
+                  {authError && (
+                    <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
+                  )}
+                  {authSuccess && (
+                    <p className="text-xs text-emerald-500 font-bold">✅ {authSuccess}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={authSubmitLoading}
+                    className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    {authSubmitLoading ? '...' : 'Reset-Link senden'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setAuthError(null);
+                      setAuthSuccess(null);
+                    }}
+                    className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
+                  >
+                    ← Zurück zum Anmelden
+                  </button>
+                </>
+              ) : (
+                <>
+                  {authMode === 'register' && (
+                    <div>
+                      <label className="text-xs font-black uppercase opacity-60 block mb-1">Nutzername</label>
+                      <input
+                        type="text"
+                        value={authUsername}
+                        onChange={e => setAuthUsername(e.target.value)}
+                        placeholder="dein_nutzername"
+                        className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs font-black uppercase opacity-60 block mb-1">
+                      {authMode === 'login' ? 'Benutzername oder E-Mail' : 'E-Mail'}
+                    </label>
+                    <input
+                      type="text"
+                      value={authEmailOrUsername}
+                      onChange={e => setAuthEmailOrUsername(e.target.value)}
+                      placeholder={authMode === 'login' ? 'benutzername oder email@beispiel.de' : 'email@beispiel.de'}
+                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-black uppercase opacity-60 block">Passwort</label>
+                      {authMode === 'login' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthMode('forgot');
+                            setAuthError(null);
+                            setAuthSuccess(null);
+                          }}
+                          className="text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer"
+                          style={{ color: BRAND_COLOR }}
+                        >
+                          Passwort vergessen?
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={e => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
+                    />
+                  </div>
+                  {authError && (
+                    <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
+                  )}
+                  {authSuccess && (
+                    <p className="text-xs text-emerald-500 font-bold">✅ {authSuccess}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={authMode === 'login' ? handleSignIn : handleSignUp}
+                    disabled={authSubmitLoading}
+                    className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    {authSubmitLoading ? '...' : authMode === 'login' ? 'Anmelden' : 'Registrieren'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode(authMode === 'login' ? 'register' : 'login');
+                      setAuthError(null);
+                      setAuthSuccess(null);
+                    }}
+                    className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
+                  >
+                    {authMode === 'login' ? 'Noch kein Account? Registrieren' : 'Bereits registriert? Anmelden'}
+                  </button>
+                </>
               )}
-              <div>
-                <label className="text-xs font-black uppercase opacity-60 block mb-1">
-                  {authMode === 'login' ? 'Benutzername oder E-Mail' : 'E-Mail'}
-                </label>
-                <input
-                  type="text"
-                  value={authEmailOrUsername}
-                  onChange={e => setAuthEmailOrUsername(e.target.value)}
-                  placeholder={authMode === 'login' ? 'benutzername oder email@beispiel.de' : 'email@beispiel.de'}
-                  className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-black uppercase opacity-60 block mb-1">Passwort</label>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={e => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                />
-              </div>
-              {authError && (
-                <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
-              )}
-              <button
-                type="button"
-                onClick={authMode === 'login' ? handleSignIn : handleSignUp}
-                disabled={authSubmitLoading}
-                className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                {authSubmitLoading ? '...' : authMode === 'login' ? 'Anmelden' : 'Registrieren'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'register' : 'login');
-                  setAuthError(null);
-                }}
-                className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
-              >
-                {authMode === 'login' ? 'Noch kein Account? Registrieren' : 'Bereits registriert? Anmelden'}
-              </button>
             </div>
           </div>
         </div>

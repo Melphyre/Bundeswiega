@@ -36,6 +36,8 @@ import updatePrivacyHandler from "./api/users/update-privacy";
 import assignToAccountHandler from "./api/admin/assign-to-account";
 import publicRecordsHandler from "./api/users/public-records";
 import saveResultHandler from "./api/users/save-result";
+import saveGameResultHandler from "./api/users/save-game-result";
+import migrateToSqlHandler from "./api/admin/migrate-to-sql";
 
 // Setup express app
 const app = express();
@@ -47,6 +49,7 @@ app.use(express.json());
 app.post("/api/upload", uploadHandler);
 app.get("/api/records", recordsHandler);
 app.post("/api/admin/rename", renameHandler);
+app.post("/api/admin/migrate-to-sql", migrateToSqlHandler);
 
 // Tournament API routes
 app.get("/api/tournament/list", tournamentListHandler);
@@ -59,6 +62,7 @@ app.get("/api/users/list", usersListHandler);
 app.post("/api/users/update-privacy", updatePrivacyHandler);
 app.get("/api/users/public-records", publicRecordsHandler);
 app.post("/api/users/save-result", saveResultHandler);
+app.post("/api/users/save-game-result", saveGameResultHandler);
 
 app.get('/api/users/find-by-username', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');

@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
+import QRScannerModal from './src/components/QRScannerModal';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
@@ -1988,91 +1989,83 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMigrateToSQL = async () => {
-    setMigrateProgress({ percent: 5, message: 'Lade CSV-Daten & User-Liste...' });
-    setMigrateResult(null);
+  const saveResultToSupabase = async (
+    userId: string,
+    gameResult: {
+      game_mode: string;
+      date: string;
+      avg: number;
+      schnaepse: number;
+      total: number;
+      levels?: number;
+      time_seconds?: number;
+      team_name?: string;
+    },
+    achievements: any[]
+  ) => {
+    try {
+      const res = await fetch('/api/users/save-game-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, gameResult, achievements })
+      });
 
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Non-JSON response: ${text.substring(0, 100)}`);
+      }
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
+      return true;
+    } catch (err: any) {
+      console.error('saveResultToSupabase error:', err);
+      return false;
+    }
+  };
+
+  const handleMigrateToSQL = async () => {
+    setMigrateProgress({ percent: 10, message: 'Lade CSV Daten...' });
+    setMigrateResult(null);
     try {
       const csvRes = await fetch('/api/records');
       const csvJson = await csvRes.json();
-      const csvRows: string[][] = csvJson.data || [];
+      const csvRows = (csvJson.data || []).filter((row: string[]) =>
+        row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name'
+      );
 
+      setMigrateProgress({ percent: 30, message: 'Lade Account-Liste...' });
       const usersRes = await fetch('/api/users/list');
       const usersJson = await usersRes.json();
-      const users: Array<{ id: string; name: string; email?: string }> = usersJson.users || [];
+      const users = usersJson.users || [];
 
-      setMigrateProgress({ percent: 20, message: 'Verarbeite CSV-Einträge...' });
-      const dataRows = csvRows.filter(row => row && row.length >= 5 && row[0] !== 'Datum');
+      setMigrateProgress({ percent: 50, message: `Übertrage ${csvRows.length} Einträge...` });
 
-      let migratedCount = 0;
-      let skippedCount = 0;
-      let errorCount = 0;
+      // Alle Rows in einem Request senden
+      const migrateRes = await fetch('/api/admin/migrate-to-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: csvRows, users })
+      });
 
-      for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i];
-        const [date, gameMode, playerName, avgStr, schnaepseStr, totalStr, achievementsStr] = row;
-
-        const percent = 20 + Math.floor(((i + 1) / dataRows.length) * 75);
-        setMigrateProgress({ percent, message: `Verarbeite Zeile ${i + 1} von ${dataRows.length} (${playerName})...` });
-
-        const matchedUser = users.find(u => u.name && u.name.trim().toLowerCase() === playerName?.trim().toLowerCase());
-        if (!matchedUser) {
-          skippedCount++;
-          continue;
-        }
-
-        const avg = parseFloat(avgStr) || 0;
-        const schnaepse = parseInt(schnaepseStr) || 0;
-        const total = parseFloat(totalStr) || (avg + schnaepse);
-
-        const { error: resErr } = await supabase.from('game_results').insert({
-          user_id: matchedUser.id,
-          game_mode: gameMode || 'Standardspiel',
-          date: date || new Date().toLocaleDateString('de-DE'),
-          avg: Number(avg.toFixed(2)),
-          schnaepse,
-          total: Number(total.toFixed(2))
-        });
-
-        if (resErr) {
-          errorCount++;
-        } else {
-          migratedCount++;
-        }
-
-        if (achievementsStr && achievementsStr.trim().startsWith('[')) {
-          try {
-            const achievementsList = JSON.parse(achievementsStr);
-            if (Array.isArray(achievementsList)) {
-              for (const ach of achievementsList) {
-                await supabase.from('achievements').upsert({
-                  user_id: matchedUser.id,
-                  achievement_id: ach.id || `ach_${Date.now()}`,
-                  title: ach.title || 'Achievement',
-                  description: ach.description || '',
-                  icon: ach.icon || '🏆',
-                  rarity: ach.rarity || 'common',
-                  game_mode: gameMode || 'Standardspiel',
-                  earned_with: ach.earnedBy || [playerName],
-                  earned_together: ach.earnedTogether || false,
-                  date: date || new Date().toLocaleDateString('de-DE')
-                }, { onConflict: 'user_id,achievement_id,date' });
-              }
-            }
-          } catch (e) {}
-        }
+      const contentType = migrateRes.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await migrateRes.text();
+        throw new Error(`Non-JSON: ${text.substring(0, 100)}`);
       }
 
-      setMigrateProgress({ percent: 100, message: 'Migration abgeschlossen!' });
+      const migrateJson = await migrateRes.json();
+      if (!migrateRes.ok) throw new Error(migrateJson.error);
+
+      setMigrateProgress({ percent: 100, message: 'Fertig!' });
       setMigrateResult({
         success: true,
-        message: `✅ Migration abgeschlossen: ${migratedCount} Ergebnisse übertragen, ${skippedCount} Gast-Einträge übersprungen, ${errorCount} Fehler.`
+        message: `✅ ${migrateJson.message}`
       });
     } catch (err: any) {
-      setMigrateResult({
-        success: false,
-        message: `❌ Fehler bei der Migration: ${err.message || 'Unbekannter Fehler'}`
-      });
+      setMigrateProgress(null);
+      setMigrateResult({ success: false, message: `❌ Fehler: ${err.message}` });
     }
   };
 
@@ -2123,41 +2116,13 @@ const App: React.FC = () => {
   }, [gameState, isSignedIn, supabaseUser]);
 
   // QR Scanner Functions (html5-qrcode)
-  const startQrScanner = async (playerId: string) => {
+  const startQrScanner = (playerId: string) => {
     setScanningForPlayerId(playerId);
     setShowQrScanner(true);
     setQrError(null);
-
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const html5QrCode = new Html5Qrcode('qr-reader');
-    qrScannerRef.current = html5QrCode;
-
-    try {
-      await html5QrCode.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          handleQrScan(decodedText, playerId);
-          html5QrCode.stop().catch(() => {});
-          qrScannerRef.current = null;
-          setShowQrScanner(false);
-          setScanningForPlayerId(null);
-        },
-        (_errorMessage) => {}
-      );
-    } catch (err) {
-      setQrError('Kamera konnte nicht gestartet werden.');
-    }
   };
 
-  const stopQrScanner = async () => {
-    if (qrScannerRef.current) {
-      try {
-        await qrScannerRef.current.stop();
-        qrScannerRef.current = null;
-      } catch {}
-    }
+  const stopQrScanner = () => {
     setShowQrScanner(false);
     setScanningForPlayerId(null);
     setQrError(null);
@@ -2522,48 +2487,113 @@ const App: React.FC = () => {
     }
   }, [gameState]);
 
-  // Auto-save results to Clerk user accounts when RESULT_SCREEN is loaded
+  // Auto-save results when RESULT_SCREEN or SPEED_RESULT is loaded
   useEffect(() => {
     if (gameState !== GameState.RESULT_SCREEN) return;
 
-    Object.entries(playerAccountLinks).forEach(async ([playerId, accountLink]: [string, { userId: string; userName: string; imageUrl?: string }]) => {
-      if (!accountLink.userId) return;
-      const player = players.find(p => p.id === playerId);
-      if (!player) return;
+    const today = new Date().toLocaleDateString('de-DE');
 
-      if (accountResultsSaved.includes(accountLink.userId)) return;
+    // Standardspiel – für jeden Spieler mit Account
+    if (teams.length === 0) {
+      Object.entries(playerAccountLinks).forEach(async ([playerId, accountLink]: [string, any]) => {
+        if (!accountLink.userId) return;
+        if (accountResultsSaved.includes(accountLink.userId)) return;
 
-      const avg = calculateAverageDistance(playerId, rounds);
-      const gameMode = teams.length > 0
-        ? 'Teamwiegen'
-        : isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
-      const today = new Date().toLocaleDateString('de-DE');
+        const player = players.find(p => p.id === playerId);
+        if (!player) return;
 
-      const playerAchievements = earnedAchievements.filter(a =>
-        a.earnedBy && a.earnedBy.includes(player.name)
-      );
+        const avg = calculateAverageDistance(playerId, rounds);
+        const gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
 
-      try {
-        const res = await fetch('/api/users/save-result', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: accountLink.userId,
-            result: {
-              date: today,
-              gameMode,
-              avg: Number(avg.toFixed(2)),
-              schnaepse: player.schnaepse,
-              total: Number((avg + player.schnaepse).toFixed(2)),
-              achievements: playerAchievements
-            }
-          })
-        });
-        if (res.ok) {
+        const playerAchievements = earnedAchievements.filter(a =>
+          a.earnedBy && a.earnedBy.includes(player.name)
+        );
+
+        const success = await saveResultToSupabase(
+          accountLink.userId,
+          {
+            game_mode: gameMode,
+            date: today,
+            avg: Number(avg.toFixed(2)),
+            schnaepse: player.schnaepse,
+            total: Number((avg + player.schnaepse).toFixed(2))
+          },
+          playerAchievements
+        );
+
+        if (success) {
           setAccountResultsSaved(prev => prev.includes(accountLink.userId) ? prev : [...prev, accountLink.userId]);
         }
-      } catch (err) {
-        console.error('Auto-save to Clerk account failed:', err);
+      });
+    }
+
+    // Teamwiegen
+    if (teams.length > 0) {
+      Object.entries(teamMemberAccountLinks).forEach(async ([memberId, accountLink]: [string, any]) => {
+        if (!accountLink.userId) return;
+        if (accountResultsSaved.includes(accountLink.userId)) return;
+
+        const team = teams.find(t => t.members.some((m: any) => m.id === memberId));
+        const member = team?.members.find((m: any) => m.id === memberId);
+        if (!member || !team) return;
+
+        const success = await saveResultToSupabase(
+          accountLink.userId,
+          {
+            game_mode: 'Teamwiegen',
+            date: today,
+            avg: Number((member.avg || 0).toFixed(2)),
+            schnaepse: team.schnaepse || 0,
+            total: Number(((member.avg || 0) + (team.schnaepse || 0)).toFixed(2)),
+            team_name: team.name
+          },
+          []
+        );
+
+        if (success) {
+          setAccountResultsSaved(prev => prev.includes(accountLink.userId) ? prev : [...prev, accountLink.userId]);
+        }
+      });
+    }
+  }, [gameState]);
+
+  // Speedwiegen Auto-Save
+  useEffect(() => {
+    if (gameState !== GameState.SPEED_RESULT) return;
+    if (!supabaseUser || !isSignedIn) return;
+    if (accountResultsSaved.includes(supabaseUser.id)) return;
+
+    const today = new Date().toLocaleDateString('de-DE');
+    const gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+
+    const keys = Object.keys(speedResults);
+    const totalDiff = keys.reduce((acc, key) => {
+      const k = parseInt(key);
+      return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
+    }, 0);
+    const speedAvg = keys.length > 0 ? totalDiff / keys.length : 0;
+
+    const speedAchievements = earnedAchievements.filter(a =>
+      a.earnedBy && a.earnedBy.includes(speedPlayerName || '')
+    );
+
+    const timeSec = (speedEndTime && speedStartTime) ? (speedEndTime - speedStartTime) / 1000 : 0;
+
+    saveResultToSupabase(
+      supabaseUser.id,
+      {
+        game_mode: gameMode,
+        date: today,
+        avg: Number(speedAvg.toFixed(2)),
+        schnaepse: 0,
+        total: Number(speedAvg.toFixed(2)),
+        levels: parseInt(speedLevels) || undefined,
+        time_seconds: Number(timeSec.toFixed(2))
+      },
+      speedAchievements
+    ).then(success => {
+      if (success) {
+        setAccountResultsSaved(prev => prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]);
       }
     });
   }, [gameState]);
@@ -4263,33 +4293,22 @@ const App: React.FC = () => {
             const userResult = resultsToUpload.find(r => r.name.toLowerCase() === userMetaName || userMetaName.includes(r.name.toLowerCase()));
 
             if (userResult) {
-              await supabase.from('game_results').insert({
-                user_id: supabaseUser.id,
-                game_mode: gameMode,
-                date: today,
-                avg: Number(userResult.avg.toFixed(2)),
-                schnaepse: userResult.schnaepse,
-                total: Number((userResult.avg + userResult.schnaepse).toFixed(2)),
-                levels: userResult.levels !== undefined ? userResult.levels : null
-              });
-            }
+              const userAchievements = achievementsToUpload.filter(ach =>
+                ach.earnedBy?.some((eb: string) => eb.toLowerCase() === userMetaName || userMetaName.includes(eb.toLowerCase()))
+              );
 
-            for (const ach of achievementsToUpload) {
-              const earnedByUser = ach.earnedBy?.some((eb: string) => eb.toLowerCase() === userMetaName || userMetaName.includes(eb.toLowerCase()));
-              if (earnedByUser) {
-                await supabase.from('achievements').upsert({
-                  user_id: supabaseUser.id,
-                  achievement_id: ach.id,
-                  title: ach.title,
-                  description: ach.description || '',
-                  icon: ach.icon || '🏆',
-                  rarity: ach.rarity || 'common',
+              await saveResultToSupabase(
+                supabaseUser.id,
+                {
                   game_mode: gameMode,
-                  earned_with: ach.earnedBy,
-                  earned_together: ach.earnedTogether || false,
-                  date: today
-                }, { onConflict: 'user_id,achievement_id,date' });
-              }
+                  date: today,
+                  avg: Number(userResult.avg.toFixed(2)),
+                  schnaepse: userResult.schnaepse,
+                  total: Number((userResult.avg + userResult.schnaepse).toFixed(2)),
+                  levels: userResult.levels !== undefined ? userResult.levels : undefined
+                },
+                userAchievements
+              );
             }
           } catch (sbSaveErr) {
             console.error('Error saving to Supabase:', sbSaveErr);
@@ -9475,28 +9494,19 @@ const App: React.FC = () => {
       )}
 
       {/* QR SCANNER MODAL */}
-      {showQrScanner && (
-        <div className="fixed inset-0 z-[750] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className={`rounded-3xl p-6 max-w-md w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
-            <h3 className="text-xl font-black mb-2 flex items-center justify-center space-x-2" style={{ color: BRAND_COLOR }}>
-              <i className="fas fa-camera"></i>
-              <span>Spieler QR-Code scannen</span>
-            </h3>
-            <p className="text-xs opacity-70 mb-4">Halte den QR-Code des Spielers in die Kamera</p>
-
-            <div id="qr-reader" className="w-full rounded-2xl overflow-hidden mb-6 bg-black"></div>
-
-            <button
-              type="button"
-              onClick={() => setShowQrScanner(false)}
-              className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider border-2 cursor-pointer active:scale-95"
-              style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-            >
-              Abbrechen
-            </button>
-          </div>
-        </div>
-      )}
+      <QRScannerModal
+        isOpen={showQrScanner}
+        onClose={stopQrScanner}
+        onScanSuccess={(decodedText) => {
+          if (scanningForPlayerId) {
+            handleQrScan(decodedText, scanningForPlayerId);
+            stopQrScanner();
+          }
+        }}
+        title="Spieler QR-Code scannen"
+        description="Halte den QR-Code des Spielers in die Kamera"
+        darkMode={darkMode}
+      />
 
       {/* PROFILE MANAGMENT MODAL */}
       {showProfileModal && (

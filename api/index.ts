@@ -1,0 +1,1560 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { put, list, del } from '@vercel/blob';
+import { createClient } from '@supabase/supabase-js';
+import path from 'path';
+import fs from 'fs';
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
+
+const isSupabaseConfigured = () => {
+  return (
+    !!supabaseUrl &&
+    !!supabaseSecretKey &&
+    !supabaseUrl.includes('placeholder') &&
+    !supabaseSecretKey.includes('placeholder')
+  );
+};
+
+const supabaseAdmin = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseSecretKey || 'placeholder-secret-key'
+);
+
+function getRequestBody(req: VercelRequest): any {
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
+  }
+  return req.body || {};
+}
+
+function getRequestQuery(req: VercelRequest): Record<string, string> {
+  const queryObj: Record<string, string> = {};
+  if (req.query && Object.keys(req.query).length > 0) {
+    for (const [k, v] of Object.entries(req.query)) {
+      queryObj[k] = Array.isArray(v) ? String(v[0]) : String(v || '');
+    }
+    return queryObj;
+  }
+  try {
+    const urlObj = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    urlObj.searchParams.forEach((val, key) => {
+      queryObj[key] = val;
+    });
+  } catch {
+    // Ignore parse error
+  }
+  return queryObj;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const rawUrl = req.url || '';
+  const pathName = rawUrl.split('?')[0] || '';
+
+  try {
+    // ── Records ──────────────────────────────────────
+    if (pathName === '/api/records' && req.method === 'GET') {
+      return await handleRecords(req, res);
+    }
+
+    // ── Upload ───────────────────────────────────────
+    if (pathName === '/api/upload' && req.method === 'POST') {
+      return await handleUpload(req, res);
+    }
+
+    // ── Users ────────────────────────────────────────
+    if (pathName === '/api/users/list' && req.method === 'GET') {
+      return await handleUsersList(req, res);
+    }
+    if (pathName === '/api/users/save-game-result' && req.method === 'POST') {
+      return await handleSaveGameResult(req, res);
+    }
+    if (pathName === '/api/users/save-result' && req.method === 'POST') {
+      return await handleSaveResult(req, res);
+    }
+    if (pathName === '/api/users/update-privacy' && req.method === 'POST') {
+      return await handleUpdatePrivacy(req, res);
+    }
+    if (pathName === '/api/users/delete' && req.method === 'POST') {
+      return await handleDeleteUser(req, res);
+    }
+    if (pathName === '/api/users/find-by-username' && req.method === 'GET') {
+      return await handleFindByUsername(req, res);
+    }
+    if (pathName === '/api/users/check-username' && req.method === 'GET') {
+      return await handleCheckUsername(req, res);
+    }
+    if (pathName === '/api/users/public-records' && req.method === 'GET') {
+      return await handlePublicRecords(req, res);
+    }
+
+    // ── Admin ────────────────────────────────────────
+    if (pathName === '/api/admin/rename' && req.method === 'POST') {
+      return await handleAdminRename(req, res);
+    }
+    if (pathName === '/api/admin/assign-to-account' && req.method === 'POST') {
+      return await handleAssignToAccount(req, res);
+    }
+    if (pathName === '/api/admin/migrate-to-sql' && req.method === 'POST') {
+      return await handleMigrateToSQL(req, res);
+    }
+    if (pathName === '/api/admin/set-role' && req.method === 'POST') {
+      return await handleAdminSetRole(req, res);
+    }
+
+    // ── Tournament ───────────────────────────────────
+    if (pathName === '/api/tournament/list' && req.method === 'GET') {
+      return await handleTournamentList(req, res);
+    }
+    if (pathName === '/api/tournament/get' && req.method === 'GET') {
+      return await handleTournamentGet(req, res);
+    }
+    if (pathName === '/api/tournament/save' && req.method === 'POST') {
+      return await handleTournamentSave(req, res);
+    }
+    if (pathName === '/api/tournament/delete' && req.method === 'POST') {
+      return await handleTournamentDelete(req, res);
+    }
+
+    return res.status(404).json({ error: `Route nicht gefunden: ${pathName}` });
+  } catch (err: any) {
+    console.error('API Error:', err);
+    return res.status(500).json({ error: err.message || 'Interner Fehler' });
+  }
+}
+
+// ════════════════════════════════════════════════
+// HANDLER FUNKTIONEN
+// ════════════════════════════════════════════════
+
+async function handleRecords(req: VercelRequest, res: VercelResponse) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  try {
+    let content = "";
+
+    if (token) {
+      console.log("Fetching list of blobs from Vercel Blob storage...");
+      try {
+        const listResult = await list({ token });
+        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+        if (resultsBlob) {
+          console.log(`Fetching results.csv from URL: ${resultsBlob.url}`);
+          const fetchRes = await fetch(resultsBlob.url);
+          if (fetchRes.ok) {
+            content = await fetchRes.text();
+          }
+        }
+      } catch (listErr) {
+        console.error("Error listing or fetching results.csv from Vercel Blob:", listErr);
+      }
+    } else {
+      // Local development fallback
+      const localPath = path.join(process.cwd(), "results.csv");
+      console.log(`[Development Mode] Checking local file at: ${localPath}`);
+      if (fs.existsSync(localPath)) {
+        content = fs.readFileSync(localPath, "utf-8");
+      }
+    }
+
+    if (!content) {
+      return res.json({ data: [] });
+    }
+
+    // Parse CSV line by line and split by semicolon
+    const lines = content.split(/\r?\n/);
+    const data: string[][] = lines
+      .map(line => line.trim())
+      .filter(line => line !== "") // filter out completely empty lines
+      .map(line => line.split(";"));
+
+    return res.json({ data });
+  } catch (error: any) {
+    console.error("Error in records handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Laden der Statistiken aus dem verknüpften Storage." });
+  }
+}
+
+async function handleUpload(req: VercelRequest, res: VercelResponse) {
+  const body = getRequestBody(req);
+  const { gameMode, results, date, achievements } = body;
+
+  if (!gameMode || !results || !Array.isArray(results) || !date) {
+    return res.status(400).json({ error: "Invalid request payload. Must include gameMode, results array, and date." });
+  }
+
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  try {
+    let existingContent = "";
+
+    if (token) {
+      try {
+        console.log("Fetching list of blobs from Vercel Blob storage...");
+        const listResult = await list({ token });
+        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+        if (resultsBlob) {
+          console.log(`Fetching results.csv from URL: ${resultsBlob.url}`);
+          const fetchRes = await fetch(resultsBlob.url);
+          if (fetchRes.ok) {
+            existingContent = await fetchRes.text();
+          }
+        }
+      } catch (listErr) {
+        console.error("Error finding or reading existing results.csv from Vercel Blob:", listErr);
+      }
+    } else {
+      // Local development fallback
+      const localPath = path.join(process.cwd(), "results.csv");
+      console.log(`[Development Mode] Checking local file at: ${localPath}`);
+      if (fs.existsSync(localPath)) {
+        existingContent = fs.readFileSync(localPath, "utf-8");
+      }
+    }
+
+    // Split existingContent into lines and clean
+    let lines = existingContent ? existingContent.split(/\r?\n/) : [];
+    lines = lines.filter(line => line.trim() !== "");
+
+    // If empty or doesn't have the header, initialize header
+    const header = "Datum;Modus;Name;Avg;Schnaepse;Levels;Achievements";
+    if (lines.length === 0 || !lines[0].startsWith("Datum;Modus;Name")) {
+      lines = [header];
+    }
+
+    // Append new records
+    const TOGETHER_ACHIEVEMENT_IDS = ['twins', 'doppelganger', 'mirror_number', 'shadow', 'equilibrium'];
+
+    results.forEach((item: { name: string; avg: number; schnaepse: number; levels?: number; achievements?: any[] }) => {
+      const rawPlayerAch = item.achievements && item.achievements.length > 0
+        ? item.achievements
+        : (achievements && Array.isArray(achievements)
+            ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.includes(item.name))
+            : []);
+
+      const formattedAch = rawPlayerAch.map((a: any) => {
+        const isTogether = typeof a.earnedTogether === 'boolean'
+          ? a.earnedTogether
+          : TOGETHER_ACHIEVEMENT_IDS.includes(a.id);
+
+        const achObj: any = {
+          id: a.id,
+          title: a.title,
+          icon: a.icon,
+          rarity: a.rarity,
+          earnedBy: Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy : [item.name]
+        };
+
+        if (isTogether) {
+          achObj.earnedTogether = true;
+        }
+
+        return achObj;
+      });
+
+      const achievementsStr = formattedAch.length > 0 ? encodeURIComponent(JSON.stringify(formattedAch)) : "";
+      const levelsStr = item.levels !== undefined ? String(item.levels) : "";
+
+      let line = `${date};${gameMode};${item.name};${item.avg};${item.schnaepse};${levelsStr};${achievementsStr}`;
+      lines.push(line);
+    });
+
+    const newContent = lines.join("\n");
+
+    if (token) {
+      console.log("Uploading updated results.csv to Vercel Blob storage...");
+      const blob = await put("results.csv", newContent, {
+        access: "public",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        token,
+        contentType: "text/csv",
+      });
+      console.log(`Successfully uploaded to Vercel Blob at URL: ${blob.url}`);
+      return res.json({ success: true, message: "Ergebnisse wurden erfolgreich im verknüpften Storage (Vercel Blob) gespeichert!" });
+    } else {
+      // Local development fallback
+      const localPath = path.join(process.cwd(), "results.csv");
+      fs.writeFileSync(localPath, newContent, "utf-8");
+      console.log("results.csv successfully written to local fallback storage.");
+      return res.json({ success: true, message: "Ergebnisse wurden lokal unter results.csv gespeichert (Lokaler Entwicklungsmodus ohne Live-Token)." });
+    }
+  } catch (error: any) {
+    console.error("Error in upload handler:", error);
+    return res.status(500).json({ error: error.message || "Ein Fehler ist beim Verarbeiten oder Hochladen der Ergebnisse aufgetreten." });
+  }
+}
+
+async function handleUsersList(req: VercelRequest, res: VercelResponse) {
+  if (!isSupabaseConfigured()) {
+    return res.status(200).json({ users: [] });
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) {
+      return res.status(200).json({ users: [] });
+    }
+
+    const userList = data.users.map((u: any) => ({
+      id: u.id,
+      name: u.user_metadata?.username || u.email || 'Unbekannt',
+      email: u.email || '',
+      username: u.user_metadata?.username || '',
+      imageUrl: u.user_metadata?.avatar_url || ''
+    }));
+
+    return res.status(200).json({ users: userList });
+  } catch (err: any) {
+    return res.status(200).json({ users: [] });
+  }
+}
+
+async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { userId, gameResult, achievements: achievementsList } = body;
+
+    if (!userId || !gameResult) {
+      return res.status(400).json({ error: 'userId und gameResult erforderlich' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'Supabase nicht konfiguriert oder SUPABASE_SECRET_KEY fehlt' });
+    }
+
+    // Ergebnis speichern mit Admin-Client
+    const { error: resultError } = await supabaseAdmin
+      .from('game_results')
+      .insert({
+        user_id: userId,
+        game_mode: gameResult.game_mode,
+        date: gameResult.date,
+        avg: gameResult.avg,
+        schnaepse: gameResult.schnaepse,
+        total: gameResult.total,
+        levels: gameResult.levels || null,
+        time_seconds: gameResult.time_seconds || null,
+        team_name: gameResult.team_name || null
+      });
+
+    if (resultError) {
+      console.error('game_results insert error:', resultError);
+      return res.status(500).json({ error: resultError.message });
+    }
+
+    // Achievements speichern
+    if (achievementsList && achievementsList.length > 0) {
+      for (const ach of achievementsList) {
+        const { error: achError } = await supabaseAdmin
+          .from('achievements')
+          .insert({
+            user_id: userId,
+            achievement_id: ach.id,
+            title: ach.title,
+            description: ach.description || '',
+            icon: ach.icon || '',
+            rarity: ach.rarity,
+            game_mode: gameResult.game_mode,
+            earned_with: ach.earnedBy || [],
+            earned_together: ach.earnedTogether || false,
+            date: gameResult.date
+          });
+        if (achError) console.error('achievement insert error:', achError);
+      }
+    }
+
+    return res.status(200).json({ message: 'Ergebnis erfolgreich gespeichert' });
+  } catch (err: any) {
+    console.error('save-game-result error:', err);
+    return res.status(500).json({ error: err.message || 'Fehler beim Speichern' });
+  }
+}
+
+async function handleSaveResult(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { userId, result } = body;
+    if (!userId || !result) {
+      return res.status(400).json({ error: 'userId und result erforderlich' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'SUPABASE_SECRET_KEY / URL fehlt' });
+    }
+
+    const { data: { user }, error: getErr } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (getErr || !user) throw getErr || new Error('User nicht gefunden');
+
+    const existingData = Array.isArray(user.user_metadata?.gameData) ? user.user_metadata.gameData : [];
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...user.user_metadata,
+        gameData: [...existingData, result]
+      }
+    });
+
+    if (updateErr) throw updateErr;
+
+    return res.status(200).json({ message: 'Ergebnis gespeichert' });
+  } catch (err: any) {
+    console.error('save-result error:', err);
+    return res.status(500).json({ error: err.message || 'Fehler beim Speichern' });
+  }
+}
+
+async function handleUpdatePrivacy(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { userId, showRecords } = body;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId ist erforderlich' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'SUPABASE_SECRET_KEY / URL fehlt.' });
+    }
+
+    const { data: { user }, error: getErr } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (getErr || !user) throw getErr || new Error('User nicht gefunden');
+
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...user.user_metadata,
+        showRecords: showRecords !== false
+      }
+    });
+
+    if (updateErr) throw updateErr;
+
+    return res.status(200).json({ success: true });
+  } catch (err: any) {
+    console.error('Error in update-privacy handler:', err);
+    return res.status(500).json({ error: err.message || 'Serverfehler' });
+  }
+}
+
+async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { userId } = body;
+    if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+    if (!isSupabaseConfigured()) return res.status(500).json({ error: 'Supabase nicht konfiguriert' });
+
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) throw error;
+    return res.status(200).json({ message: 'Account gelöscht' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Fehler beim Löschen des Accounts' });
+  }
+}
+
+async function handleFindByUsername(req: VercelRequest, res: VercelResponse) {
+  try {
+    const query = getRequestQuery(req);
+    const { username } = query;
+    if (!username || !isSupabaseConfigured()) return res.status(404).json({ email: null });
+
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) return res.status(404).json({ email: null });
+
+    const user = data.users.find((u: any) =>
+      u.user_metadata?.username?.toLowerCase() === username.toLowerCase()
+    );
+    if (!user) return res.status(404).json({ email: null });
+    return res.status(200).json({ email: user.email });
+  } catch (err: any) {
+    return res.status(404).json({ email: null });
+  }
+}
+
+async function handleCheckUsername(req: VercelRequest, res: VercelResponse) {
+  try {
+    const query = getRequestQuery(req);
+    const { username, currentUserId } = query;
+    if (!username) return res.status(400).json({ error: 'Username fehlt' });
+    if (!isSupabaseConfigured()) return res.status(200).json({ taken: false, username });
+
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) return res.status(200).json({ taken: false, username });
+
+    const taken = data.users.some((u: any) =>
+      (u.user_metadata?.username?.toLowerCase() === username.toLowerCase()) &&
+      u.id !== currentUserId
+    );
+    return res.status(200).json({ taken, username });
+  } catch (err: any) {
+    return res.status(200).json({ taken: false });
+  }
+}
+
+async function handlePublicRecords(req: VercelRequest, res: VercelResponse) {
+  try {
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ records: [] });
+    }
+
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error || !data?.users) {
+      return res.status(200).json({ records: [] });
+    }
+    const users = data.users;
+
+    const publicRecords: any[] = [];
+
+    users.forEach((u: any) => {
+      const meta = u.user_metadata || {};
+      const privacy = meta.privacy || {};
+
+      if (meta.showRecords === false || privacy.showRecords === false) return;
+
+      const gameData = Array.isArray(meta.gameData) ? meta.gameData : [];
+      const name = meta.username || u.email || 'Unbekannt';
+
+      gameData.forEach((entry: any) => {
+        const mode = entry.gameMode || 'Standardspiel';
+
+        if (mode === 'Standardspiel' && privacy.showStandardspiel === false) return;
+        if (mode === 'Speedwiegen' && privacy.showSpeedwiegen === false) return;
+        if (mode === 'Teamwiegen' && privacy.showTeamwiegen === false) return;
+
+        let achievements = entry.achievements || '';
+        if (privacy.showAchievements === false) achievements = '';
+
+        publicRecords.push({
+          date: entry.date || '',
+          gameMode: mode,
+          playerName: name,
+          avg: entry.avg || 0,
+          schnaepse: entry.schnaepse || 0,
+          levels: entry.levels,
+          achievements: achievements,
+          source: 'account'
+        });
+      });
+    });
+
+    return res.status(200).json({ records: publicRecords });
+  } catch (err: any) {
+    return res.status(200).json({ records: [] });
+  }
+}
+
+async function handleAdminRename(req: VercelRequest, res: VercelResponse) {
+  const body = getRequestBody(req);
+  const { oldName, newName } = body;
+
+  if (!oldName || !newName || typeof oldName !== "string" || typeof newName !== "string") {
+    return res.status(400).json({ error: "Invalid parameters. Must include oldName and newName as strings." });
+  }
+
+  const trimmedOld = oldName.trim();
+  const trimmedNew = newName.trim();
+
+  if (!trimmedOld || !trimmedNew) {
+    return res.status(400).json({ error: "oldName and newName cannot be empty." });
+  }
+
+  if (trimmedOld === trimmedNew) {
+    return res.status(400).json({ error: "Der neue Name muss sich vom alten Namen unterscheiden." });
+  }
+
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  try {
+    let existingContent = "";
+
+    if (token) {
+      try {
+        console.log("Fetching list of blobs from Vercel Blob storage for rename...");
+        const listResult = await list({ token });
+        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+        if (resultsBlob) {
+          const fetchRes = await fetch(resultsBlob.url);
+          if (fetchRes.ok) {
+            existingContent = await fetchRes.text();
+          }
+        }
+      } catch (listErr) {
+        console.error("Error reading results.csv for rename:", listErr);
+      }
+    } else {
+      // Local development fallback
+      const localPath = path.join(process.cwd(), "results.csv");
+      if (fs.existsSync(localPath)) {
+        existingContent = fs.readFileSync(localPath, "utf-8");
+      }
+    }
+
+    if (!existingContent.trim()) {
+      return res.status(400).json({ error: "Keine CSV-Daten gefunden zum Umbenennen." });
+    }
+
+    const lines = existingContent.split(/\r?\n/).filter(line => line.trim() !== "");
+    let modifiedCount = 0;
+
+    const updatedLines = lines.map((line, idx) => {
+      if (idx === 0) return line; // Header row
+
+      const parts = line.split(";");
+      if (parts.length < 3) return line;
+
+      let rowChanged = false;
+
+      // Check Name column (index 2)
+      if (parts[2] && parts[2].trim() === trimmedOld) {
+        parts[2] = trimmedNew;
+        rowChanged = true;
+      }
+
+      // Check Achievements JSON column (index 6)
+      if (parts[6] && parts[6].trim()) {
+        try {
+          const decoded = decodeURIComponent(parts[6]);
+          if (decoded.includes(trimmedOld)) {
+            const achievementsObj = JSON.parse(decoded);
+            if (Array.isArray(achievementsObj)) {
+              achievementsObj.forEach((ach: any) => {
+                if (ach.earnedBy && Array.isArray(ach.earnedBy)) {
+                  ach.earnedBy = ach.earnedBy.map((name: string) => name === trimmedOld ? trimmedNew : name);
+                }
+              });
+              parts[6] = encodeURIComponent(JSON.stringify(achievementsObj));
+              rowChanged = true;
+            }
+          }
+        } catch (e) {
+          // If decoding/parsing fails, attempt simple string replace inside string
+          const replacedDecoded = decodeURIComponent(parts[6]).replaceAll(trimmedOld, trimmedNew);
+          parts[6] = encodeURIComponent(replacedDecoded);
+          rowChanged = true;
+        }
+      }
+
+      if (rowChanged) {
+        modifiedCount++;
+      }
+
+      return parts.join(";");
+    });
+
+    const newContent = updatedLines.join("\n");
+
+    if (token) {
+      console.log("Uploading renamed results.csv to Vercel Blob storage...");
+      await put("results.csv", newContent, {
+        access: "public",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        token,
+        contentType: "text/csv",
+      });
+      return res.json({
+        success: true,
+        modifiedCount,
+        message: `Erfolgreich ${modifiedCount} Eintrags-Zeilen von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
+      });
+    } else {
+      const localPath = path.join(process.cwd(), "results.csv");
+      fs.writeFileSync(localPath, newContent, "utf-8");
+      return res.json({
+        success: true,
+        modifiedCount,
+        message: `Erfolgreich ${modifiedCount} Eintrags-Zeilen lokal von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
+      });
+    }
+  } catch (error: any) {
+    console.error("Error in rename handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Umbenennen in den Rekorden." });
+  }
+}
+
+async function handleAssignToAccount(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { requesterUserId, csvName, targetUserId, entries: reqEntries } = body;
+    if ((!csvName && !reqEntries) || !targetUserId) {
+      return res.status(400).json({ error: 'targetUserId und (csvName oder entries) sind erforderlich.' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'SUPABASE_SECRET_KEY / URL fehlt.' });
+    }
+
+    // Admin check if requesterUserId is provided
+    if (requesterUserId) {
+      const { data: { user: reqUser } } = await supabaseAdmin.auth.admin.getUserById(requesterUserId);
+      if (reqUser) {
+        const role = reqUser.user_metadata?.role;
+        if (role !== 'admin') {
+          return res.status(403).json({ error: 'Keine Admin-Rechte' });
+        }
+      }
+    }
+
+    // Fetch target user from Supabase
+    const { data: { user: targetUser }, error: userErr } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
+    if (userErr || !targetUser) {
+      return res.status(404).json({ error: 'Ziel-Account nicht gefunden.' });
+    }
+
+    const targetUsername = targetUser.user_metadata?.username || targetUser.email || 'Benutzer';
+    const existingUserMetadata = targetUser.user_metadata || {};
+    const existingGameData = Array.isArray(existingUserMetadata.gameData) ? existingUserMetadata.gameData : [];
+
+    let newEntries: any[] = [];
+    let updatedCsv = "";
+
+    if (reqEntries && Array.isArray(reqEntries)) {
+      newEntries = reqEntries;
+    } else if (csvName) {
+      // Fetch CSV content
+      const token = process.env.BLOB_READ_WRITE_TOKEN;
+      let existingContent = "";
+
+      if (token) {
+        try {
+          const listResult = await list({ token });
+          const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+          if (resultsBlob) {
+            const fetchRes = await fetch(resultsBlob.url);
+            if (fetchRes.ok) existingContent = await fetchRes.text();
+          }
+        } catch (e) {
+          console.error("Error reading CSV from blob:", e);
+        }
+      } else {
+        const localPath = path.join(process.cwd(), "results.csv");
+        if (fs.existsSync(localPath)) {
+          existingContent = fs.readFileSync(localPath, "utf-8");
+        }
+      }
+
+      if (!existingContent.trim()) {
+        return res.status(400).json({ error: "Keine CSV-Daten vorhanden." });
+      }
+
+      const lines = existingContent.split(/\r?\n/).filter(line => line.trim() !== "");
+      const header = lines[0];
+      const dataLines = lines.slice(1);
+
+      const targetCsvName = csvName.trim().toLowerCase();
+      const matchedRows: string[][] = [];
+      const remainingLines: string[] = [header];
+
+      dataLines.forEach(line => {
+        const parts = line.split(";");
+        const rowName = parts[2] ? parts[2].trim().toLowerCase() : "";
+        if (rowName === targetCsvName) {
+          matchedRows.push(parts);
+        } else {
+          remainingLines.push(line);
+        }
+      });
+
+      if (matchedRows.length === 0) {
+        return res.status(404).json({ error: `Keine Einträge für "${csvName}" in der CSV gefunden.` });
+      }
+
+      newEntries = matchedRows.map(parts => ({
+        date: parts[0] || '',
+        gameMode: parts[1] || '',
+        avg: parts[3] ? Number(parts[3]) : 0,
+        schnaepse: parts[4] ? Number(parts[4]) : 0,
+        levels: parts[5] && !isNaN(Number(parts[5])) ? Number(parts[5]) : undefined,
+        achievements: parts[6] || parts[5] || '',
+      }));
+
+      updatedCsv = remainingLines.join("\n");
+
+      // Write updated CSV (without matched rows) back to storage
+      if (token) {
+        await put("results.csv", updatedCsv, {
+          access: "public",
+          addRandomSuffix: false,
+          allowOverwrite: true,
+          token,
+          contentType: "text/csv",
+        });
+      } else {
+        const localPath = path.join(process.cwd(), "results.csv");
+        fs.writeFileSync(localPath, updatedCsv, "utf-8");
+      }
+    }
+
+    // Update target user user_metadata in Supabase
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+      user_metadata: {
+        ...existingUserMetadata,
+        gameData: [...existingGameData, ...newEntries]
+      }
+    });
+
+    if (updateErr) {
+      return res.status(500).json({ error: updateErr.message || 'Fehler beim Speichern der Spieldaten im Account.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${newEntries.length} Einträge erfolgreich ${targetUsername} zugeordnet.`
+    });
+
+  } catch (err: any) {
+    console.error("Error in assign-to-account handler:", err);
+    return res.status(500).json({ error: err.message || "Serverfehler" });
+  }
+}
+
+async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { rows, users } = body;
+
+    if (!rows || !users) {
+      return res.status(400).json({ error: 'rows und users erforderlich' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'Supabase nicht konfiguriert oder SUPABASE_SECRET_KEY fehlt' });
+    }
+
+    let migrated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails: string[] = [];
+
+    for (const row of rows) {
+      const [date, gameMode, playerName, avg, schnaepse, total, achievementsJson] = row;
+
+      if (!playerName || playerName === 'Name') { skipped++; continue; }
+
+      // Account mit diesem Namen suchen
+      const matchedUser = users.find((u: any) =>
+        u.name?.toLowerCase().trim() === playerName?.toLowerCase().trim()
+      );
+
+      if (!matchedUser) { skipped++; continue; }
+
+      // Ergebnis einfügen
+      const { error: resultError } = await supabaseAdmin
+        .from('game_results')
+        .insert({
+          user_id: matchedUser.id,
+          game_mode: gameMode,
+          date: date,
+          avg: parseFloat(avg) || 0,
+          schnaepse: parseInt(schnaepse) || 0,
+          total: parseFloat(total) || 0
+        });
+
+      if (resultError) {
+        if (resultError.code === '23505') { skipped++; continue; }
+        errors++;
+        errorDetails.push(`${playerName}/${date}: ${resultError.message}`);
+        continue;
+      }
+
+      // Achievements migrieren
+      if (achievementsJson && achievementsJson.trim()) {
+        try {
+          const achievementsList = JSON.parse(achievementsJson);
+          for (const ach of achievementsList) {
+            if (!ach.earnedBy?.includes(playerName)) continue;
+            await supabaseAdmin.from('achievements').insert({
+              user_id: matchedUser.id,
+              achievement_id: ach.id,
+              title: ach.title || '',
+              icon: ach.icon || '',
+              rarity: ach.rarity || 'common',
+              game_mode: gameMode,
+              earned_with: ach.earnedBy || [],
+              earned_together: ach.earnedTogether || false,
+              date: date
+            });
+          }
+        } catch (parseErr) {
+          console.error('Achievement parse error:', parseErr);
+        }
+      }
+      migrated++;
+    }
+
+    return res.status(200).json({
+      message: `${migrated} Einträge migriert, ${skipped} übersprungen, ${errors} Fehler`,
+      migrated, skipped, errors,
+      errorDetails: errorDetails.slice(0, 10)
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Fehler bei Migration' });
+  }
+}
+
+async function handleAdminSetRole(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const { targetUserId, role } = body;
+    if (!targetUserId) return res.status(400).json({ error: 'targetUserId fehlt' });
+    if (!isSupabaseConfigured()) return res.status(500).json({ error: 'Supabase nicht konfiguriert' });
+
+    const { data: { user }, error: getErr } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
+    if (getErr || !user) throw getErr || new Error('User nicht gefunden');
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+      user_metadata: { ...user.user_metadata, role }
+    });
+    if (error) throw error;
+    return res.status(200).json({ message: 'Rolle gesetzt' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Tournament Helpers & Handlers ─────────────────
+
+function getSafeTournamentName(name: string): string {
+  let clean = (name || "").trim();
+  if (clean.startsWith("tournament_")) {
+    clean = clean.replace(/^tournament_/, "");
+  }
+  if (clean.endsWith(".csv")) {
+    clean = clean.replace(/\.csv$/, "");
+  }
+  const safeName = clean
+    .replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_')
+    .substring(0, 50);
+  return safeName || 'unnamed';
+}
+
+function getSafeFilename(tournamentName: string): string {
+  const safeName = getSafeTournamentName(tournamentName);
+  return `tournament_${safeName}.csv`;
+}
+
+async function loadTournamentCsv(
+  tournamentName: string,
+  token: string
+): Promise<{ filename: string; content: string } | null> {
+  try {
+    const filename = getSafeFilename(tournamentName);
+    const safeName = getSafeTournamentName(tournamentName);
+
+    const listResult = await list({ prefix: `tournament_${safeName}`, token });
+    const blob = listResult.blobs.find(
+      b => b.pathname === filename || b.pathname.endsWith("/" + filename)
+    );
+
+    if (!blob) return null;
+
+    const fetchRes = await fetch(blob.url);
+    if (!fetchRes.ok) return null;
+    const content = await fetchRes.text();
+    return { filename, content };
+  } catch (err) {
+    console.error("loadTournamentCsv error:", err);
+    return null;
+  }
+}
+
+async function saveTournamentCsv(
+  tournamentName: string,
+  csvContent: string,
+  token: string
+): Promise<boolean> {
+  try {
+    const filename = getSafeFilename(tournamentName);
+    await put(filename, csvContent, {
+      access: "public",
+      token,
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "text/csv"
+    });
+    return true;
+  } catch (err) {
+    console.error("saveTournamentCsv error:", err);
+    return false;
+  }
+}
+
+const TOURNAMENT_TABLE_COLORS = [
+  '#3B82F6',
+  '#10B981',
+  '#F59E0B',
+  '#8B5CF6',
+  '#EF4444',
+  '#06B6D4',
+  '#EC4899',
+  '#84CC16',
+  '#F97316',
+  '#6366F1',
+];
+
+function parseTournamentMeta(filename: string, content: string) {
+  const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const cleanName = filename.replace(/^tournament_/, "").replace(/\.csv$/, "");
+
+  let config = {
+    name: cleanName,
+    tablesCount: 1,
+    finalistsCount: 4,
+    hasSecondChance: false,
+    status: "In Vorbereitung",
+    createdDate: new Date().toLocaleDateString("de-DE")
+  };
+
+  for (const line of lines) {
+    const parts = line.split(";");
+    if (parts[0] === "CONFIG") {
+      config = {
+        name: parts[1] || cleanName,
+        tablesCount: parseInt(parts[2]) || 1,
+        finalistsCount: parseInt(parts[3]) || 4,
+        hasSecondChance: parts[4] === "true",
+        status: parts[5] || "In Vorbereitung",
+        createdDate: parts[6] || new Date().toLocaleDateString("de-DE")
+      };
+      break;
+    }
+  }
+
+  return {
+    filename,
+    name: config.name,
+    tablesCount: config.tablesCount,
+    finalistsCount: config.finalistsCount,
+    hasSecondChance: config.hasSecondChance,
+    status: config.status,
+    createdDate: config.createdDate
+  };
+}
+
+function parseTournamentCSV(filename: string, content: string) {
+  const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  const cleanName = filename.replace(/^tournament_/, "").replace(/\.csv$/, "");
+  let config = {
+    name: cleanName,
+    tablesCount: 1,
+    finalistsCount: 4,
+    hasSecondChance: false,
+    status: "In Vorbereitung",
+    createdDate: new Date().toLocaleDateString("de-DE"),
+    qualifikationVorrunde: 1,
+    qualifikationSecondChance: 1
+  };
+
+  const tables: Array<{
+    id: string;
+    name: string;
+    status: "Offen" | "Laufend" | "Abgeschlossen" | "Gesperrt";
+    winner?: string;
+    secondPlace?: string;
+    players?: string[];
+    color?: string;
+  }> = [];
+
+  const results: Array<{
+    tableId: string;
+    playerName: string;
+    rank: number;
+    avg: number;
+    schnaepse: number;
+    date: string;
+  }> = [];
+
+  const outPlayers: Array<{
+    tableId: string;
+    playerName: string;
+  }> = [];
+
+  let vorrundeCount = 0;
+
+  for (const line of lines) {
+    const parts = line.split(";");
+    const rowType = parts[0];
+
+    if (rowType === "CONFIG") {
+      config = {
+        ...config,
+        name: parts[1] || cleanName,
+        tablesCount: parseInt(parts[2]) || 1,
+        finalistsCount: parseInt(parts[3]) || 4,
+        hasSecondChance: parts[4] === "true",
+        status: parts[5] || "In Vorbereitung",
+        createdDate: parts[6] || new Date().toLocaleDateString("de-DE")
+      };
+    } else if (rowType === "QualifikationVorrunde" || rowType === "QUALIFIKATION_VORRUNDE") {
+      config.qualifikationVorrunde = parseInt(parts[1]) || 1;
+    } else if (rowType === "QualifikationSecondChance" || rowType === "QUALIFIKATION_SECOND_CHANCE") {
+      config.qualifikationSecondChance = parseInt(parts[1]) || 1;
+    } else if (rowType === "TABLE" || rowType === "Tisch") {
+      const rawTableId = parts[1];
+      const tableId = rawTableId === "SecondChance" ? "table_second_chance" : rawTableId === "Final" ? "table_final" : rawTableId;
+      let defaultColor = TOURNAMENT_TABLE_COLORS[0];
+      if (tableId === "table_second_chance") {
+        defaultColor = "#F59E0B";
+      } else if (tableId === "table_final") {
+        defaultColor = "#D4AF37";
+      } else if (tableId.startsWith("table_")) {
+        const num = parseInt(tableId.replace("table_", ""));
+        if (!isNaN(num) && num > 0) {
+          defaultColor = TOURNAMENT_TABLE_COLORS[(num - 1) % TOURNAMENT_TABLE_COLORS.length];
+        } else {
+          defaultColor = TOURNAMENT_TABLE_COLORS[vorrundeCount % TOURNAMENT_TABLE_COLORS.length];
+          vorrundeCount++;
+        }
+      }
+
+      const tableColor = parts[7] || (rowType === "Tisch" ? parts[2] : defaultColor);
+      const rawStatus = rowType === "Tisch" ? parts[3] : parts[3];
+      const statusVal = rawStatus === "gespielt" ? "Abgeschlossen" : (rawStatus as any) || "Offen";
+
+      tables.push({
+        id: tableId,
+        name: parts[2] || (tableId === "table_second_chance" ? "Second Chance Tisch" : tableId === "table_final" ? "Finaltisch" : `Tisch ${tableId}`),
+        status: statusVal,
+        winner: parts[4] || "",
+        secondPlace: parts[5] || "",
+        players: parts[6] ? JSON.parse(decodeURIComponent(parts[6])) : [],
+        color: tableColor
+      });
+    } else if (rowType === "RESULT" || rowType === "Ergebnis") {
+      if (rowType === "RESULT") {
+        results.push({
+          tableId: parts[1],
+          playerName: parts[2],
+          rank: parseInt(parts[3]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[6] || ""
+        });
+      } else {
+        const rawT = parts[1] || "";
+        const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+        results.push({
+          tableId: normTableId,
+          playerName: parts[3] || "",
+          rank: parseInt(parts[7]) || 1,
+          avg: parseFloat(parts[4]) || 0,
+          schnaepse: parseInt(parts[5]) || 0,
+          date: parts[2] || ""
+        });
+      }
+    } else if (rowType === "Ausgeschieden") {
+      const rawT = parts[1] || "";
+      const normTableId = rawT === "SecondChance" ? "table_second_chance" : rawT === "Final" ? "table_final" : rawT.startsWith("table_") ? rawT : `table_${rawT}`;
+      outPlayers.push({
+        tableId: normTableId,
+        playerName: parts[2] || ""
+      });
+    }
+  }
+
+  config.finalistsCount = config.tablesCount * config.qualifikationVorrunde + (config.hasSecondChance ? config.qualifikationSecondChance : 0);
+
+  if (tables.length === 0) {
+    for (let i = 1; i <= config.tablesCount; i++) {
+      tables.push({
+        id: `table_${i}`,
+        name: `Tisch ${i}`,
+        status: "Offen",
+        players: [],
+        color: TOURNAMENT_TABLE_COLORS[(i - 1) % TOURNAMENT_TABLE_COLORS.length]
+      });
+    }
+    if (config.hasSecondChance) {
+      tables.push({
+        id: "table_second_chance",
+        name: "Second Chance Tisch",
+        status: "Gesperrt",
+        players: [],
+        color: "#F59E0B"
+      });
+    }
+    tables.push({
+      id: "table_final",
+      name: "Finaltisch",
+      status: "Gesperrt",
+      players: [],
+      color: "#D4AF37"
+    });
+  }
+
+  return { config, tables, results, outPlayers };
+}
+
+async function handleTournamentList(req: VercelRequest, res: VercelResponse) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const query = getRequestQuery(req);
+
+  if (query.healthcheck === 'true') {
+    return res.status(200).json({
+      token: token ? 'vorhanden' : 'fehlt',
+      tokenPrefix: token ? token.substring(0, 20) + '...' : null
+    });
+  }
+
+  if (!token) {
+    return res.status(500).json({
+      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
+    });
+  }
+
+  try {
+    const tournaments: Array<{
+      filename: string;
+      name: string;
+      tablesCount: number;
+      finalistsCount: number;
+      hasSecondChance: boolean;
+      status: string;
+      createdDate: string;
+    }> = [];
+
+    const listResult = await list({ prefix: "tournament_", token });
+    const tourneyBlobs = listResult.blobs.filter(
+      b => (b.pathname.startsWith("tournament_") || b.pathname.includes("/tournament_")) && b.pathname.endsWith(".csv")
+    );
+
+    for (const blob of tourneyBlobs) {
+      try {
+        const fetchRes = await fetch(blob.url);
+        if (fetchRes.ok) {
+          const text = await fetchRes.text();
+          const meta = parseTournamentMeta(blob.pathname, text);
+          if (meta) tournaments.push(meta);
+        }
+      } catch (e) {
+        console.error(`Error reading blob ${blob.pathname}:`, e);
+      }
+    }
+
+    return res.json({ tournaments });
+  } catch (error: any) {
+    console.error("Error in tournament list handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Laden der Turnierliste." });
+  }
+}
+
+async function handleTournamentGet(req: VercelRequest, res: VercelResponse) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
+    });
+  }
+
+  const query = getRequestQuery(req);
+  let { name, filename } = query;
+  if (!name && !filename) {
+    return res.status(400).json({ error: "Missing parameter 'name' or 'filename'." });
+  }
+
+  const targetName = String(name || filename);
+
+  try {
+    const loaded = await loadTournamentCsv(targetName, token);
+
+    if (!loaded || !loaded.content) {
+      const safeFn = getSafeFilename(targetName);
+      return res.status(404).json({ error: `Turnier-Datei '${safeFn}' nicht gefunden.` });
+    }
+
+    const parsed = parseTournamentCSV(loaded.filename, loaded.content);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in tournament get handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Laden des Turniers." });
+  }
+}
+
+async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
+    });
+  }
+
+  const body = getRequestBody(req);
+  const { action, name, tablesCount, finalistsCount, hasSecondChance, tableId, results, date } = body;
+
+  if (!name) {
+    return res.status(400).json({ error: "Missing required parameter 'name'." });
+  }
+
+  const filename = getSafeFilename(name);
+
+  try {
+    const loaded = await loadTournamentCsv(name, token);
+    const existingContent = loaded ? loaded.content : "";
+
+    let csvContent = "";
+
+    if (action === "create" || !existingContent) {
+      const tCount = parseInt(tablesCount) || 1;
+      const qVorrunde = parseInt(body.qualifikationVorrunde) || 1;
+      const qSecondChance = parseInt(body.qualifikationSecondChance) || 1;
+      const secondChance = Boolean(hasSecondChance);
+      const fCount = tCount * qVorrunde + (secondChance ? qSecondChance : 0);
+      const today = date || new Date().toLocaleDateString("de-DE");
+
+      const lines: string[] = [];
+      lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
+      lines.push(`CONFIG;${name};${tCount};${fCount};${secondChance};In Vorbereitung;${today}`);
+      lines.push(`QualifikationVorrunde;${qVorrunde}`);
+      if (secondChance) {
+        lines.push(`QualifikationSecondChance;${qSecondChance}`);
+      }
+
+      for (let i = 1; i <= tCount; i++) {
+        const color = TOURNAMENT_TABLE_COLORS[(i - 1) % TOURNAMENT_TABLE_COLORS.length];
+        lines.push(`TABLE;table_${i};Tisch ${i};Offen;;;[];${color}`);
+      }
+
+      if (secondChance) {
+        lines.push(`TABLE;table_second_chance;Second Chance Tisch;Gesperrt;;;[];#F59E0B`);
+      }
+
+      lines.push(`TABLE;table_final;Finaltisch;Gesperrt;;;[];#D4AF37`);
+
+      csvContent = lines.join("\n");
+    } else {
+      const tournament = parseTournamentCSV(filename, existingContent);
+      const config = tournament.config;
+      const tables = tournament.tables;
+      const existingResults = tournament.results;
+      const existingOutPlayers = tournament.outPlayers || [];
+
+      if (action === "updateParticipantsAndTables" && Array.isArray(body.tables)) {
+        body.tables.forEach((updatedT: any) => {
+          const targetTable = tables.find(t => t.id === updatedT.id);
+          if (targetTable) {
+            if (updatedT.name) targetTable.name = updatedT.name;
+            if (Array.isArray(updatedT.players)) targetTable.players = updatedT.players;
+            if (updatedT.color) targetTable.color = updatedT.color;
+          }
+        });
+
+        const qVorrunde = config.qualifikationVorrunde || 1;
+        const qSecondChance = config.qualifikationSecondChance || 1;
+
+        const lines: string[] = [];
+        lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
+        lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
+        lines.push(`QualifikationVorrunde;${qVorrunde}`);
+        if (config.hasSecondChance) {
+          lines.push(`QualifikationSecondChance;${qSecondChance}`);
+        }
+
+        tables.forEach((t, idx) => {
+          const playersJson = encodeURIComponent(JSON.stringify(t.players || []));
+          const tColor = t.color || (
+            t.id === "table_second_chance" ? "#F59E0B" :
+            t.id === "table_final" ? "#D4AF37" :
+            TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
+          );
+          lines.push(`TABLE;${t.id};${t.name};${t.status};${t.winner || ""};${t.secondPlace || ""};${playersJson};${tColor}`);
+        });
+
+        existingResults.forEach(r => {
+          lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
+        });
+
+        existingOutPlayers.forEach(op => {
+          const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
+          lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
+        });
+
+        csvContent = lines.join("\n");
+      } else if (action === "saveTableResult" && tableId && Array.isArray(results)) {
+        const resultDate = date || new Date().toLocaleDateString("de-DE");
+        
+        const targetTable = tables.find(t => t.id === tableId || (tableId === "SecondChance" && t.id === "table_second_chance") || (tableId === "Final" && t.id === "table_final"));
+        if (targetTable) {
+          targetTable.status = "Abgeschlossen";
+          
+          const sorted = [...results].sort((a, b) => (a.rank || 0) - (b.rank || 0));
+          if (sorted.length > 0) targetTable.winner = sorted[0].name;
+          if (sorted.length > 1) targetTable.secondPlace = sorted[1].name;
+          targetTable.players = sorted.map(r => r.name);
+          
+          const filteredResults = existingResults.filter(r => r.tableId !== targetTable.id);
+          sorted.forEach(r => {
+            filteredResults.push({
+              tableId: targetTable.id,
+              playerName: r.name,
+              rank: r.rank,
+              avg: r.avg,
+              schnaepse: r.schnaepse,
+              date: resultDate
+            });
+          });
+
+          let updatedOutPlayers = existingOutPlayers.filter(op => op.tableId !== targetTable.id);
+          if (Array.isArray(body.outPlayers) && body.outPlayers.length > 0) {
+            body.outPlayers.forEach((pName: string) => {
+              updatedOutPlayers.push({
+                tableId: targetTable.id,
+                playerName: pName
+              });
+            });
+          }
+          
+          const vorrundeTables = tables.filter(t => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+          const allVorrundeDone = vorrundeTables.every(t => t.status === "Abgeschlossen");
+
+          const secondChanceTable = tables.find(t => t.id === "table_second_chance");
+          const finalTable = tables.find(t => t.id === "table_final");
+
+          const qVorrunde = config.qualifikationVorrunde || 1;
+          const qSecondChance = config.qualifikationSecondChance || 1;
+
+          if (allVorrundeDone) {
+            config.status = "Vorrunde beendet";
+
+            const directQualifiers: string[] = [];
+            const nonQualifiers: string[] = [];
+
+            vorrundeTables.forEach(vt => {
+              const vtResults = filteredResults.filter(r => r.tableId === vt.id).sort((a, b) => a.rank - b.rank);
+              vtResults.forEach(r => {
+                if (r.rank <= qVorrunde) {
+                  directQualifiers.push(r.playerName);
+                } else {
+                  nonQualifiers.push(r.playerName);
+                }
+              });
+            });
+
+            if (secondChanceTable) {
+              secondChanceTable.players = nonQualifiers;
+              if (secondChanceTable.status === "Gesperrt") {
+                secondChanceTable.status = "Offen";
+                config.status = "Second Chance";
+              }
+            }
+
+            const scDone = !secondChanceTable || secondChanceTable.status === "Abgeschlossen";
+
+            if (scDone && finalTable) {
+              if (finalTable.status === "Gesperrt") {
+                finalTable.status = "Offen";
+                config.status = "Finale";
+              }
+
+              const finalists = [...directQualifiers];
+              if (secondChanceTable && secondChanceTable.status === "Abgeschlossen") {
+                const scResults = filteredResults.filter(r => r.tableId === secondChanceTable.id).sort((a, b) => a.rank - b.rank);
+                scResults.forEach(r => {
+                  if (r.rank <= qSecondChance) {
+                    finalists.push(r.playerName);
+                  }
+                });
+              }
+              finalTable.players = finalists;
+            }
+          } else {
+            config.status = "Vorrunde läuft";
+          }
+
+          if (targetTable.id === "table_final" && targetTable.status === "Abgeschlossen") {
+            config.status = "Beendet";
+          }
+
+          config.finalistsCount = config.tablesCount * qVorrunde + (config.hasSecondChance ? qSecondChance : 0);
+
+          const lines: string[] = [];
+          lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
+          lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
+          lines.push(`QualifikationVorrunde;${qVorrunde}`);
+          if (config.hasSecondChance) {
+            lines.push(`QualifikationSecondChance;${qSecondChance}`);
+          }
+
+          tables.forEach((t, idx) => {
+            const playersJson = encodeURIComponent(JSON.stringify(t.players || []));
+            const tColor = t.color || (
+              t.id === "table_second_chance" ? "#F59E0B" :
+              t.id === "table_final" ? "#D4AF37" :
+              TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
+            );
+            lines.push(`TABLE;${t.id};${t.name};${t.status};${t.winner || ""};${t.secondPlace || ""};${playersJson};${tColor}`);
+          });
+
+          filteredResults.forEach(r => {
+            lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
+          });
+
+          updatedOutPlayers.forEach(op => {
+            const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
+            lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
+          });
+
+          csvContent = lines.join("\n");
+        }
+      }
+    }
+
+    if (!csvContent) {
+      return res.status(400).json({ error: "Keine Daten zum Speichern vorhanden." });
+    }
+
+    const saved = await saveTournamentCsv(name, csvContent, token);
+    if (!saved) {
+      return res.status(500).json({ error: "Speichern der Turnier-CSV fehlgeschlagen." });
+    }
+
+    return res.json({ success: true, message: `Turnier '${name}' erfolgreich gespeichert.` });
+  } catch (error: any) {
+    console.error("Error in tournament save handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Speichern des Turniers." });
+  }
+}
+
+async function handleTournamentDelete(req: VercelRequest, res: VercelResponse) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    return res.status(500).json({
+      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
+    });
+  }
+
+  const body = getRequestBody(req);
+  const { name, tournamentName } = body;
+  const targetName = name || tournamentName;
+
+  if (!targetName) {
+    return res.status(400).json({ error: "Missing required parameter 'name' or 'tournamentName'." });
+  }
+
+  const filename = getSafeFilename(targetName);
+  const safeName = getSafeTournamentName(targetName);
+
+  try {
+    const listResult = await list({ prefix: `tournament_${safeName}`, token });
+    const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
+    if (blob) {
+      await del(blob.url, { token });
+      return res.json({ success: true, message: `Turnier '${targetName}' erfolgreich gelöscht.` });
+    } else {
+      return res.status(404).json({ error: `Turnier '${targetName}' nicht gefunden.` });
+    }
+  } catch (error: any) {
+    console.error("Error in tournament delete handler:", error);
+    return res.status(500).json({ error: error.message || "Fehler beim Löschen des Turniers." });
+  }
+}

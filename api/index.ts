@@ -820,85 +820,184 @@ async function handleAssignToAccount(req: VercelRequest, res: VercelResponse) {
 
 async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
   try {
-    const body = getRequestBody(req);
-    const { rows, users } = body;
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
 
-    if (!rows || !users) {
-      return res.status(400).json({ error: 'rows und users erforderlich' });
+    // 1. CSV aus Blob laden
+    const { blobs } = await list({ prefix: 'results', token });
+    const resultsBlob = blobs.find(b => b.pathname === 'results.csv');
+    if (!resultsBlob) {
+      return res.status(404).json({ error: 'results.csv nicht gefunden im Blob Storage' });
     }
 
-    if (!isSupabaseConfigured()) {
-      return res.status(500).json({ error: 'Supabase nicht konfiguriert oder SUPABASE_SECRET_KEY fehlt' });
+    const csvResponse = await fetch(resultsBlob.url);
+    const csvText = await csvResponse.text();
+    const csvRows = csvText.trim().split('\n').map(r => r.split(';'));
+
+    // Header-Zeile überspringen
+    const dataRows = csvRows.filter(row =>
+      row.length >= 5 &&
+      row[0] !== 'Datum' &&
+      row[2] !== 'Name' &&
+      row[2]?.trim() !== ''
+    );
+
+    if (dataRows.length === 0) {
+      return res.status(200).json({
+        message: '0 Einträge in CSV gefunden',
+        migrated: 0, skipped_no_account: 0, skipped_duplicate: 0, errors: 0, total_csv_rows: 0
+      });
     }
 
+    // 2. Alle Profile aus Supabase laden (username → id Mapping)
+    const usernameToId: Record<string, string> = {};
+
+    const { data: profiles, error: profilesError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username');
+
+    if (!profilesError && profiles) {
+      profiles.forEach((p: any) => {
+        if (p.username) {
+          usernameToId[p.username.toLowerCase().trim()] = p.id;
+        }
+      });
+    }
+
+    // Fallback/Ergänzung auf auth.users falls manche Profile nicht in profiles-Tabelle stehen
+    try {
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
+      if (authData?.users) {
+        authData.users.forEach((u: any) => {
+          const uname = u.user_metadata?.username || u.user_metadata?.name || u.email;
+          if (uname && !usernameToId[uname.toLowerCase().trim()]) {
+            usernameToId[uname.toLowerCase().trim()] = u.id;
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Fallback listUsers error:', e);
+    }
+
+    if (Object.keys(usernameToId).length === 0 && profilesError) {
+      return res.status(500).json({ error: `Profile laden fehlgeschlagen: ${profilesError.message}` });
+    }
+
+    // 3. Bereits vorhandene Einträge laden um Duplikate zu vermeiden
+    const { data: existingResults } = await supabaseAdmin
+      .from('game_results')
+      .select('user_id, date, game_mode');
+
+    const existingSet = new Set(
+      (existingResults || []).map(r => `${r.user_id}|${r.date}|${r.game_mode}`)
+    );
+
+    // 4. CSV Zeilen verarbeiten
     let migrated = 0;
-    let skipped = 0;
+    let skipped_no_account = 0;
+    let skipped_duplicate = 0;
     let errors = 0;
     const errorDetails: string[] = [];
 
-    for (const row of rows) {
+    for (const row of dataRows) {
       const [date, gameMode, playerName, avg, schnaepse, total, achievementsJson] = row;
 
-      if (!playerName || playerName === 'Name') { skipped++; continue; }
+      if (!playerName?.trim()) { skipped_no_account++; continue; }
 
-      // Account mit diesem Namen suchen
-      const matchedUser = users.find((u: any) =>
-        u.name?.toLowerCase().trim() === playerName?.toLowerCase().trim()
-      );
+      // Account suchen
+      const userId = usernameToId[playerName.toLowerCase().trim()];
+      if (!userId) {
+        skipped_no_account++;
+        continue;
+      }
 
-      if (!matchedUser) { skipped++; continue; }
+      // Duplikat prüfen
+      const key = `${userId}|${date?.trim()}|${gameMode?.trim()}`;
+      if (existingSet.has(key)) {
+        skipped_duplicate++;
+        continue;
+      }
 
-      // Ergebnis einfügen
-      const { error: resultError } = await supabaseAdmin
+      // Ergebnis in Supabase eintragen
+      const { error: insertError } = await supabaseAdmin
         .from('game_results')
         .insert({
-          user_id: matchedUser.id,
-          game_mode: gameMode,
-          date: date,
+          user_id: userId,
+          game_mode: gameMode?.trim(),
+          date: date?.trim(),
           avg: parseFloat(avg) || 0,
           schnaepse: parseInt(schnaepse) || 0,
           total: parseFloat(total) || 0
         });
 
-      if (resultError) {
-        if (resultError.code === '23505') { skipped++; continue; }
+      if (insertError) {
+        // Duplikat durch Race Condition – überspringen
+        if (insertError.code === '23505') {
+          skipped_duplicate++;
+          continue;
+        }
         errors++;
-        errorDetails.push(`${playerName}/${date}: ${resultError.message}`);
+        errorDetails.push(`${playerName}/${date}: ${insertError.message}`);
         continue;
       }
 
-      // Achievements migrieren
-      if (achievementsJson && achievementsJson.trim()) {
+      // Zum existingSet hinzufügen damit spätere Duplikate erkannt werden
+      existingSet.add(key);
+
+      // Achievements migrieren falls vorhanden
+      if (achievementsJson?.trim()) {
         try {
-          const achievementsList = JSON.parse(achievementsJson);
-          for (const ach of achievementsList) {
-            if (!ach.earnedBy?.includes(playerName)) continue;
-            await supabaseAdmin.from('achievements').insert({
-              user_id: matchedUser.id,
-              achievement_id: ach.id,
-              title: ach.title || '',
-              icon: ach.icon || '',
-              rarity: ach.rarity || 'common',
-              game_mode: gameMode,
-              earned_with: ach.earnedBy || [],
-              earned_together: ach.earnedTogether || false,
-              date: date
-            });
+          const achievementsList = JSON.parse(achievementsJson.trim());
+          if (Array.isArray(achievementsList)) {
+            for (const ach of achievementsList) {
+              if (!ach.id || !ach.earnedBy?.includes(playerName.trim())) continue;
+
+              // Duplikat-Prüfung für Achievements
+              const { data: existingAch } = await supabaseAdmin
+                .from('achievements')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('achievement_id', ach.id)
+                .eq('date', date?.trim())
+                .limit(1);
+
+              if (existingAch && existingAch.length > 0) continue;
+
+              await supabaseAdmin.from('achievements').insert({
+                user_id: userId,
+                achievement_id: ach.id,
+                title: ach.title || '',
+                description: ach.description || '',
+                icon: ach.icon || '',
+                rarity: ach.rarity || 'common',
+                game_mode: gameMode?.trim(),
+                earned_with: ach.earnedBy || [],
+                earned_together: ach.earnedTogether || false,
+                date: date?.trim()
+              });
+            }
           }
         } catch (parseErr) {
-          console.error('Achievement parse error:', parseErr);
+          console.error('Achievement JSON parse error:', parseErr);
         }
       }
+
       migrated++;
     }
 
     return res.status(200).json({
-      message: `${migrated} Einträge migriert, ${skipped} übersprungen, ${errors} Fehler`,
-      migrated, skipped, errors,
+      message: `Migration abgeschlossen: ${migrated} übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler`,
+      migrated,
+      skipped_no_account,
+      skipped_duplicate,
+      errors,
+      total_csv_rows: dataRows.length,
       errorDetails: errorDetails.slice(0, 10)
     });
+
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Fehler bei Migration' });
+    console.error('migrate-to-sql error:', err);
+    return res.status(500).json({ error: err.message || 'Unbekannter Fehler' });
   }
 }
 

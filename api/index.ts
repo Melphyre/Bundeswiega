@@ -357,23 +357,36 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     }
 
     // Achievements speichern
-    if (achievementsList && achievementsList.length > 0) {
+    if (achievementsList && Array.isArray(achievementsList) && achievementsList.length > 0) {
       for (const ach of achievementsList) {
+        if (!ach.id) continue;
+
+        // Duplikat prüfen
+        const { data: existingAch } = await supabaseAdmin
+          .from('achievements')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('achievement_id', ach.id)
+          .eq('date', gameResult.date)
+          .limit(1);
+
+        if (existingAch && existingAch.length > 0) continue;
+
         const { error: achError } = await supabaseAdmin
           .from('achievements')
           .insert({
             user_id: userId,
             achievement_id: ach.id,
-            title: ach.title,
+            title: ach.title || '',
             description: ach.description || '',
             icon: ach.icon || '',
-            rarity: ach.rarity,
+            rarity: ach.rarity || 'common',
             game_mode: gameResult.game_mode,
             earned_with: ach.earnedBy || [],
             earned_together: ach.earnedTogether || false,
             date: gameResult.date
           });
-        if (achError) console.error('achievement insert error:', achError);
+        if (achError) console.error('achievement insert error:', achError.message);
       }
     }
 
@@ -985,12 +998,117 @@ async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
       migrated++;
     }
 
+    let migrated_from_metadata = 0;
+    let profiles_updated = 0;
+
+    // 5. Supabase user_metadata.gameData prüfen und migrieren
+    try {
+      const { data: { users: allUsers } } = await supabaseAdmin.auth.admin.listUsers();
+      if (allUsers && Array.isArray(allUsers)) {
+        for (const authUser of allUsers) {
+          const gameData = authUser.user_metadata?.gameData || [];
+          if (Array.isArray(gameData) && gameData.length > 0) {
+            for (const entry of gameData) {
+              const mode = entry.gameMode || entry.game_mode || 'Unbekannt';
+              const key = `${authUser.id}|${entry.date}|${mode}`;
+
+              if (existingSet.has(key)) continue;
+
+              const { error: insertErr } = await supabaseAdmin.from('game_results').insert({
+                user_id: authUser.id,
+                game_mode: mode,
+                date: entry.date,
+                avg: parseFloat(entry.avg) || 0,
+                schnaepse: parseInt(entry.schnaepse) || 0,
+                total: parseFloat(entry.total) || 0,
+                levels: entry.levels || null,
+                time_seconds: entry.time_seconds || null,
+                team_name: entry.team_name || null
+              });
+
+              if (!insertErr) {
+                existingSet.add(key);
+                migrated_from_metadata++;
+
+                // Achievements aus user_metadata übertragen
+                const achList = entry.achievements || [];
+                if (Array.isArray(achList)) {
+                  for (const ach of achList) {
+                    if (!ach.id) continue;
+                    const { data: existingAch } = await supabaseAdmin
+                      .from('achievements')
+                      .select('id')
+                      .eq('user_id', authUser.id)
+                      .eq('achievement_id', ach.id)
+                      .eq('date', entry.date)
+                      .limit(1);
+
+                    if (existingAch && existingAch.length > 0) continue;
+
+                    await supabaseAdmin.from('achievements').insert({
+                      user_id: authUser.id,
+                      achievement_id: ach.id,
+                      title: ach.title || '',
+                      description: ach.description || '',
+                      icon: ach.icon || '',
+                      rarity: ach.rarity || 'common',
+                      game_mode: mode,
+                      earned_with: ach.earnedBy || [],
+                      earned_together: ach.earnedTogether || false,
+                      date: entry.date
+                    });
+                  }
+                }
+              }
+            }
+
+            // user_metadata.gameData leeren
+            await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+              user_metadata: {
+                ...authUser.user_metadata,
+                gameData: []
+              }
+            });
+          }
+        }
+
+        // 6. Profiles Statistiken aktualisieren
+        for (const authUser of allUsers) {
+          const { data: results } = await supabaseAdmin
+            .from('game_results')
+            .select('avg, schnaepse, total')
+            .eq('user_id', authUser.id);
+
+          if (!results || results.length === 0) continue;
+
+          const gamesPlayed = results.length;
+          const avgDistance = results.reduce((s, r) => s + (r.avg || 0), 0) / gamesPlayed;
+          const totalSchnaepse = results.reduce((s, r) => s + (r.schnaepse || 0), 0);
+          const bestAvg = Math.min(...results.map(r => r.avg ?? 999));
+
+          const { error: profUpdErr } = await supabaseAdmin.from('profiles').update({
+            games_played: gamesPlayed,
+            total_points: totalSchnaepse,
+            high_score: (bestAvg !== 999) ? bestAvg : 0
+          }).eq('id', authUser.id);
+
+          if (!profUpdErr) {
+            profiles_updated++;
+          }
+        }
+      }
+    } catch (metaErr) {
+      console.error('Error migrating metadata/updating profiles:', metaErr);
+    }
+
     return res.status(200).json({
-      message: `Migration abgeschlossen: ${migrated} übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler`,
+      message: `Migration abgeschlossen: ${migrated} aus CSV, ${migrated_from_metadata} aus Account-Daten übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler, ${profiles_updated} Profile aktualisiert`,
       migrated,
+      migrated_from_metadata,
       skipped_no_account,
       skipped_duplicate,
       errors,
+      profiles_updated,
       total_csv_rows: dataRows.length,
       errorDetails: errorDetails.slice(0, 10)
     });

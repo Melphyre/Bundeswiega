@@ -1096,6 +1096,63 @@ async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
             profiles_updated++;
           }
         }
+
+        // 7. Am Ende der Migration – Benutzernamen in profiles synchronisieren
+        let profiles_synced = 0;
+
+        for (const authUser of allUsers) {
+          const authUsername = authUser.user_metadata?.username;
+          if (!authUsername) continue;
+
+          // Prüfen ob Profil existiert
+          const { data: existingProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('id, username, email')
+            .eq('id', authUser.id)
+            .single();
+
+          if (!existingProfile) {
+            // Profil anlegen falls nicht vorhanden
+            const { error: insertError } = await supabaseAdmin
+              .from('profiles')
+              .insert({
+                id: authUser.id,
+                username: authUsername,
+                email: authUser.email || '',
+                role: authUser.user_metadata?.role || 'user'
+              });
+            if (!insertError) profiles_synced++;
+          } else {
+            // Profil aktualisieren falls Username oder Email abweicht
+            const needsUpdate =
+              existingProfile.username !== authUsername ||
+              existingProfile.email !== authUser.email;
+
+            if (needsUpdate) {
+              const { error: updateError } = await supabaseAdmin
+                .from('profiles')
+                .update({
+                  username: authUsername,
+                  email: authUser.email || existingProfile.email
+                })
+                .eq('id', authUser.id);
+              if (!updateError) profiles_synced++;
+            }
+          }
+        }
+
+        return res.status(200).json({
+          message: `Migration abgeschlossen: ${migrated} aus CSV, ${migrated_from_metadata} aus Account-Daten übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler, ${profiles_updated} Profile aktualisiert, ${profiles_synced} Profile synchronisiert`,
+          migrated,
+          migrated_from_metadata,
+          skipped_no_account,
+          skipped_duplicate,
+          errors,
+          profiles_updated,
+          profiles_synced,
+          total_csv_rows: dataRows.length,
+          errorDetails: errorDetails.slice(0, 10)
+        });
       }
     } catch (metaErr) {
       console.error('Error migrating metadata/updating profiles:', metaErr);
@@ -1109,6 +1166,7 @@ async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
       skipped_duplicate,
       errors,
       profiles_updated,
+      profiles_synced: 0,
       total_csv_rows: dataRows.length,
       errorDetails: errorDetails.slice(0, 10)
     });

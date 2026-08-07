@@ -1433,9 +1433,11 @@ const App: React.FC = () => {
     details?: {
       total_csv_rows: number;
       migrated: number;
+      migrated_from_metadata: number;
       skipped_no_account: number;
       skipped_duplicate: number;
       errors: number;
+      profiles_updated: number;
     }
   } | null>(null);
 
@@ -1474,6 +1476,42 @@ const App: React.FC = () => {
 
   const [myGameData, setMyGameData] = useState<any[]>([]);
   const [myAchievementsData, setMyAchievementsData] = useState<any[]>([]);
+  const [recordsSubTab, setRecordsSubTab] = useState<'alle' | 'standard' | 'speed' | 'team'>('alle');
+  const [profileStats, setProfileStats] = useState({
+    gamesPlayed: 0,
+    totalSchnaepse: 0,
+    bestAvg: null as number | null,
+    achievementsCount: 0
+  });
+
+  const loadProfileStats = async () => {
+    if (!supabaseUser) return;
+    try {
+      const { data: results } = await supabase
+        .from('game_results')
+        .select('avg, schnaepse')
+        .eq('user_id', supabaseUser.id);
+
+      const { count: achCount } = await supabase
+        .from('achievements')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', supabaseUser.id);
+
+      const gamesPlayed = results?.length || 0;
+      const totalSchnaepse = results?.reduce((s, r) => s + (r.schnaepse || 0), 0) || 0;
+      const validAvgs = (results || []).map(r => r.avg).filter((a): a is number => typeof a === 'number');
+      const bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs) : null;
+
+      setProfileStats({
+        gamesPlayed,
+        totalSchnaepse,
+        bestAvg: bestAvg !== null && bestAvg !== 999 ? bestAvg : null,
+        achievementsCount: achCount || 0
+      });
+    } catch (err) {
+      console.error('Error loading profile stats:', err);
+    }
+  };
 
   const loadMyProfileData = async () => {
     if (!supabaseUser) return;
@@ -1579,6 +1617,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (showProfileModal && supabaseUser) {
+      loadProfileStats();
       loadMyProfileData();
       loadFriendships();
     }
@@ -2065,9 +2104,11 @@ const App: React.FC = () => {
         details: {
           total_csv_rows: migrateJson.total_csv_rows || 0,
           migrated: migrateJson.migrated || 0,
+          migrated_from_metadata: migrateJson.migrated_from_metadata || 0,
           skipped_no_account: migrateJson.skipped_no_account || 0,
           skipped_duplicate: migrateJson.skipped_duplicate || 0,
-          errors: migrateJson.errors || 0
+          errors: migrateJson.errors || 0,
+          profiles_updated: migrateJson.profiles_updated || 0
         }
       });
 
@@ -2279,82 +2320,128 @@ const App: React.FC = () => {
   // Friends Functions & Effects
   const loadFriends = async () => {
     if (!supabaseUser) return;
-    const { data } = await supabase
+
+    const { data: friendships, error } = await supabase
       .from('friendships')
-      .select('*')
+      .select('id, requester_id, receiver_id, status')
       .or(`requester_id.eq.${supabaseUser.id},receiver_id.eq.${supabaseUser.id}`)
       .eq('status', 'accepted');
 
-    const friendIds = (data || []).map(f =>
+    if (error) { console.error('loadFriends error:', error); return; }
+
+    const friendIds = (friendships || []).map(f =>
       f.requester_id === supabaseUser.id ? f.receiver_id : f.requester_id
     );
-    try {
-      const res = await fetch(`/api/users/list`);
-      const json = await res.json();
-      const allUsers = json.users || [];
-      const friendList = friendIds.map(id => {
-        const u = allUsers.find((u: any) => u.id === id);
-        const friendship = (data || []).find(f => f.requester_id === id || f.receiver_id === id);
-        return u ? { ...u, friendshipId: friendship?.id } : null;
-      }).filter(Boolean);
-      setFriends(friendList.sort((a: any, b: any) => a.name.localeCompare(b.name, 'de')));
-    } catch (err) {
-      console.error('Error loading friends:', err);
-    }
+
+    if (friendIds.length === 0) { setFriends([]); return; }
+
+    const { data: friendProfiles } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_url')
+      .in('id', friendIds);
+
+    const friendList = (friendProfiles || []).map(p => ({
+      id: p.id,
+      name: p.username || 'Unbekannt',
+      imageUrl: p.avatar_url || undefined,
+      friendshipId: (friendships || []).find(f =>
+        f.requester_id === p.id || f.receiver_id === p.id
+      )?.id || ''
+    })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+    setFriends(friendList);
   };
 
   const loadPendingRequests = async () => {
     if (!supabaseUser) return;
-    const { data } = await supabase
+
+    const { data: pending, error } = await supabase
       .from('friendships')
-      .select('*')
+      .select('id, requester_id, status')
       .eq('receiver_id', supabaseUser.id)
       .eq('status', 'pending');
 
-    try {
-      const res = await fetch('/api/users/list');
-      const json = await res.json();
-      const allUsers = json.users || [];
-      const requests = (data || []).map(f => {
-        const requester = allUsers.find((u: any) => u.id === f.requester_id);
-        return { id: f.id, requesterId: f.requester_id, requesterName: requester?.name || 'Unbekannt' };
-      });
-      setPendingRequests(requests);
-    } catch (err) {
-      console.error('Error loading pending requests:', err);
-    }
+    if (error) { console.error('loadPendingRequests error:', error); return; }
+    if (!pending || pending.length === 0) { setPendingRequests([]); return; }
+
+    const requesterIds = pending.map(f => f.requester_id);
+    const { data: requesterProfiles } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .in('id', requesterIds);
+
+    const requests = pending.map(f => ({
+      id: f.id,
+      requesterId: f.requester_id,
+      requesterName: requesterProfiles?.find(p => p.id === f.requester_id)?.username || 'Unbekannt'
+    }));
+
+    setPendingRequests(requests);
   };
 
   const sendFriendRequest = async () => {
     setFriendRequestError(null);
     setFriendRequestSuccess(null);
-    if (!friendSearchQuery.trim()) return;
-    try {
-      const res = await fetch('/api/users/list');
-      const json = await res.json();
-      const targetUser = (json.users || []).find((u: any) =>
-        u.name.toLowerCase() === friendSearchQuery.trim().toLowerCase()
-      );
-      if (!targetUser) {
-        setFriendRequestError('Kein Nutzer mit diesem Benutzernamen gefunden.');
-        return;
+    if (!friendSearchQuery.trim()) {
+      setFriendRequestError('Bitte einen Benutzernamen eingeben.');
+      return;
+    }
+
+    // Direkt in Supabase profiles suchen (case-insensitive)
+    const { data: targetProfiles, error: searchError } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .ilike('username', friendSearchQuery.trim())
+      .limit(1);
+
+    const targetProfile = targetProfiles && targetProfiles.length > 0 ? targetProfiles[0] : null;
+
+    if (searchError || !targetProfile) {
+      setFriendRequestError(`Kein Nutzer mit dem Benutzernamen "${friendSearchQuery}" gefunden.`);
+      return;
+    }
+
+    if (targetProfile.id === supabaseUser?.id) {
+      setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
+      return;
+    }
+
+    // Prüfen ob bereits eine Freundschaft oder Anfrage existiert
+    const { data: existing } = await supabase
+      .from('friendships')
+      .select('id, status')
+      .or(
+        `and(requester_id.eq.${supabaseUser?.id},receiver_id.eq.${targetProfile.id}),` +
+        `and(requester_id.eq.${targetProfile.id},receiver_id.eq.${supabaseUser?.id})`
+      )
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const status = existing[0].status;
+      if (status === 'accepted') {
+        setFriendRequestError('Ihr seid bereits befreundet.');
+      } else if (status === 'pending') {
+        setFriendRequestError('Eine Anfrage ist bereits ausstehend.');
+      } else {
+        setFriendRequestError('Eine Freundschaftsanfrage wurde bereits gesendet oder abgelehnt.');
       }
-      if (targetUser.id === supabaseUser?.id) {
-        setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
-        return;
-      }
-      const { error } = await supabase.from('friendships').insert({
+      return;
+    }
+
+    // Anfrage senden
+    const { error: insertError } = await supabase
+      .from('friendships')
+      .insert({
         requester_id: supabaseUser?.id,
-        receiver_id: targetUser.id,
+        receiver_id: targetProfile.id,
         status: 'pending'
       });
-      if (error) setFriendRequestError('Anfrage konnte nicht gesendet werden.');
-      else {
-        setFriendRequestSuccess(`Anfrage an ${targetUser.name} gesendet!`);
-        setFriendSearchQuery('');
-      }
-    } catch (err: any) {
-      setFriendRequestError('Fehler beim Senden der Anfrage.');
+
+    if (insertError) {
+      setFriendRequestError(`Fehler: ${insertError.message}`);
+    } else {
+      setFriendRequestSuccess(`Freundschaftsanfrage an ${targetProfile.username} gesendet! ✅`);
+      setFriendSearchQuery('');
     }
   };
 
@@ -2384,20 +2471,21 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!supabaseUser) return;
     const channel = supabase
-      .channel('friendships')
+      .channel(`friendships_${supabaseUser.id}`)
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'friendships',
         filter: `receiver_id=eq.${supabaseUser.id}`
       }, () => {
         loadPendingRequests();
+        loadFriends();
       })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabaseUser]);
+  }, [supabaseUser?.id]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -4467,52 +4555,54 @@ const App: React.FC = () => {
           <h1 className="text-2xl font-black tracking-tighter" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
         </div>
         <div className="flex items-center space-x-2">
-          {!isSignedIn ? (
-            <>
-              <button
-                type="button"
-                onClick={() => { setAuthMode('login'); setAuthError(null); setShowAuthModal(true); }}
-                className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
-                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-              >
-                Anmelden
-              </button>
-              <button
-                type="button"
-                onClick={() => { setAuthMode('register'); setAuthError(null); setShowAuthModal(true); }}
-                className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                Registrieren
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!recordsData || recordsData.length === 0) fetchRecords();
-                  setShowProfileModal(true);
-                }}
-                className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                {supabaseUser?.user_metadata?.avatar_url ? (
-                  <img src={supabaseUser.user_metadata.avatar_url} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
-                ) : (
-                  <i className="fas fa-user"></i>
-                )}
-                <span>Profil verwalten</span>
-                {isAdmin && <span className="text-yellow-300">👑</span>}
-              </button>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="px-3 py-2 rounded-xl border border-gray-500/30 font-bold text-xs opacity-60 hover:opacity-100 cursor-pointer"
-              >
-                <i className="fas fa-sign-out-alt"></i>
-              </button>
-            </div>
+          {gameState === GameState.START && (
+            !isSignedIn ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); setAuthError(null); setShowAuthModal(true); }}
+                  className="px-4 py-2 rounded-xl border-2 font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
+                  style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                >
+                  Anmelden
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('register'); setAuthError(null); setShowAuthModal(true); }}
+                  className="px-4 py-2 rounded-xl text-white font-bold text-sm cursor-pointer hover:opacity-80 transition-all active:scale-95"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  Registrieren
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!recordsData || recordsData.length === 0) fetchRecords();
+                    setShowProfileModal(true);
+                  }}
+                  className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  {supabaseUser?.user_metadata?.avatar_url ? (
+                    <img src={supabaseUser.user_metadata.avatar_url} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
+                  ) : (
+                    <i className="fas fa-user"></i>
+                  )}
+                  <span>Profil verwalten</span>
+                  {isAdmin && <span className="text-yellow-300">👑</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="px-3 py-2 rounded-xl border border-gray-500/30 font-bold text-xs opacity-60 hover:opacity-100 cursor-pointer"
+                >
+                  <i className="fas fa-sign-out-alt"></i>
+                </button>
+              </div>
+            )
           )}
           <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full border border-gray-700/30 cursor-pointer">
             <i className={`fas ${darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-indigo-600'}`}></i>
@@ -5634,12 +5724,12 @@ const App: React.FC = () => {
         {gameState === GameState.START && (
           <a
             id="become-member-btn"
-            href="mailto:bundeswiega@gmail.com?subject=Kostenlos%20Mitglied%20werden"
+            href="mailto:bundeswiega@gmail.com?subject=Fragen%20oder%20dem%20Verein%20beitreten"
             className="md:absolute md:bottom-4 md:left-4 py-3 px-5 rounded-full font-bold text-xs md:text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95 z-50 flex items-center justify-center space-x-2 border border-white/10 my-2 md:my-0 w-fit h-fit"
             style={{ backgroundColor: BRAND_COLOR }}
           >
             <i className="fas fa-user-plus text-sm"></i>
-            <span>kostenlos Mitglied werden</span>
+            <span>Fragen oder dem Verein beitreten</span>
           </a>
         )}
         <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="md:absolute md:bottom-4 md:right-4 p-3 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white shadow-lg transition-transform hover:scale-110 active:scale-90 z-50 my-2 md:my-0 flex items-center justify-center w-fit h-fit">
@@ -9421,10 +9511,12 @@ const App: React.FC = () => {
                 <p>{migrateResult.message}</p>
                 {migrateResult.details && (
                   <div className="mt-2 space-y-1 opacity-80 border-t border-current/20 pt-2 font-normal">
-                    <p>📊 CSV Einträge gesamt: {migrateResult.details.total_csv_rows}</p>
-                    <p>✅ Erfolgreich übertragen: {migrateResult.details.migrated}</p>
-                    <p>👤 Ohne Account (Gäste): {migrateResult.details.skipped_no_account}</p>
+                    <p>📋 CSV Einträge: {migrateResult.details.total_csv_rows}</p>
+                    <p>✅ Aus CSV migriert: {migrateResult.details.migrated}</p>
+                    <p>📱 Aus Account-Daten migriert: {migrateResult.details.migrated_from_metadata}</p>
+                    <p>👤 Ohne Account übersprungen: {migrateResult.details.skipped_no_account}</p>
                     <p>🔄 Duplikate übersprungen: {migrateResult.details.skipped_duplicate}</p>
+                    <p>👥 Profile aktualisiert: {migrateResult.details.profiles_updated}</p>
                     {migrateResult.details.errors > 0 && (
                       <p className="text-red-400 font-bold">❌ Fehler: {migrateResult.details.errors}</p>
                     )}
@@ -9594,55 +9686,26 @@ const App: React.FC = () => {
             {profileTab === 'profil' && (
               <>
                 {/* Custom User Stats */}
-                {(() => {
-                  const currentUserName = (supabaseUser?.user_metadata?.username || supabaseUser?.email || '').toLowerCase();
-                  let gamesPlayed = 0;
-                  let totalSchnaepse = 0;
-                  let bestAvg = null as number | null;
-                  let totalAchievementsCount = 0;
-
-                  if (recordsData && Array.isArray(recordsData)) {
-                    recordsData.forEach(row => {
-                      const pName = String(row[1] || '').trim().toLowerCase();
-                      if (pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) {
-                        gamesPlayed += 1;
-                        const schnaepse = parseInt(row[4]) || 0;
-                        totalSchnaepse += schnaepse;
-                        const avg = parseFloat(row[3]);
-                        if (!isNaN(avg)) {
-                          if (bestAvg === null || avg < bestAvg) bestAvg = avg;
-                        }
-                        if (row[5]) {
-                          try {
-                            const parsedAch = typeof row[5] === 'string' ? JSON.parse(row[5]) : row[5];
-                            if (Array.isArray(parsedAch)) totalAchievementsCount += parsedAch.length;
-                          } catch (e) {}
-                        }
-                      }
-                    });
-                  }
-
-                  return (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="text-2xl font-black text-emerald-400">{gamesPlayed}</div>
-                        <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
-                      </div>
-                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="text-2xl font-black text-amber-400">{totalSchnaepse} 🥃</div>
-                        <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
-                      </div>
-                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="text-2xl font-black text-cyan-400">{bestAvg !== null ? `${bestAvg.toFixed(1)}g` : '-'}</div>
-                        <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
-                      </div>
-                      <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="text-2xl font-black text-purple-400">{totalAchievementsCount} 🏆</div>
-                        <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
-                      </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-emerald-400">{profileStats.gamesPlayed}</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-amber-400">{profileStats.totalSchnaepse} 🥃</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-cyan-400">
+                      {profileStats.bestAvg !== null ? `${profileStats.bestAvg.toFixed(2)}g` : '-'}
                     </div>
-                  );
-                })()}
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="text-2xl font-black text-purple-400">{profileStats.achievementsCount} 🏆</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
+                  </div>
+                </div>
 
                 {/* Custom Profile Forms */}
                 <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
@@ -9982,26 +10045,28 @@ const App: React.FC = () => {
             {profileTab === 'rekorde' && (
               <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto pr-2">
 
-                {/* Statistik-Übersicht */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                    <p className="text-lg font-black" style={{ color: BRAND_COLOR }}>{myGameData.length}</p>
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Spiele</p>
-                  </div>
-                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                    <p className="text-lg font-black text-emerald-500">
-                      {myGameData.length > 0
-                        ? (myGameData.reduce((s: number, r: any) => s + (r.avg || 0), 0) / myGameData.length).toFixed(1)
-                        : '-'}g
-                    </p>
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Ø Abstand</p>
-                  </div>
-                  <div className={`p-3 rounded-2xl text-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                    <p className="text-lg font-black text-amber-500">
-                      {myGameData.reduce((s: number, r: any) => s + (r.schnaepse || 0), 0)}
-                    </p>
-                    <p className="text-[10px] font-bold opacity-60 uppercase">Schnäpse</p>
-                  </div>
+                {/* Unterreiter */}
+                <div className="flex space-x-1 mb-2 overflow-x-auto">
+                  {[
+                    { key: 'alle', label: '🎮 Alle' },
+                    { key: 'standard', label: '🍺 Standard' },
+                    { key: 'speed', label: '⚡ Speed' },
+                    { key: 'team', label: '👥 Team' }
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setRecordsSubTab(tab.key as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-colors cursor-pointer ${
+                        recordsSubTab === tab.key
+                          ? 'text-white'
+                          : darkMode ? 'bg-white/10' : 'bg-black/10'
+                      }`}
+                      style={recordsSubTab === tab.key ? { backgroundColor: BRAND_COLOR } : {}}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Sortier-Buttons */}
@@ -10038,59 +10103,78 @@ const App: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Spiele-Liste */}
-                {sortedGameData.length === 0 ? (
-                  <p className="text-xs opacity-60 text-center py-8">
-                    Noch keine gespeicherten Spiele.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {sortedGameData.map((r: any, idx: number) => (
-                      <div key={idx} className={`p-3 rounded-xl flex justify-between items-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                        <div>
-                          <p className="text-xs font-black">{r.gameMode}</p>
-                          <p className="text-[10px] opacity-60">{r.date}</p>
+                {/* Spiele-Liste (Gefiltert & Sortiert) */}
+                {(() => {
+                  const filtered = myGameData.filter((r: any) => {
+                    const mode = r.game_mode || r.gameMode || '';
+                    if (recordsSubTab === 'alle') return true;
+                    if (recordsSubTab === 'standard') return mode.includes('Standardspiel') || mode.includes('Standard');
+                    if (recordsSubTab === 'speed') return mode.includes('Speedwiegen') || mode.includes('Speed');
+                    if (recordsSubTab === 'team') return mode.includes('Teamwiegen') || mode.includes('Team');
+                    return true;
+                  });
+
+                  const sorted = [...filtered].sort((a: any, b: any) => {
+                    let valA: any = a[recordsSortBy === 'datum' ? 'date' : recordsSortBy];
+                    let valB: any = b[recordsSortBy === 'datum' ? 'date' : recordsSortBy];
+                    if (recordsSortBy === 'datum') {
+                      valA = new Date(valA || 0).getTime();
+                      valB = new Date(valB || 0).getTime();
+                    } else {
+                      valA = Number(valA || 0);
+                      valB = Number(valB || 0);
+                    }
+                    return recordsSortDir === 'asc' ? valA - valB : valB - valA;
+                  });
+
+                  return sorted.length === 0 ? (
+                    <p className="text-xs opacity-60 text-center py-8">
+                      Keine Einträge für diesen Modus.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {sorted.map((r: any, idx: number) => (
+                        <div key={idx} className={`p-3 rounded-xl flex justify-between items-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                          <div>
+                            <p className="text-xs font-black">{r.game_mode || r.gameMode}</p>
+                            <p className="text-[10px] opacity-60">{r.date}</p>
+                            {r.team_name && <p className="text-[10px] opacity-60">Team: {r.team_name}</p>}
+                            {r.levels && <p className="text-[10px] opacity-60">{r.levels} Stufen • {r.time_seconds}s</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-black text-emerald-500">Ø {typeof r.avg === 'number' ? r.avg.toFixed(2) : r.avg}g</p>
+                            <p className="text-[10px] opacity-60">{r.schnaepse} Pkt • Total: {typeof r.total === 'number' ? r.total.toFixed(1) : r.total}</p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs font-black text-emerald-500">Ø {r.avg?.toFixed(2)}g</p>
-                          <p className="text-[10px] opacity-60">{r.schnaepse} Pkt • Total: {r.total?.toFixed(1)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* Achievements */}
                 <div>
                   <h4 className="font-black uppercase text-sm mb-3" style={{ color: BRAND_COLOR }}>
                     🏆 Freigeschaltete Achievements
                   </h4>
-                  {(() => {
-                    const myAchievements = myGameData
-                      .flatMap((r: any) => r.achievements || [])
-                      .filter((a: any, idx: number, arr: any[]) =>
-                        arr.findIndex(x => x.id === a.id) === idx
-                      );
-                    return myAchievements.length === 0 ? (
-                      <p className="text-xs opacity-60">Noch keine Achievements freigeschaltet.</p>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2">
-                        {myAchievements.map((a: any) => (
-                          <div key={a.id} className={`p-2 rounded-xl flex items-center space-x-2 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                            <span className="text-lg">{a.icon}</span>
-                            <div>
-                              <p className="text-xs font-black">{a.title}</p>
-                              <p className={`text-[10px] font-bold ${
-                                a.rarity === 'legendary' ? 'text-yellow-500' :
-                                a.rarity === 'epic' ? 'text-purple-500' :
-                                a.rarity === 'rare' ? 'text-blue-500' : 'text-gray-400'
-                              }`}>{a.rarity}</p>
-                            </div>
+                  {myAchievementsData.length === 0 ? (
+                    <p className="text-xs opacity-60">Noch keine Achievements freigeschaltet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {myAchievementsData.map((a: any) => (
+                        <div key={a.id || a.achievement_id} className={`p-2 rounded-xl flex items-center space-x-2 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                          <span className="text-lg">{a.icon}</span>
+                          <div>
+                            <p className="text-xs font-black">{a.title}</p>
+                            <p className={`text-[10px] font-bold ${
+                              a.rarity === 'legendary' ? 'text-yellow-500' :
+                              a.rarity === 'epic' ? 'text-purple-500' :
+                              a.rarity === 'rare' ? 'text-blue-500' : 'text-gray-400'
+                            }`}>{a.rarity}</p>
                           </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

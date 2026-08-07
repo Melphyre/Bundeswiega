@@ -2036,40 +2036,47 @@ const App: React.FC = () => {
   };
 
   const handleMigrateToSQL = async () => {
-    setMigrateProgress({ percent: 20, message: 'Lade CSV & Profile aus Datenbank...' });
+    setMigrateProgress({ percent: 10, message: 'Migration wird gestartet...' });
     setMigrateResult(null);
-    try {
-      setMigrateProgress({ percent: 60, message: 'Übertrage Daten in Supabase...' });
 
+    try {
+      setMigrateProgress({ percent: 30, message: 'Lade CSV und vergleiche mit Accounts...' });
+
+      // Kein Body mehr nötig – Server lädt CSV und Accounts selbst
       const migrateRes = await fetch('/api/admin/migrate-to-sql', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}) // leerer Body
       });
 
       const contentType = migrateRes.headers.get('content-type');
       if (!contentType?.includes('application/json')) {
         const text = await migrateRes.text();
-        throw new Error(`Non-JSON: ${text.substring(0, 100)}`);
+        throw new Error(`Non-JSON Response: ${text.substring(0, 100)}`);
       }
 
       const migrateJson = await migrateRes.json();
-      if (!migrateRes.ok) throw new Error(migrateJson.error || 'Fehler bei der Migration');
+      if (!migrateRes.ok) throw new Error(migrateJson.error || 'Unbekannter Fehler');
 
       setMigrateProgress({ percent: 100, message: 'Fertig!' });
       setMigrateResult({
         success: true,
         message: `✅ ${migrateJson.message}`,
         details: {
-          total_csv_rows: migrateJson.total_csv_rows,
-          migrated: migrateJson.migrated,
-          skipped_no_account: migrateJson.skipped_no_account,
-          skipped_duplicate: migrateJson.skipped_duplicate,
-          errors: migrateJson.errors
+          total_csv_rows: migrateJson.total_csv_rows || 0,
+          migrated: migrateJson.migrated || 0,
+          skipped_no_account: migrateJson.skipped_no_account || 0,
+          skipped_duplicate: migrateJson.skipped_duplicate || 0,
+          errors: migrateJson.errors || 0
         }
       });
+
     } catch (err: any) {
       setMigrateProgress(null);
-      setMigrateResult({ success: false, message: `❌ Fehler: ${err.message}` });
+      setMigrateResult({
+        success: false,
+        message: `❌ Fehler: ${err.message}`
+      });
     }
   };
 

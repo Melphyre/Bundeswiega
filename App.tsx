@@ -1427,7 +1427,17 @@ const App: React.FC = () => {
   // Admin Migration States
   const [showMigrateModal, setShowMigrateModal] = useState(false);
   const [migrateProgress, setMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
-  const [migrateResult, setMigrateResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [migrateResult, setMigrateResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: {
+      total_csv_rows: number;
+      migrated: number;
+      skipped_no_account: number;
+      skipped_duplicate: number;
+      errors: number;
+    }
+  } | null>(null);
 
   // Friends & Privacy States
   const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
@@ -2026,27 +2036,14 @@ const App: React.FC = () => {
   };
 
   const handleMigrateToSQL = async () => {
-    setMigrateProgress({ percent: 10, message: 'Lade CSV Daten...' });
+    setMigrateProgress({ percent: 20, message: 'Lade CSV & Profile aus Datenbank...' });
     setMigrateResult(null);
     try {
-      const csvRes = await fetch('/api/records');
-      const csvJson = await csvRes.json();
-      const csvRows = (csvJson.data || []).filter((row: string[]) =>
-        row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name'
-      );
+      setMigrateProgress({ percent: 60, message: 'Übertrage Daten in Supabase...' });
 
-      setMigrateProgress({ percent: 30, message: 'Lade Account-Liste...' });
-      const usersRes = await fetch('/api/users/list');
-      const usersJson = await usersRes.json();
-      const users = usersJson.users || [];
-
-      setMigrateProgress({ percent: 50, message: `Übertrage ${csvRows.length} Einträge...` });
-
-      // Alle Rows in einem Request senden
       const migrateRes = await fetch('/api/admin/migrate-to-sql', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: csvRows, users })
+        headers: { 'Content-Type': 'application/json' }
       });
 
       const contentType = migrateRes.headers.get('content-type');
@@ -2056,12 +2053,19 @@ const App: React.FC = () => {
       }
 
       const migrateJson = await migrateRes.json();
-      if (!migrateRes.ok) throw new Error(migrateJson.error);
+      if (!migrateRes.ok) throw new Error(migrateJson.error || 'Fehler bei der Migration');
 
       setMigrateProgress({ percent: 100, message: 'Fertig!' });
       setMigrateResult({
         success: true,
-        message: `✅ ${migrateJson.message}`
+        message: `✅ ${migrateJson.message}`,
+        details: {
+          total_csv_rows: migrateJson.total_csv_rows,
+          migrated: migrateJson.migrated,
+          skipped_no_account: migrateJson.skipped_no_account,
+          skipped_duplicate: migrateJson.skipped_duplicate,
+          errors: migrateJson.errors
+        }
       });
     } catch (err: any) {
       setMigrateProgress(null);
@@ -9404,8 +9408,21 @@ const App: React.FC = () => {
             )}
 
             {migrateResult && (
-              <div className={`p-4 rounded-2xl text-xs font-bold ${migrateResult.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
-                {migrateResult.message}
+              <div className={`p-4 rounded-xl text-xs font-bold mb-4 space-y-1 ${
+                migrateResult.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
+              }`}>
+                <p>{migrateResult.message}</p>
+                {migrateResult.details && (
+                  <div className="mt-2 space-y-1 opacity-80 border-t border-current/20 pt-2 font-normal">
+                    <p>📊 CSV Einträge gesamt: {migrateResult.details.total_csv_rows}</p>
+                    <p>✅ Erfolgreich übertragen: {migrateResult.details.migrated}</p>
+                    <p>👤 Ohne Account (Gäste): {migrateResult.details.skipped_no_account}</p>
+                    <p>🔄 Duplikate übersprungen: {migrateResult.details.skipped_duplicate}</p>
+                    {migrateResult.details.errors > 0 && (
+                      <p className="text-red-400 font-bold">❌ Fehler: {migrateResult.details.errors}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

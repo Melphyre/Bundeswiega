@@ -1349,22 +1349,36 @@ const App: React.FC = () => {
   const handleSignUp = async () => {
     setAuthSubmitLoading(true);
     setAuthError(null);
+
     if (!authUsername.trim()) {
-      setAuthError('Bitte gib einen Nutzernamen ein.');
+      setAuthError('Bitte einen Benutzernamen eingeben.');
       setAuthSubmitLoading(false);
       return;
     }
-    // Check if username is taken
-    try {
-      const res = await fetch(`/api/users/check-username?username=${encodeURIComponent(authUsername.trim())}`);
-      const checkJson = await res.json();
-      if (checkJson.taken) {
-        setAuthError('Dieser Nutzername ist bereits vergeben.');
-        setAuthSubmitLoading(false);
-        return;
-      }
-    } catch (e) {}
 
+    if (authUsername.trim().length < 3) {
+      setAuthError('Benutzername muss mindestens 3 Zeichen lang sein.');
+      setAuthSubmitLoading(false);
+      return;
+    }
+
+    // Prüfen ob Username bereits vergeben (case-insensitive)
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('username')
+      .ilike('username', authUsername.trim())
+      .limit(1);
+
+    if (existingProfile && existingProfile.length > 0) {
+      setAuthError(
+        `Der Benutzername "${authUsername.trim()}" ist bereits vergeben. ` +
+        `Bitte wähle einen anderen Namen (z.B. "${authUsername.trim()}123").`
+      );
+      setAuthSubmitLoading(false);
+      return;
+    }
+
+    // Registrierung durchführen
     const { error } = await supabase.auth.signUp({
       email: authEmailOrUsername.trim(),
       password: authPassword,
@@ -1375,8 +1389,10 @@ const App: React.FC = () => {
         }
       }
     });
-    if (error) setAuthError(error.message);
-    else {
+
+    if (error) {
+      setAuthError(error.message);
+    } else {
       setAuthError(null);
       setShowAuthModal(false);
     }
@@ -1438,6 +1454,7 @@ const App: React.FC = () => {
       skipped_duplicate: number;
       errors: number;
       profiles_updated: number;
+      profiles_synced: number;
     }
   } | null>(null);
 
@@ -1734,33 +1751,67 @@ const App: React.FC = () => {
   };
 
   const handleUsernameChange = async () => {
-    if (!profileUsername.trim()) return;
-    setProfileSaveState(prev => ({ ...prev, username: 'loading' }));
-    try {
-      const checkRes = await fetch(
-        `/api/users/check-username?username=${encodeURIComponent(profileUsername.trim())}&currentUserId=${supabaseUser?.id || ''}`
-      );
-      const checkJson = await checkRes.json();
-
-      if (checkJson.taken) {
-        setProfileSaveState(prev => ({ ...prev, username: 'error' }));
-        setProfileSaveMessage(prev => ({
-          ...prev,
-          username: `"${profileUsername.trim()}" ist bereits vergeben. Bitte wähle einen anderen Namen.`
-        }));
-        return;
-      }
-
-      const { error } = await supabase.auth.updateUser({
-        data: { username: profileUsername.trim() }
-      });
-      if (error) throw error;
-      setProfileSaveState(prev => ({ ...prev, username: 'success' }));
-      setProfileSaveMessage(prev => ({ ...prev, username: 'Nutzername gespeichert!' }));
-    } catch (err: any) {
+    if (!profileUsername.trim()) {
       setProfileSaveState(prev => ({ ...prev, username: 'error' }));
-      setProfileSaveMessage(prev => ({ ...prev, username: err.message || 'Fehler beim Speichern' }));
+      return;
     }
+
+    if (profileUsername.trim().length < 3) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({
+        ...prev,
+        username: 'Benutzername muss mindestens 3 Zeichen lang sein.'
+      }));
+      return;
+    }
+
+    setProfileSaveState(prev => ({ ...prev, username: 'loading' }));
+
+    // Prüfen ob Username bereits vergeben (case-insensitive, eigenen ausschließen)
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .ilike('username', profileUsername.trim())
+      .neq('id', supabaseUser?.id || '') // eigenen Account ausschließen
+      .limit(1);
+
+    if (existingProfile && existingProfile.length > 0) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({
+        ...prev,
+        username: `"${profileUsername.trim()}" ist bereits vergeben. Bitte wähle einen anderen Namen (z.B. "${profileUsername.trim()}123").`
+      }));
+      return;
+    }
+
+    // Username in Supabase Auth aktualisieren
+    const { error: authError } = await supabase.auth.updateUser({
+      data: { username: profileUsername.trim() }
+    });
+
+    if (authError) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({ ...prev, username: authError.message }));
+      return;
+    }
+
+    // Username in profiles Tabelle aktualisieren
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ username: profileUsername.trim() })
+      .eq('id', supabaseUser?.id);
+
+    if (profileError) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({ ...prev, username: profileError.message }));
+      return;
+    }
+
+    setProfileSaveState(prev => ({ ...prev, username: 'success' }));
+    setProfileSaveMessage(prev => ({
+      ...prev,
+      username: '✅ Benutzername erfolgreich geändert!'
+    }));
   };
 
   const handleDeleteProfile = async () => {
@@ -2108,7 +2159,8 @@ const App: React.FC = () => {
           skipped_no_account: migrateJson.skipped_no_account || 0,
           skipped_duplicate: migrateJson.skipped_duplicate || 0,
           errors: migrateJson.errors || 0,
-          profiles_updated: migrateJson.profiles_updated || 0
+          profiles_updated: migrateJson.profiles_updated || 0,
+          profiles_synced: migrateJson.profiles_synced || 0
         }
       });
 
@@ -4435,94 +4487,112 @@ const App: React.FC = () => {
     setRecordsLoading(true);
     setRecordsError(null);
     try {
-      const [csvRes, accountRes] = await Promise.all([
-        fetch('/api/records').catch(() => null),
-        fetch('/api/users/public-records').catch(() => null)
-      ]);
+      // 1. CSV Daten laden (Gäste ohne Account)
+      const csvRes = await fetch('/api/records');
+      const csvJson = await csvRes.json();
+      const csvRows: string[][] = csvJson.data || [];
 
-      let csvData: any[][] = [];
-      if (csvRes && csvRes.ok) {
-        const json = await csvRes.json();
-        csvData = json.data || [];
-      }
+      // 2. Supabase game_results laden (Accounts)
+      const { data: supabaseResults, error: resultsError } = await supabase
+        .from('game_results')
+        .select(`
+          id, game_mode, date, avg, schnaepse, total,
+          levels, time_seconds, team_name, created_at,
+          profiles!inner(
+            username, show_records, show_standardspiel,
+            show_speedwiegen, show_teamwiegen
+          )
+        `);
 
-      let accountRecords: any[] = [];
-      if (accountRes && accountRes.ok) {
-        const json = await accountRes.json();
-        accountRecords = json.records || [];
-        if (json.users && Array.isArray(json.users)) {
-          setClerkUsers(json.users);
-        }
-      }
+      if (resultsError) console.error('Supabase results error:', resultsError);
 
-      let supabaseRows: any[][] = [];
-      try {
-        const { data: sbResults } = await supabase
-          .from('game_results')
-          .select(`
-            *,
-            profiles!inner (
-              username,
-              show_records,
-              show_standardspiel,
-              show_speedwiegen,
-              show_teamwiegen,
-              show_achievements
+      // 3. Supabase achievements laden
+      const { data: supabaseAchievements, error: achError } = await supabase
+        .from('achievements')
+        .select(`
+          id, achievement_id, title, icon, rarity, game_mode,
+          earned_with, earned_together, date,
+          profiles!inner(username, show_achievements)
+        `);
+
+      if (achError) console.error('Supabase achievements error:', achError);
+
+      // 4. Supabase Ergebnisse nach Privacy filtern und in CSV-Format konvertieren
+      const supabaseRows: string[][] = (supabaseResults || [])
+        .filter(r => {
+          const p = r.profiles as any;
+          if (!p.show_records) return false;
+          if (r.game_mode?.includes('Standardspiel') && !p.show_standardspiel) return false;
+          if (r.game_mode?.includes('Speedwiegen') && !p.show_speedwiegen) return false;
+          if (r.game_mode?.includes('Teamwiegen') && !p.show_teamwiegen) return false;
+          return true;
+        })
+        .map(r => {
+          const p = r.profiles as any;
+          // Achievements für diesen Eintrag finden
+          const entryAchievements = (supabaseAchievements || [])
+            .filter(a =>
+              (a.profiles as any).username === p.username &&
+              a.date === r.date &&
+              a.game_mode === r.game_mode &&
+              (a.profiles as any).show_achievements
             )
-          `)
-          .eq('profiles.show_records', true);
+            .map(a => ({
+              id: a.achievement_id,
+              title: a.title,
+              icon: a.icon,
+              rarity: a.rarity,
+              earnedBy: a.earned_with,
+              earnedTogether: a.earned_together
+            }));
 
-        if (sbResults && Array.isArray(sbResults)) {
-          supabaseRows = sbResults
-            .filter(r => {
-              const p = r.profiles;
-              if (!p) return true;
-              const mode = r.game_mode || '';
-              if (mode.includes('Standardspiel') && p.show_standardspiel === false) return false;
-              if (mode.includes('Speedwiegen') && p.show_speedwiegen === false) return false;
-              if (mode.includes('Teamwiegen') && p.show_teamwiegen === false) return false;
-              return true;
-            })
-            .map(r => [
-              r.date || '',
-              r.game_mode || 'Standardspiel',
-              r.profiles?.username || 'Unbekannt',
-              String(r.avg || 0),
-              String(r.schnaepse || 0),
-              r.levels !== undefined && r.levels !== null ? String(r.levels) : "",
-              ""
-            ]);
-        }
-      } catch (e) {
-        console.error('Supabase records fetch error:', e);
-      }
+          return [
+            r.date || '',
+            r.game_mode || '',
+            p.username || '',
+            r.avg?.toString() || '0',
+            r.schnaepse?.toString() || '0',
+            r.total?.toString() || '0',
+            entryAchievements.length > 0
+              ? JSON.stringify(entryAchievements)
+              : ''
+          ];
+        });
 
-      const headerRow = csvData.length > 0 ? csvData[0] : ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Levels", "Achievements"];
-      const csvContentRows = csvData.slice(1);
+      // 5. Beide Quellen zusammenführen
+      // Duplikate vermeiden: CSV-Einträge die bereits als Supabase-Account existieren überspringen
+      const supabaseUsernames = new Set(
+        (supabaseResults || []).map(r => (r.profiles as any).username?.toLowerCase())
+      );
 
-      const accountRows = accountRecords.map((rec: any) => [
-        rec.date || '',
-        rec.gameMode || 'Standardspiel',
-        rec.playerName || '',
-        String(rec.avg || 0),
-        String(rec.schnaepse || 0),
-        rec.levels !== undefined ? String(rec.levels) : "",
-        typeof rec.achievements === 'string' ? rec.achievements : JSON.stringify(rec.achievements || [])
-      ]);
+      const filteredCsvRows = csvRows.filter(row => {
+        if (row[0] === 'Datum' || row[2] === 'Name') return false; // Header überspringen
+        // CSV-Eintrag überspringen wenn dieser Nutzer bereits einen Account hat
+        // (seine Daten kommen dann aus Supabase)
+        const csvUsername = row[2]?.toLowerCase();
+        return !supabaseUsernames.has(csvUsername);
+      });
 
-      const combinedData = [headerRow, ...csvContentRows, ...accountRows, ...supabaseRows];
+      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements"];
+      const combinedData = [headerRow, ...filteredCsvRows, ...supabaseRows];
       setRecordsData(combinedData);
 
       const namesSet = new Set<string>();
-      csvContentRows.forEach((row: string[]) => {
+      filteredCsvRows.forEach((row: string[]) => {
         if (row && row[2] && row[2].trim()) {
           namesSet.add(row[2].trim());
         }
       });
+      (supabaseResults || []).forEach((r: any) => {
+        const uname = (r.profiles as any)?.username;
+        if (uname && uname.trim()) namesSet.add(uname.trim());
+      });
       const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
       setCsvNames(sortedNames);
+
     } catch (err: any) {
-      setRecordsError(err.message || 'Verbindungsfehler beim Laden.');
+      console.error('fetchRecords error:', err);
+      setRecordsError(err.message);
     } finally {
       setRecordsLoading(false);
     }
@@ -9517,6 +9587,7 @@ const App: React.FC = () => {
                     <p>👤 Ohne Account übersprungen: {migrateResult.details.skipped_no_account}</p>
                     <p>🔄 Duplikate übersprungen: {migrateResult.details.skipped_duplicate}</p>
                     <p>👥 Profile aktualisiert: {migrateResult.details.profiles_updated}</p>
+                    <p>👤 Profile synchronisiert: {migrateResult.details.profiles_synced}</p>
                     {migrateResult.details.errors > 0 && (
                       <p className="text-red-400 font-bold">❌ Fehler: {migrateResult.details.errors}</p>
                     )}

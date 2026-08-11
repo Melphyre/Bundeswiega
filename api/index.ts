@@ -111,6 +111,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathName === '/api/admin/migrate-to-sql' && req.method === 'POST') {
       return await handleMigrateToSQL(req, res);
     }
+    if (pathName === '/api/admin/migrate-tournament-to-csv' && req.method === 'POST') {
+      return await handleTournamentMigrateToCSV(req, res);
+    }
     if (pathName === '/api/admin/set-role' && req.method === 'POST') {
       return await handleAdminSetRole(req, res);
     }
@@ -1833,3 +1836,100 @@ async function handleTournamentDelete(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: error.message || "Fehler beim Löschen des Turniers." });
   }
 }
+
+async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelResponse) {
+  try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
+
+    // 1. Alle Turnier-CSV-Dateien aus Blob laden
+    const { blobs } = await list({ prefix: 'tournament_', token });
+    if (blobs.length === 0) {
+      return res.status(200).json({ message: 'Keine Turnier-Dateien gefunden', migrated: 0 });
+    }
+
+    // 2. Bestehende results.csv laden
+    const { blobs: resultBlobs } = await list({ prefix: 'results', token });
+    const resultsBlob = resultBlobs.find(b => b.pathname === 'results.csv');
+    let existingCsv = 'Datum;Modus;Name;Avg;Schnaepse\n';
+    if (resultsBlob) {
+      const r = await fetch(resultsBlob.url);
+      existingCsv = await r.text();
+    }
+
+    // Bereits vorhandene Einträge als Set
+    const existingLines = new Set(existingCsv.trim().split('\n').slice(1));
+
+    let migrated = 0;
+    let skipped = 0;
+    const newLines: string[] = [];
+
+    // 3. Jede Turnier-CSV durchgehen
+    for (const blob of blobs) {
+      const tournamentRes = await fetch(blob.url);
+      const tournamentCsv = await tournamentRes.text();
+      const tournamentRows = tournamentCsv.trim().split('\n');
+
+      // Ergebnis-Zeilen aus Turnier-CSV extrahieren
+      // Format: Ergebnis;[TischId];[Datum];[Spielername];[Avg];[Schnaepse];[Total];[Platzierung]
+      const ergebnisRows = tournamentRows.filter(r => r.startsWith('Ergebnis;'));
+
+      for (const row of ergebnisRows) {
+        const parts = row.split(';');
+        // parts: [Ergebnis, TischId, Datum, Spielername, Avg, Schnaepse, Total, Platzierung]
+        if (parts.length < 7) continue;
+
+        const tischId = parts[1];
+        const datum = parts[2];
+        const spielername = parts[3];
+        const avg = parts[4];
+        const schnaepse = parts[5];
+        const total = parts[6];
+
+        // Turniermodus bestimmen
+        const tournamentName = blob.pathname
+          .replace('tournament_', '')
+          .replace('.csv', '');
+        const gameMode = tischId === 'Final'
+          ? `Turnier Finale (${tournamentName})`
+          : tischId === 'SecondChance'
+            ? `Turnier Second Chance (${tournamentName})`
+            : `Turnier Vorrunde Tisch ${tischId} (${tournamentName})`;
+
+        // CSV-Zeile im results.csv Format
+        const newLine = `${datum};${gameMode};${spielername};${avg};${schnaepse}`;
+
+        if (existingLines.has(newLine)) {
+          skipped++;
+          continue;
+        }
+
+        newLines.push(newLine);
+        existingLines.add(newLine);
+        migrated++;
+      }
+    }
+
+    // 4. Neue Zeilen zur results.csv hinzufügen
+    if (newLines.length > 0) {
+      const updatedCsv = existingCsv.trimEnd() + '\n' + newLines.join('\n') + '\n';
+      await put('results.csv', updatedCsv, {
+        access: 'public',
+        token,
+        addRandomSuffix: false
+      });
+    }
+
+    return res.status(200).json({
+      message: `${migrated} Turnierergebnisse in CSV übertragen, ${skipped} Duplikate übersprungen`,
+      migrated,
+      skipped,
+      tournaments_processed: blobs.length
+    });
+
+  } catch (err: any) {
+    console.error('tournament migrate error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+

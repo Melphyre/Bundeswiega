@@ -1128,22 +1128,27 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
               <th className="py-2 px-1">RND</th>
               {players.map((p, idx) => {
                 const accountLink = playerAccountLinks?.[p.id];
+                const avatarUrl = accountLink?.imageUrl;
+
                 return (
                   <th key={p.id} className="text-center p-1">
                     <div className="flex flex-col items-center space-y-1">
-                      {accountLink?.imageUrl ? (
+                      {avatarUrl ? (
                         <img
-                          src={accountLink.imageUrl}
+                          src={avatarUrl}
                           alt={p.name}
-                          className="w-6 h-6 rounded-full object-cover border-2 shadow-sm"
+                          className="w-7 h-7 rounded-full object-cover border-2 flex-shrink-0"
                           style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
+                          onError={e => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       ) : (
                         <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white shadow-sm"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-black flex-shrink-0"
                           style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                         >
-                          {p.name.charAt(0).toUpperCase()}
+                          {p.name?.charAt(0)?.toUpperCase() || '?'}
                         </div>
                       )}
                       <VerticalText text={p.name} />
@@ -1458,6 +1463,11 @@ const App: React.FC = () => {
     }
   } | null>(null);
 
+  // Tournament Migration States
+  const [showTournamentMigrateModal, setShowTournamentMigrateModal] = useState(false);
+  const [tournamentMigrateProgress, setTournamentMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
+  const [tournamentMigrateResult, setTournamentMigrateResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // Friends & Privacy States
   const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
   const [pendingRequests, setPendingRequests] = useState<Array<{ id: string; requesterName: string; requesterId: string }>>([]);
@@ -1570,6 +1580,48 @@ const App: React.FC = () => {
     }
   };
 
+  const loadMyResults = async () => {
+    if (!supabaseUser) return;
+    try {
+      const { data, error } = await supabase
+        .from('game_results')
+        .select('*')
+        .eq('user_id', supabaseUser.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('loadMyResults error:', error.message);
+        setMyGameData([]);
+        return;
+      }
+      setMyGameData(data || []);
+    } catch (err: any) {
+      console.error('loadMyResults catch:', err.message);
+      setMyGameData([]);
+    }
+  };
+
+  const loadMyAchievements = async () => {
+    if (!supabaseUser) return;
+    try {
+      const { data, error } = await supabase
+        .from('achievements')
+        .select('*')
+        .eq('user_id', supabaseUser.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('loadMyAchievements error:', error.message);
+        setMyAchievementsData([]);
+        return;
+      }
+      setMyAchievementsData(data || []);
+    } catch (err: any) {
+      console.error('loadMyAchievements catch:', err.message);
+      setMyAchievementsData([]);
+    }
+  };
+
   const loadFriendships = async () => {
     if (!supabaseUser) return;
     try {
@@ -1636,9 +1688,24 @@ const App: React.FC = () => {
     if (showProfileModal && supabaseUser) {
       loadProfileStats();
       loadMyProfileData();
-      loadFriendships();
+      loadMyResults();
+      loadMyAchievements();
+      if (profileTab === 'freunde') {
+        loadFriendships();
+      }
     }
   }, [showProfileModal, supabaseUser]);
+
+  useEffect(() => {
+    if (!showProfileModal || !supabaseUser) return;
+    if (profileTab === 'rekorde') {
+      loadMyResults();
+      loadMyAchievements();
+    }
+    if (profileTab === 'freunde') {
+      loadFriendships();
+    }
+  }, [profileTab]);
 
   const handleSendFriendRequest = async () => {
     if (!supabaseUser || !friendSearchQuery.trim()) return;
@@ -2173,6 +2240,35 @@ const App: React.FC = () => {
     }
   };
 
+  const handleTournamentMigrateToCSV = async () => {
+    setTournamentMigrateProgress({ percent: 10, message: 'Suche Turnier-Dateien...' });
+    setTournamentMigrateResult(null);
+    try {
+      const res = await fetch('/api/admin/migrate-tournament-to-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Non-JSON Response');
+      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setTournamentMigrateProgress({ percent: 100, message: 'Fertig!' });
+      setTournamentMigrateResult({
+        success: true,
+        message: `✅ ${json.message}`
+      });
+    } catch (err: any) {
+      setTournamentMigrateProgress(null);
+      setTournamentMigrateResult({
+        success: false,
+        message: `❌ Fehler: ${err.message}`
+      });
+    }
+  };
+
   // Load clerk users list for player account mapping
   useEffect(() => {
     fetch('/api/users/list')
@@ -2582,6 +2678,21 @@ const App: React.FC = () => {
     }
   }, [gameState, speedLevels]);
 
+  const getScreenshotFilename = (prefix: string) => {
+    const now = new Date();
+    const date = now.toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    }).replace(/\./g, '-'); // z.B. 11-08-2026
+    const time = now.toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).replace(/:/g, '-'); // z.B. 14-30-05
+    return `${prefix}_${date}_${time}`;
+  };
+
   const captureElement = async (ref: React.RefObject<HTMLDivElement>, filename: string) => {
     if (!ref.current) return;
     try {
@@ -2607,11 +2718,11 @@ const App: React.FC = () => {
 
       const timer = setTimeout(async () => {
         if (rankingAreaRef.current) {
-          await captureElement(rankingAreaRef, 'Bundeswiega_Ranking');
+          await captureElement(rankingAreaRef, getScreenshotFilename('Bundeswiega_Ranking'));
         }
         await new Promise(resolve => setTimeout(resolve, 500));
         if (roundsAreaRef.current) {
-          await captureElement(roundsAreaRef, 'Bundeswiega_Tabelle');
+          await captureElement(roundsAreaRef, getScreenshotFilename('Bundeswiega_Tabelle'));
         }
       }, 800);
 
@@ -2627,7 +2738,7 @@ const App: React.FC = () => {
 
       const timer = setTimeout(async () => {
         if (rankingAreaRef.current) {
-          await captureElement(rankingAreaRef, `Bundeswiega_Speed_Result_${speedPlayerName || 'Gast'}`);
+          await captureElement(rankingAreaRef, getScreenshotFilename(`Bundeswiega_Speed_Result_${speedPlayerName || 'Gast'}`));
         }
       }, 800);
 
@@ -4487,55 +4598,54 @@ const App: React.FC = () => {
     setRecordsLoading(true);
     setRecordsError(null);
     try {
-      // 1. CSV Daten laden (Gäste ohne Account)
+      // 1. CSV laden
       const csvRes = await fetch('/api/records');
       const csvJson = await csvRes.json();
-      const csvRows: string[][] = csvJson.data || [];
+      const csvRows: string[][] = (csvJson.data || []).filter((row: string[]) =>
+        row[0] !== 'Datum' && row[2] !== 'Name' && row.length >= 5
+      );
 
-      // 2. Supabase game_results laden (Accounts)
+      // 2. Supabase game_results laden – OHNE Inner Join der scheitern kann
       const { data: supabaseResults, error: resultsError } = await supabase
         .from('game_results')
-        .select(`
-          id, game_mode, date, avg, schnaepse, total,
-          levels, time_seconds, team_name, created_at,
-          profiles!inner(
-            username, show_records, show_standardspiel,
-            show_speedwiegen, show_teamwiegen
-          )
-        `);
+        .select('id, user_id, game_mode, date, avg, schnaepse, total, levels, time_seconds, team_name');
 
-      if (resultsError) console.error('Supabase results error:', resultsError);
+      if (resultsError) {
+        console.error('game_results fetch error:', resultsError.message);
+      }
 
-      // 3. Supabase achievements laden
-      const { data: supabaseAchievements, error: achError } = await supabase
+      // 3. Profiles separat laden
+      const { data: allProfiles } = await supabase
+        .from('profiles')
+        .select('id, username, show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements');
+
+      // Profile-Map erstellen
+      const profileMap: Record<string, any> = {};
+      (allProfiles || []).forEach(p => { profileMap[p.id] = p; });
+
+      // 4. Achievements laden
+      const { data: supabaseAchievements } = await supabase
         .from('achievements')
-        .select(`
-          id, achievement_id, title, icon, rarity, game_mode,
-          earned_with, earned_together, date,
-          profiles!inner(username, show_achievements)
-        `);
+        .select('user_id, achievement_id, title, icon, rarity, game_mode, earned_with, earned_together, date');
 
-      if (achError) console.error('Supabase achievements error:', achError);
-
-      // 4. Supabase Ergebnisse nach Privacy filtern und in CSV-Format konvertieren
+      // 5. Supabase Ergebnisse filtern und konvertieren
       const supabaseRows: string[][] = (supabaseResults || [])
         .filter(r => {
-          const p = r.profiles as any;
-          if (!p.show_records) return false;
-          if (r.game_mode?.includes('Standardspiel') && !p.show_standardspiel) return false;
-          if (r.game_mode?.includes('Speedwiegen') && !p.show_speedwiegen) return false;
-          if (r.game_mode?.includes('Teamwiegen') && !p.show_teamwiegen) return false;
+          const profile = profileMap[r.user_id];
+          if (!profile) return false;
+          if (profile.show_records === false) return false;
+          if (r.game_mode?.includes('Standardspiel') && profile.show_standardspiel === false) return false;
+          if (r.game_mode?.includes('Speedwiegen') && profile.show_speedwiegen === false) return false;
+          if (r.game_mode?.includes('Teamwiegen') && profile.show_teamwiegen === false) return false;
           return true;
         })
         .map(r => {
-          const p = r.profiles as any;
-          // Achievements für diesen Eintrag finden
-          const entryAchievements = (supabaseAchievements || [])
+          const profile = profileMap[r.user_id];
+          const entryAchs = (supabaseAchievements || [])
             .filter(a =>
-              (a.profiles as any).username === p.username &&
+              a.user_id === r.user_id &&
               a.date === r.date &&
-              a.game_mode === r.game_mode &&
-              (a.profiles as any).show_achievements
+              a.game_mode === r.game_mode
             )
             .map(a => ({
               id: a.achievement_id,
@@ -4549,29 +4659,21 @@ const App: React.FC = () => {
           return [
             r.date || '',
             r.game_mode || '',
-            p.username || '',
+            profile?.username || '',
             r.avg?.toString() || '0',
             r.schnaepse?.toString() || '0',
             r.total?.toString() || '0',
-            entryAchievements.length > 0
-              ? JSON.stringify(entryAchievements)
-              : ''
+            entryAchs.length > 0 ? JSON.stringify(entryAchs) : ''
           ];
         });
 
-      // 5. Beide Quellen zusammenführen
-      // Duplikate vermeiden: CSV-Einträge die bereits als Supabase-Account existieren überspringen
+      // 6. Duplikate zwischen CSV und Supabase vermeiden
       const supabaseUsernames = new Set(
-        (supabaseResults || []).map(r => (r.profiles as any).username?.toLowerCase())
+        Object.values(profileMap).map((p: any) => p.username?.toLowerCase()).filter(Boolean)
       );
-
-      const filteredCsvRows = csvRows.filter(row => {
-        if (row[0] === 'Datum' || row[2] === 'Name') return false; // Header überspringen
-        // CSV-Eintrag überspringen wenn dieser Nutzer bereits einen Account hat
-        // (seine Daten kommen dann aus Supabase)
-        const csvUsername = row[2]?.toLowerCase();
-        return !supabaseUsernames.has(csvUsername);
-      });
+      const filteredCsvRows = csvRows.filter(row =>
+        !supabaseUsernames.has(row[2]?.toLowerCase())
+      );
 
       const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements"];
       const combinedData = [headerRow, ...filteredCsvRows, ...supabaseRows];
@@ -4584,7 +4686,8 @@ const App: React.FC = () => {
         }
       });
       (supabaseResults || []).forEach((r: any) => {
-        const uname = (r.profiles as any)?.username;
+        const profile = profileMap[r.user_id];
+        const uname = profile?.username;
         if (uname && uname.trim()) namesSet.add(uname.trim());
       });
       const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
@@ -4601,15 +4704,20 @@ const App: React.FC = () => {
   // Auto-fill player 1 name from Supabase account if signed in
   useEffect(() => {
     if (isSignedIn && supabaseUser && gameState === GameState.PLAYER_NAMES && players.length > 0) {
-      const userName = supabaseUser.user_metadata?.username || supabaseUser.email || '';
+      const username = supabaseUser.user_metadata?.username || supabaseUser.email || '';
+      const avatarUrl = supabaseUser.user_metadata?.avatar_url || null;
 
-      if (userName && (!players[0].name || players[0].name.trim() === '')) {
+      if (username) {
         setPlayers(prev => prev.map((p, i) =>
-          i === 0 ? { ...p, name: userName } : p
+          i === 0 ? { ...p, name: username } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
-          [players[0].id]: { userId: supabaseUser.id, userName, imageUrl: supabaseUser.user_metadata?.avatar_url }
+          [players[0].id]: {
+            userId: supabaseUser.id,
+            userName: username,
+            imageUrl: avatarUrl || undefined
+          }
         }));
       }
     }
@@ -9338,6 +9446,16 @@ const App: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setShowTournamentMigrateModal(true)}
+                className="w-full py-4 rounded-2xl text-white font-black flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all"
+                style={{ backgroundColor: '#059669' }}
+              >
+                <i className="fas fa-trophy"></i>
+                <span>Turnierergebnisse in CSV übertragen</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowAdminUsersView(prev => !prev)}
                 className="w-full p-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
               >
@@ -9613,6 +9731,63 @@ const App: React.FC = () => {
                   style={{ backgroundColor: '#7C3AED' }}
                 >
                   {migrateProgress ? 'Wird übertragen...' : 'Starten'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🏆 TOURNAMENT MIGRATION MODAL */}
+      {showTournamentMigrateModal && (
+        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className={`rounded-3xl p-6 max-w-sm w-full shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
+            <h3 className="text-xl font-black mb-4 flex items-center space-x-2" style={{ color: '#059669' }}>
+              <span>🏆 Turnierergebnisse → CSV</span>
+            </h3>
+            <p className="text-xs opacity-60 mb-4">
+              Überträgt alle Turnierergebnisse aus den Turnier-CSV-Dateien im Blob in die Haupt-Rekorde CSV. Bereits vorhandene Einträge werden übersprungen.
+            </p>
+            {tournamentMigrateProgress && (
+              <div className="space-y-2 mb-4">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div className="h-2 rounded-full transition-all"
+                    style={{ width: `${tournamentMigrateProgress.percent}%`, backgroundColor: '#059669' }} />
+                </div>
+                <p className="text-xs font-bold">{tournamentMigrateProgress.message}</p>
+              </div>
+            )}
+            {tournamentMigrateResult && (
+              <div className={`p-3 rounded-xl text-xs font-bold mb-4 ${
+                tournamentMigrateResult.success
+                  ? 'bg-emerald-500/10 text-emerald-500'
+                  : 'bg-red-500/10 text-red-500'
+              }`}>
+                {tournamentMigrateResult.message}
+              </div>
+            )}
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTournamentMigrateModal(false);
+                  setTournamentMigrateProgress(null);
+                  setTournamentMigrateResult(null);
+                }}
+                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
+                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+              >
+                Schließen
+              </button>
+              {!tournamentMigrateResult && (
+                <button
+                  type="button"
+                  onClick={handleTournamentMigrateToCSV}
+                  disabled={!!tournamentMigrateProgress}
+                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs disabled:opacity-50"
+                  style={{ backgroundColor: '#059669' }}
+                >
+                  {tournamentMigrateProgress ? 'Läuft...' : 'Starten'}
                 </button>
               )}
             </div>

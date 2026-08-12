@@ -114,6 +114,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathName === '/api/admin/migrate-tournament-to-csv' && req.method === 'POST') {
       return await handleTournamentMigrateToCSV(req, res);
     }
+    if (pathName === '/api/admin/save-csv' && req.method === 'POST') {
+      return await handleSaveCsv(req, res);
+    }
     if (pathName === '/api/admin/set-role' && req.method === 'POST') {
       return await handleAdminSetRole(req, res);
     }
@@ -339,6 +342,11 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Supabase nicht konfiguriert oder SUPABASE_SECRET_KEY fehlt' });
     }
 
+    // Total berechnen
+    const avg = parseFloat(gameResult.avg) || 0;
+    const schnaepse = parseInt(gameResult.schnaepse) || 0;
+    const total = Math.round((avg + schnaepse) * 100) / 100;
+
     // Ergebnis speichern mit Admin-Client
     const { error: resultError } = await supabaseAdmin
       .from('game_results')
@@ -346,9 +354,9 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         user_id: userId,
         game_mode: gameResult.game_mode,
         date: gameResult.date,
-        avg: gameResult.avg,
-        schnaepse: gameResult.schnaepse,
-        total: gameResult.total,
+        avg: avg,
+        schnaepse: schnaepse,
+        total: total,
         levels: gameResult.levels || null,
         time_seconds: gameResult.time_seconds || null,
         team_name: gameResult.team_name || null
@@ -935,15 +943,19 @@ async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
       }
 
       // Ergebnis in Supabase eintragen
+      const avgVal = parseFloat(avg) || 0;
+      const schnaepseVal = parseInt(schnaepse) || 0;
+      const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
+
       const { error: insertError } = await supabaseAdmin
         .from('game_results')
         .insert({
           user_id: userId,
           game_mode: gameMode?.trim(),
           date: date?.trim(),
-          avg: parseFloat(avg) || 0,
-          schnaepse: parseInt(schnaepse) || 0,
-          total: parseFloat(total) || 0
+          avg: avgVal,
+          schnaepse: schnaepseVal,
+          total: totalVal
         });
 
       if (insertError) {
@@ -1842,10 +1854,17 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
     const token = process.env.BLOB_READ_WRITE_TOKEN;
     if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
 
-    // 1. Alle Turnier-CSV-Dateien aus Blob laden
-    const { blobs } = await list({ prefix: 'tournament_', token });
-    if (blobs.length === 0) {
-      return res.status(200).json({ message: 'Keine Turnier-Dateien gefunden', migrated: 0 });
+    const body = getRequestBody(req);
+    const { tournamentName } = body || {};
+    if (!tournamentName) return res.status(400).json({ error: 'tournamentName erforderlich' });
+
+    // Nur das ausgewählte Turnier laden
+    const safeName = tournamentName.replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_');
+    const { blobs } = await list({ prefix: `tournament_${safeName}`, token });
+    const blob = blobs.find(b => b.pathname.includes(safeName));
+
+    if (!blob) {
+      return res.status(404).json({ error: `Turnier "${tournamentName}" nicht gefunden` });
     }
 
     // 2. Bestehende results.csv laden
@@ -1864,50 +1883,45 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
     let skipped = 0;
     const newLines: string[] = [];
 
-    // 3. Jede Turnier-CSV durchgehen
-    for (const blob of blobs) {
-      const tournamentRes = await fetch(blob.url);
-      const tournamentCsv = await tournamentRes.text();
-      const tournamentRows = tournamentCsv.trim().split('\n');
+    // 3. Turnier-CSV verarbeiten
+    const tournamentRes = await fetch(blob.url);
+    const tournamentCsv = await tournamentRes.text();
+    const tournamentRows = tournamentCsv.trim().split('\n');
 
-      // Ergebnis-Zeilen aus Turnier-CSV extrahieren
-      // Format: Ergebnis;[TischId];[Datum];[Spielername];[Avg];[Schnaepse];[Total];[Platzierung]
-      const ergebnisRows = tournamentRows.filter(r => r.startsWith('Ergebnis;'));
+    // Ergebnis-Zeilen aus Turnier-CSV extrahieren
+    const ergebnisRows = tournamentRows.filter(r => r.startsWith('Ergebnis;'));
 
-      for (const row of ergebnisRows) {
-        const parts = row.split(';');
-        // parts: [Ergebnis, TischId, Datum, Spielername, Avg, Schnaepse, Total, Platzierung]
-        if (parts.length < 7) continue;
+    for (const row of ergebnisRows) {
+      const parts = row.split(';');
+      if (parts.length < 7) continue;
 
-        const tischId = parts[1];
-        const datum = parts[2];
-        const spielername = parts[3];
-        const avg = parts[4];
-        const schnaepse = parts[5];
-        const total = parts[6];
+      const tischId = parts[1];
+      const datum = parts[2];
+      const spielername = parts[3];
+      const avg = parts[4];
+      const schnaepse = parts[5];
 
-        // Turniermodus bestimmen
-        const tournamentName = blob.pathname
-          .replace('tournament_', '')
-          .replace('.csv', '');
-        const gameMode = tischId === 'Final'
-          ? `Turnier Finale (${tournamentName})`
-          : tischId === 'SecondChance'
-            ? `Turnier Second Chance (${tournamentName})`
-            : `Turnier Vorrunde Tisch ${tischId} (${tournamentName})`;
+      // Turniermodus bestimmen
+      const tName = blob.pathname
+        .replace('tournament_', '')
+        .replace('.csv', '');
+      const gameMode = tischId === 'Final'
+        ? `Turnier Finale (${tName})`
+        : tischId === 'SecondChance'
+          ? `Turnier Second Chance (${tName})`
+          : `Turnier Vorrunde Tisch ${tischId} (${tName})`;
 
-        // CSV-Zeile im results.csv Format
-        const newLine = `${datum};${gameMode};${spielername};${avg};${schnaepse}`;
+      // CSV-Zeile im results.csv Format
+      const newLine = `${datum};${gameMode};${spielername};${avg};${schnaepse}`;
 
-        if (existingLines.has(newLine)) {
-          skipped++;
-          continue;
-        }
-
-        newLines.push(newLine);
-        existingLines.add(newLine);
-        migrated++;
+      if (existingLines.has(newLine)) {
+        skipped++;
+        continue;
       }
+
+      newLines.push(newLine);
+      existingLines.add(newLine);
+      migrated++;
     }
 
     // 4. Neue Zeilen zur results.csv hinzufügen
@@ -1921,14 +1935,45 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
     }
 
     return res.status(200).json({
-      message: `${migrated} Turnierergebnisse in CSV übertragen, ${skipped} Duplikate übersprungen`,
+      message: `${migrated} Ergebnisse aus "${tournamentName}" übertragen, ${skipped} Duplikate übersprungen`,
       migrated,
-      skipped,
-      tournaments_processed: blobs.length
+      skipped
     });
 
   } catch (err: any) {
     console.error('tournament migrate error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleSaveCsv(req: VercelRequest, res: VercelResponse) {
+  try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) return res.status(500).json({ error: 'Token fehlt' });
+
+    const body = getRequestBody(req);
+    const { rows } = body || {};
+    if (!rows || !Array.isArray(rows)) {
+      return res.status(400).json({ error: 'rows erforderlich' });
+    }
+
+    // CSV neu zusammenbauen
+    const header = 'Datum;Modus;Name;Avg;Schnaepse\n';
+    const dataRows = rows
+      .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum')
+      .map((row: string[]) => row.slice(0, 6).join(';'))
+      .join('\n');
+
+    const updatedCsv = header + dataRows + '\n';
+
+    await put('results.csv', updatedCsv, {
+      access: 'public',
+      token,
+      addRandomSuffix: false
+    });
+
+    return res.status(200).json({ message: 'CSV erfolgreich gespeichert' });
+  } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 }

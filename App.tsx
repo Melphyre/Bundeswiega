@@ -1467,6 +1467,17 @@ const App: React.FC = () => {
   const [showTournamentMigrateModal, setShowTournamentMigrateModal] = useState(false);
   const [tournamentMigrateProgress, setTournamentMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
   const [tournamentMigrateResult, setTournamentMigrateResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [availableTournaments, setAvailableTournaments] = useState<string[]>([]);
+  const [selectedTournament, setSelectedTournament] = useState<string>('');
+  const [tournamentMigrateStep, setTournamentMigrateStep] = useState<'select' | 'confirm' | 'running' | 'done'>('select');
+
+  // CSV Edit Modal States
+  const [showCsvEditModal, setShowCsvEditModal] = useState(false);
+  const [csvEditTab, setCsvEditTab] = useState<'standard' | 'speed' | 'team'>('standard');
+  const [csvEditRows, setCsvEditRows] = useState<string[][]>([]);
+  const [csvEditLoading, setCsvEditLoading] = useState(false);
+  const [csvEditSaving, setCsvEditSaving] = useState(false);
+  const [csvEditSuccess, setCsvEditSuccess] = useState<string | null>(null);
 
   // Friends & Privacy States
   const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
@@ -2171,10 +2182,23 @@ const App: React.FC = () => {
     achievements: any[]
   ) => {
     try {
+      const avg = Number(gameResult.avg) || 0;
+      const schnaepse = Number(gameResult.schnaepse) || 0;
+      const total = Math.round((avg + schnaepse) * 100) / 100;
+
       const res = await fetch('/api/users/save-game-result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, gameResult, achievements })
+        body: JSON.stringify({
+          userId,
+          gameResult: {
+            ...gameResult,
+            avg,
+            schnaepse,
+            total
+          },
+          achievements
+        })
       });
 
       const contentType = res.headers.get('content-type');
@@ -2240,14 +2264,36 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTournamentMigrateToCSV = async () => {
-    setTournamentMigrateProgress({ percent: 10, message: 'Suche Turnier-Dateien...' });
+  const openTournamentMigrateModal = async () => {
+    setShowTournamentMigrateModal(true);
+    setTournamentMigrateStep('select');
     setTournamentMigrateResult(null);
+    setTournamentMigrateProgress(null);
+    setSelectedTournament('');
+
+    try {
+      const res = await fetch('/api/tournament/list');
+      const json = await res.json();
+      const names = (json.tournaments || []).map((t: any) =>
+        t.name.replace('tournament_', '').replace('.csv', '')
+      );
+      setAvailableTournaments(names);
+    } catch (err) {
+      console.error('Turnierliste laden fehlgeschlagen:', err);
+      setAvailableTournaments([]);
+    }
+  };
+
+  const handleTournamentMigrateToCSV = async () => {
+    setTournamentMigrateStep('running');
+    setTournamentMigrateProgress({ percent: 20, message: `Lade Turnier "${selectedTournament}"...` });
+    setTournamentMigrateResult(null);
+
     try {
       const res = await fetch('/api/admin/migrate-tournament-to-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({ tournamentName: selectedTournament })
       });
       const contentType = res.headers.get('content-type');
       if (!contentType?.includes('application/json')) {
@@ -2255,17 +2301,80 @@ const App: React.FC = () => {
       }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
+
       setTournamentMigrateProgress({ percent: 100, message: 'Fertig!' });
       setTournamentMigrateResult({
         success: true,
         message: `✅ ${json.message}`
       });
+      setTournamentMigrateStep('done');
     } catch (err: any) {
       setTournamentMigrateProgress(null);
       setTournamentMigrateResult({
         success: false,
         message: `❌ Fehler: ${err.message}`
       });
+      setTournamentMigrateStep('done');
+    }
+  };
+
+  // CSV Editing Modal Functions
+  const openCsvEditModal = async () => {
+    setShowCsvEditModal(true);
+    setCsvEditLoading(true);
+    setCsvEditSuccess(null);
+    try {
+      const res = await fetch('/api/records');
+      const json = await res.json();
+      setCsvEditRows(json.data || []);
+    } catch (err) {
+      console.error('CSV laden fehlgeschlagen:', err);
+    } finally {
+      setCsvEditLoading(false);
+    }
+  };
+
+  const filteredCsvRows = csvEditRows.filter(row => {
+    if (row[0] === 'Datum' || row[2] === 'Name') return false;
+    const mode = row[1]?.toLowerCase() || '';
+    if (csvEditTab === 'standard') return mode.includes('standardspiel');
+    if (csvEditTab === 'speed') return mode.includes('speedwiegen');
+    if (csvEditTab === 'team') return mode.includes('teamwiegen');
+    return true;
+  });
+
+  const updateCsvCell = (rowIndex: number, colIndex: number, value: string) => {
+    setCsvEditRows(prev => {
+      const updated = prev.map(r => [...r]);
+      const originalIndex = csvEditRows.indexOf(filteredCsvRows[rowIndex]);
+      if (originalIndex >= 0) updated[originalIndex][colIndex] = value;
+      return updated;
+    });
+  };
+
+  const deleteCsvRow = (rowIndex: number) => {
+    const originalIndex = csvEditRows.indexOf(filteredCsvRows[rowIndex]);
+    if (originalIndex >= 0) {
+      setCsvEditRows(prev => prev.filter((_, i) => i !== originalIndex));
+    }
+  };
+
+  const saveCsvChanges = async () => {
+    setCsvEditSaving(true);
+    setCsvEditSuccess(null);
+    try {
+      const res = await fetch('/api/admin/save-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: csvEditRows })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Fehler beim Speichern');
+      setCsvEditSuccess('✅ CSV erfolgreich gespeichert!');
+    } catch (err: any) {
+      setCsvEditSuccess(`❌ Fehler: ${err.message}`);
+    } finally {
+      setCsvEditSaving(false);
     }
   };
 
@@ -3834,7 +3943,12 @@ const App: React.FC = () => {
       finishRoundLogic(players, updatedRounds, [], summary);
     } else {
       const summary = getRoundSummary(currentRound, players, tournamentMode);
-      finishRoundLogic(players, updatedRounds, [], summary);
+      const updatedPlayers = players.map(p => {
+        if (p.isDisqualified) return p;
+        const pointsThisRound = summary.pointsToAward.filter((id: string) => id === p.id).length;
+        return { ...p, schnaepse: p.schnaepse + pointsThisRound };
+      });
+      finishRoundLogic(updatedPlayers, updatedRounds, [], summary);
     }
   };
 
@@ -9419,16 +9533,14 @@ const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => {
-                  window.open('/api/records', '_blank');
-                }}
+                onClick={openCsvEditModal}
                 className="w-full p-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
               >
                 <div className="flex items-center space-x-3">
                   <i className="fas fa-file-csv text-lg"></i>
                   <span>CSV direkt bearbeiten / anzeigen</span>
                 </div>
-                <i className="fas fa-external-link-alt opacity-60"></i>
+                <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
               <button
@@ -9446,7 +9558,7 @@ const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setShowTournamentMigrateModal(true)}
+                onClick={openTournamentMigrateModal}
                 className="w-full py-4 rounded-2xl text-white font-black flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all"
                 style={{ backgroundColor: '#059669' }}
               >
@@ -9745,51 +9857,253 @@ const App: React.FC = () => {
             <h3 className="text-xl font-black mb-4 flex items-center space-x-2" style={{ color: '#059669' }}>
               <span>🏆 Turnierergebnisse → CSV</span>
             </h3>
-            <p className="text-xs opacity-60 mb-4">
-              Überträgt alle Turnierergebnisse aus den Turnier-CSV-Dateien im Blob in die Haupt-Rekorde CSV. Bereits vorhandene Einträge werden übersprungen.
-            </p>
-            {tournamentMigrateProgress && (
-              <div className="space-y-2 mb-4">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                  <div className="h-2 rounded-full transition-all"
-                    style={{ width: `${tournamentMigrateProgress.percent}%`, backgroundColor: '#059669' }} />
+
+            {/* Schritt 1: Turnier auswählen */}
+            {tournamentMigrateStep === 'select' && (
+              <div className="space-y-4">
+                <p className="text-xs opacity-60">
+                  Wähle das Turnier aus dessen Ergebnisse in die Rekorde-CSV übertragen werden sollen:
+                </p>
+                {availableTournaments.length === 0 ? (
+                  <p className="text-xs text-amber-500 font-bold">
+                    ⚠️ Keine Turnier-Dateien gefunden.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedTournament}
+                    onChange={e => setSelectedTournament(e.target.value)}
+                    className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${
+                      darkMode ? 'border-white/20 text-white' : 'border-black/20 text-black'
+                    }`}
+                  >
+                    <option value="" className={darkMode ? 'bg-slate-900 text-white' : 'bg-white text-black'}>Turnier wählen...</option>
+                    {availableTournaments.map(name => (
+                      <option key={name} value={name} className={darkMode ? 'bg-slate-900 text-white' : 'bg-white text-black'}>{name}</option>
+                    ))}
+                  </select>
+                )}
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowTournamentMigrateModal(false)}
+                    className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
+                    style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedTournament}
+                    onClick={() => setTournamentMigrateStep('confirm')}
+                    className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs disabled:opacity-40"
+                    style={{ backgroundColor: '#059669' }}
+                  >
+                    Weiter
+                  </button>
                 </div>
-                <p className="text-xs font-bold">{tournamentMigrateProgress.message}</p>
               </div>
             )}
-            {tournamentMigrateResult && (
-              <div className={`p-3 rounded-xl text-xs font-bold mb-4 ${
-                tournamentMigrateResult.success
-                  ? 'bg-emerald-500/10 text-emerald-500'
-                  : 'bg-red-500/10 text-red-500'
-              }`}>
-                {tournamentMigrateResult.message}
+
+            {/* Schritt 2: Bestätigen */}
+            {tournamentMigrateStep === 'confirm' && (
+              <div className="space-y-4">
+                <p className="text-sm font-bold">
+                  Sollen die Ergebnisse aus dem Turnier
+                  <span className="text-emerald-500"> "{selectedTournament}" </span>
+                  in die Rekorde-CSV übertragen werden?
+                </p>
+                <p className="text-xs opacity-60">
+                  Bereits vorhandene Einträge werden übersprungen.
+                </p>
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setTournamentMigrateStep('select')}
+                    className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
+                    style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                  >
+                    Zurück
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTournamentMigrateToCSV}
+                    className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs"
+                    style={{ backgroundColor: '#059669' }}
+                  >
+                    Übertragen
+                  </button>
+                </div>
               </div>
             )}
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowTournamentMigrateModal(false);
-                  setTournamentMigrateProgress(null);
-                  setTournamentMigrateResult(null);
-                }}
-                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
-                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-              >
-                Schließen
-              </button>
-              {!tournamentMigrateResult && (
+
+            {/* Schritt 3: Fortschritt und Ergebnis */}
+            {(tournamentMigrateStep === 'running' || tournamentMigrateStep === 'done') && (
+              <div className="space-y-4">
+                {tournamentMigrateProgress && (
+                  <div className="space-y-2">
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                      <div className="h-2 rounded-full transition-all"
+                        style={{ width: `${tournamentMigrateProgress.percent}%`, backgroundColor: '#059669' }} />
+                    </div>
+                    <p className="text-xs font-bold">{tournamentMigrateProgress.message}</p>
+                  </div>
+                )}
+                {tournamentMigrateResult && (
+                  <div className={`p-3 rounded-xl text-xs font-bold ${
+                    tournamentMigrateResult.success
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : 'bg-red-500/10 text-red-500'
+                  }`}>
+                    {tournamentMigrateResult.message}
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={handleTournamentMigrateToCSV}
-                  disabled={!!tournamentMigrateProgress}
-                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs disabled:opacity-50"
-                  style={{ backgroundColor: '#059669' }}
+                  onClick={() => {
+                    setShowTournamentMigrateModal(false);
+                    setTournamentMigrateStep('select');
+                    setTournamentMigrateProgress(null);
+                    setTournamentMigrateResult(null);
+                  }}
+                  className="w-full py-3 rounded-xl text-white font-black cursor-pointer text-xs"
+                  style={{ backgroundColor: BRAND_COLOR }}
                 >
-                  {tournamentMigrateProgress ? 'Läuft...' : 'Starten'}
+                  Schließen
                 </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 📋 CSV EDIT MODAL */}
+      {showCsvEditModal && (
+        <div className="fixed inset-0 z-[800] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className={`w-full md:max-w-5xl rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${
+            darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
+          }`}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20 flex-shrink-0">
+              <h3 className="text-xl font-black flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
+                <span>📋 CSV direkt bearbeiten</span>
+              </h3>
+              <button onClick={() => setShowCsvEditModal(false)} className="opacity-50 hover:opacity-100 text-xl cursor-pointer">✕</button>
+            </div>
+
+            {/* Reiter */}
+            <div className="flex border-b border-gray-500/20 px-6 flex-shrink-0 overflow-x-auto">
+              {[
+                { key: 'standard', label: '🍺 Standardspiel' },
+                { key: 'speed', label: '⚡ Speedwiegen' },
+                { key: 'team', label: '👥 Teamwiegen' }
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setCsvEditTab(tab.key as any)}
+                  className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer flex-shrink-0 ${
+                    csvEditTab === tab.key
+                      ? 'border-[#238183] text-[#238183]'
+                      : 'border-transparent opacity-50'
+                  }`}
+                >
+                  {tab.label}
+                  <span className="ml-1 text-xs opacity-60">
+                    ({csvEditRows.filter(r => {
+                      const m = r[1]?.toLowerCase() || '';
+                      if (tab.key === 'standard') return m.includes('standardspiel');
+                      if (tab.key === 'speed') return m.includes('speedwiegen');
+                      if (tab.key === 'team') return m.includes('teamwiegen');
+                      return false;
+                    }).length})
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Tabelle */}
+            <div className="flex-1 overflow-auto p-4">
+              {csvEditLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <i className="fas fa-spinner animate-spin text-2xl opacity-40"></i>
+                </div>
+              ) : filteredCsvRows.length === 0 ? (
+                <p className="text-xs opacity-60 text-center py-8">
+                  Keine Einträge für diesen Spielmodus.
+                </p>
+              ) : (
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className={`sticky top-0 ${darkMode ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Datum</th>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Modus</th>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Name</th>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Ø Abstand</th>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Schnäpse</th>
+                      <th className="p-2 text-left font-black uppercase opacity-60">Total</th>
+                      <th className="p-2 text-center font-black uppercase opacity-60">Löschen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCsvRows.map((row, rowIdx) => (
+                      <tr key={rowIdx} className={`border-b ${darkMode ? 'border-white/10' : 'border-black/10'} hover:bg-black/5`}>
+                        {[0, 1, 2, 3, 4, 5].map(colIdx => (
+                          <td key={colIdx} className="p-1">
+                            <input
+                              type="text"
+                              value={row[colIdx] || ''}
+                              onChange={e => updateCsvCell(rowIdx, colIdx, e.target.value)}
+                              className={`w-full p-1.5 rounded-lg border font-bold bg-transparent text-xs ${
+                                darkMode ? 'border-white/20 text-white' : 'border-black/20 text-gray-900'
+                              }`}
+                            />
+                          </td>
+                        ))}
+                        <td className="p-1 text-center">
+                          <button
+                            type="button"
+                            onClick={() => deleteCsvRow(rowIdx)}
+                            className="p-1.5 rounded-lg bg-red-500/10 text-red-500 font-bold text-xs hover:bg-red-500/20 cursor-pointer"
+                            title="Zeile löschen"
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20 space-y-3">
+              {csvEditSuccess && (
+                <p className={`text-xs font-bold text-center ${
+                  csvEditSuccess.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'
+                }`}>
+                  {csvEditSuccess}
+                </p>
+              )}
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCsvEditModal(false)}
+                  className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
+                  style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                >
+                  Schließen
+                </button>
+                <button
+                  type="button"
+                  onClick={saveCsvChanges}
+                  disabled={csvEditSaving}
+                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs disabled:opacity-50"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  {csvEditSaving ? 'Speichern...' : '💾 Speichern'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

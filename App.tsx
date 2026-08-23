@@ -1118,7 +1118,7 @@ const VerticalText: React.FC<{ text: string }> = ({ text }) => (
     darkMode: boolean, 
     currentRoundResults: Record<string, string>,
     setCurrentRoundResults: (val: Record<string, string>) => void,
-    playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string }>
+    playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null }>
   }) => {
     return (
       <div className={`p-2 md:p-4 rounded-3xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border shadow-sm overflow-x-auto w-full mb-6`}>
@@ -1433,13 +1433,37 @@ const App: React.FC = () => {
   const [qrCodeValue, setQrCodeValue] = useState('');
   const [qrExpiry, setQrExpiry] = useState<number | null>(null);
 
+  // PWA Install-Prompt States & Handlers
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBanner(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler as EventListener);
+    return () => window.removeEventListener('beforeinstallprompt', handler as EventListener);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+    }
+  };
+
   // QR Scanner & Player Account Link States
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [scanningForPlayerId, setScanningForPlayerId] = useState<string | null>(null);
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
-  const [playerAccountLinks, setPlayerAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string }>>({});
-  const [teamMemberAccountLinks, setTeamMemberAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string }>>({});
+  const [playerAccountLinks, setPlayerAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string | null }>>({});
+  const [teamMemberAccountLinks, setTeamMemberAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string | null }>>({});
   const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; name: string; email?: string; imageUrl?: string }>>([]);
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
@@ -3579,14 +3603,25 @@ const App: React.FC = () => {
   };
 
   const handlePlayerCountConfirm = () => {
+    const username = (isSignedIn && supabaseUser) ? (supabaseUser.user_metadata?.username || supabaseUser.email || '') : '';
     const initialPlayers = Array.from({ length: playerCount }, (_, i) => ({
       id: `p${i}`,
-      name: '',
+      name: i === 0 ? username : '',
       startWeight: 0,
       schnaepse: 0,
       isDisqualified: false
     }));
     setPlayers(initialPlayers);
+    if (isSignedIn && supabaseUser && initialPlayers.length > 0) {
+      setPlayerAccountLinks(prev => ({
+        ...prev,
+        [initialPlayers[0].id]: {
+          userId: supabaseUser.id,
+          userName: username,
+          imageUrl: supabaseUser.user_metadata?.avatar_url || null
+        }
+      }));
+    }
     setGameState(GameState.PLAYER_NAMES);
     setAnnouncingPlayerIndex(0);
   };
@@ -4716,10 +4751,10 @@ const App: React.FC = () => {
       const csvRes = await fetch('/api/records');
       const csvJson = await csvRes.json();
       const csvRows: string[][] = (csvJson.data || []).filter((row: string[]) =>
-        row[0] !== 'Datum' && row[2] !== 'Name' && row.length >= 5
+        row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== ''
       );
 
-      // 2. Supabase game_results laden – OHNE Inner Join der scheitern kann
+      // 2. Supabase game_results laden
       const { data: supabaseResults, error: resultsError } = await supabase
         .from('game_results')
         .select('id, user_id, game_mode, date, avg, schnaepse, total, levels, time_seconds, team_name');
@@ -4783,10 +4818,10 @@ const App: React.FC = () => {
 
       // 6. Duplikate zwischen CSV und Supabase vermeiden
       const supabaseUsernames = new Set(
-        Object.values(profileMap).map((p: any) => p.username?.toLowerCase()).filter(Boolean)
+        Object.values(profileMap).map((p: any) => p.username?.toLowerCase()?.trim()).filter(Boolean)
       );
       const filteredCsvRows = csvRows.filter(row =>
-        !supabaseUsernames.has(row[2]?.toLowerCase())
+        !supabaseUsernames.has(row[2]?.toLowerCase()?.trim())
       );
 
       const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements"];
@@ -4799,10 +4834,10 @@ const App: React.FC = () => {
           namesSet.add(row[2].trim());
         }
       });
-      (supabaseResults || []).forEach((r: any) => {
-        const profile = profileMap[r.user_id];
-        const uname = profile?.username;
-        if (uname && uname.trim()) namesSet.add(uname.trim());
+      supabaseRows.forEach((row: string[]) => {
+        if (row && row[2] && row[2].trim()) {
+          namesSet.add(row[2].trim());
+        }
       });
       const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
       setCsvNames(sortedNames);
@@ -4823,14 +4858,14 @@ const App: React.FC = () => {
 
       if (username) {
         setPlayers(prev => prev.map((p, i) =>
-          i === 0 ? { ...p, name: username } : p
+          i === 0 ? { ...p, name: p.name || username } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
           [players[0].id]: {
             userId: supabaseUser.id,
             userName: username,
-            imageUrl: avatarUrl || undefined
+            imageUrl: avatarUrl
           }
         }));
       }
@@ -4961,6 +4996,40 @@ const App: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* PWA Install Banner */}
+            {showInstallBanner && (
+              <div className="fixed bottom-4 left-4 right-4 z-50 max-w-md mx-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className={`rounded-2xl p-4 shadow-2xl border flex items-center justify-between space-x-3 ${
+                  darkMode
+                    ? 'bg-slate-800 border-slate-700 text-white'
+                    : 'bg-white border-gray-200 text-slate-900'
+                }`}>
+                  <div className="flex items-center space-x-3 text-left">
+                    <img src="/icons/icon-72x72.png" className="w-10 h-10 rounded-xl object-contain bg-slate-900/30 p-1" alt="Bundeswiega" />
+                    <div>
+                      <p className="font-black text-sm">App installieren</p>
+                      <p className="text-xs opacity-60">Bundeswiega auf dem Homescreen</p>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2 shrink-0">
+                    <button
+                      onClick={() => setShowInstallBanner(false)}
+                      className="px-3 py-2 rounded-xl text-xs font-bold opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+                    >
+                      Später
+                    </button>
+                    <button
+                      onClick={handleInstallApp}
+                      className="px-4 py-2 rounded-xl text-white text-xs font-black shadow-md active:scale-95 transition-transform cursor-pointer"
+                      style={{ backgroundColor: BRAND_COLOR }}
+                    >
+                      Installieren
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -5120,6 +5189,7 @@ const App: React.FC = () => {
                darkMode={darkMode} 
                currentRoundResults={currentRoundResults} 
                setCurrentRoundResults={setCurrentRoundResults} 
+               playerAccountLinks={playerAccountLinks}
              />
              <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
           </div>
@@ -5957,6 +6027,7 @@ const App: React.FC = () => {
                      darkMode={darkMode} 
                      currentRoundResults={currentRoundResults} 
                      setCurrentRoundResults={setCurrentRoundResults} 
+                     playerAccountLinks={playerAccountLinks}
                    />
                  </div>
                )

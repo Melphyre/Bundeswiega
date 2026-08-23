@@ -1435,25 +1435,58 @@ const App: React.FC = () => {
 
   // PWA Install-Prompt States & Handlers
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
+  // Detect iOS
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+
+  // Detect Android
+  const isAndroid = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
+
+  // Detect ob bereits als PWA installiert
+  const isStandalone = typeof window !== 'undefined' && (
+    window.matchMedia('(display-mode: standalone)').matches
+    || (window.navigator as any).standalone === true
+  );
+
+  // beforeinstallprompt Event abfangen (Android Chrome) & App-Install Status
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setShowInstallBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handler as EventListener);
-    return () => window.removeEventListener('beforeinstallprompt', handler as EventListener);
-  }, []);
 
-  const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
+    // Prüfen ob bereits installiert
+    const appInstalledHandler = () => {
+      setIsAppInstalled(true);
       setDeferredPrompt(null);
+    };
+    window.addEventListener('appinstalled', appInstalledHandler);
+
+    if (isStandalone) setIsAppInstalled(true);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler as EventListener);
+      window.removeEventListener('appinstalled', appInstalledHandler);
+    };
+  }, [isStandalone]);
+
+  // Android: nativen Install-Dialog auslösen
+  const handleInstallAndroid = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setIsAppInstalled(true);
+        setDeferredPrompt(null);
+        setShowInstallModal(false);
+      }
+    } else {
+      // Falls kein Prompt verfügbar – Anleitung zeigen
+      setShowInstallModal(true);
     }
   };
 
@@ -1960,6 +1993,17 @@ const App: React.FC = () => {
   const [showAdminUsersView, setShowAdminUsersView] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
+
+  // Floating Banner nach 3 Sekunden zeigen wenn auf Handy und noch nicht installiert
+  useEffect(() => {
+    if (!isAppInstalled && (isIOS || isAndroid) && gameState === GameState.START) {
+      const alreadyShown = localStorage.getItem('installBannerShown');
+      if (!alreadyShown) {
+        const timer = setTimeout(() => setShowInstallBanner(true), 3000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState, isAppInstalled, isIOS, isAndroid]);
   const [playerCount, setPlayerCount] = useState(2);
   const [isShortMode, setIsShortMode] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -4995,33 +5039,71 @@ const App: React.FC = () => {
                   <span>👑 Admin Panel</span>
                 </button>
               )}
+
+              {/* App installieren Button – nur anzeigen wenn noch nicht installiert */}
+              {!isAppInstalled && gameState === GameState.START && (
+                <div className="w-full max-w-xs mx-auto mt-4">
+                  <button
+                    onClick={() => {
+                      if (isAndroid && deferredPrompt) {
+                        handleInstallAndroid();
+                      } else {
+                        setShowInstallModal(true);
+                      }
+                    }}
+                    className="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center space-x-2 border-2 transition-all active:scale-95 cursor-pointer"
+                    style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                  >
+                    <i className="fas fa-download"></i>
+                    <span>📱 App auf Handy installieren</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Bereits installiert – kleiner Hinweis */}
+              {isAppInstalled && gameState === GameState.START && (
+                <p className="text-center text-xs opacity-40 mt-4">
+                  ✅ App ist installiert
+                </p>
+              )}
             </div>
 
-            {/* PWA Install Banner */}
-            {showInstallBanner && (
-              <div className="fixed bottom-4 left-4 right-4 z-50 max-w-md mx-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+            {/* Floating Banner für neue Besucher */}
+            {showInstallBanner && !isAppInstalled && gameState === GameState.START && (
+              <div className="fixed bottom-4 left-4 right-4 z-[800] max-w-md mx-auto animate-slide-up">
                 <div className={`rounded-2xl p-4 shadow-2xl border flex items-center justify-between space-x-3 ${
                   darkMode
-                    ? 'bg-slate-800 border-slate-700 text-white'
+                    ? 'bg-slate-800 border-slate-600 text-white'
                     : 'bg-white border-gray-200 text-slate-900'
                 }`}>
                   <div className="flex items-center space-x-3 text-left">
-                    <img src="/icons/icon-72x72.png" className="w-10 h-10 rounded-xl object-contain bg-slate-900/30 p-1" alt="Bundeswiega" />
+                    <img src="/icons/icon-72x72.png" className="w-10 h-10 rounded-xl flex-shrink-0 object-contain bg-slate-900/30 p-1" alt="Logo" />
                     <div>
-                      <p className="font-black text-sm">App installieren</p>
-                      <p className="text-xs opacity-60">Bundeswiega auf dem Homescreen</p>
+                      <p className="font-black text-sm">Als App installieren</p>
+                      <p className="text-xs opacity-60">Schneller Zugriff vom Homescreen</p>
                     </div>
                   </div>
-                  <div className="flex space-x-2 shrink-0">
+                  <div className="flex space-x-2 flex-shrink-0">
                     <button
-                      onClick={() => setShowInstallBanner(false)}
-                      className="px-3 py-2 rounded-xl text-xs font-bold opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+                      onClick={() => {
+                        setShowInstallBanner(false);
+                        localStorage.setItem('installBannerShown', 'true');
+                      }}
+                      className="px-3 py-2 rounded-xl text-xs font-bold opacity-50 hover:opacity-100 cursor-pointer"
                     >
                       Später
                     </button>
                     <button
-                      onClick={handleInstallApp}
-                      className="px-4 py-2 rounded-xl text-white text-xs font-black shadow-md active:scale-95 transition-transform cursor-pointer"
+                      onClick={() => {
+                        setShowInstallBanner(false);
+                        localStorage.setItem('installBannerShown', 'true');
+                        if (isAndroid && deferredPrompt) {
+                          handleInstallAndroid();
+                        } else {
+                          setShowInstallModal(true);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl text-white text-xs font-black active:scale-95 cursor-pointer shadow-md"
                       style={{ backgroundColor: BRAND_COLOR }}
                     >
                       Installieren
@@ -8135,6 +8217,151 @@ const App: React.FC = () => {
                 style={{ backgroundColor: '#D4AF37' }}
               >
                 Start
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PWA Install Instructions Modal */}
+      {showInstallModal && (
+        <div className="fixed inset-0 z-[900] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className={`w-full md:max-w-sm rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${
+            darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'
+          }`}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20">
+              <div className="flex items-center space-x-3">
+                <img src="/icons/icon-72x72.png" className="w-10 h-10 rounded-xl object-contain bg-slate-900/30 p-1" alt="Logo" />
+                <div>
+                  <h3 className="font-black text-lg">App installieren</h3>
+                  <p className="text-xs opacity-60">Bundeswiega auf deinem Homescreen</p>
+                </div>
+              </div>
+              <button onClick={() => setShowInstallModal(false)} className="opacity-50 hover:opacity-100 text-xl font-bold cursor-pointer">✕</button>
+            </div>
+
+            {/* Inhalt je nach Gerät */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+              {/* Android mit nativem Prompt */}
+              {isAndroid && deferredPrompt && (
+                <div className="space-y-4">
+                  <p className="text-sm font-bold">
+                    Installiere Bundeswiega direkt auf deinem Android-Gerät:
+                  </p>
+                  <button
+                    onClick={handleInstallAndroid}
+                    className="w-full py-4 rounded-2xl text-white font-black text-lg active:scale-95 cursor-pointer shadow-lg"
+                    style={{ backgroundColor: BRAND_COLOR }}
+                  >
+                    <i className="fab fa-android mr-2"></i>
+                    Jetzt installieren
+                  </button>
+                  <p className="text-xs opacity-60 text-center">
+                    Du wirst gefragt ob du die App installieren möchtest – einfach bestätigen!
+                  </p>
+                </div>
+              )}
+
+              {/* Android ohne nativen Prompt – manuelle Anleitung */}
+              {isAndroid && !deferredPrompt && (
+                <div className="space-y-4">
+                  <p className="text-sm font-bold opacity-80">
+                    So installierst du Bundeswiega auf Android:
+                  </p>
+                  {[
+                    { step: '1', icon: '🌐', text: 'Öffne diese Seite in Chrome (nicht Firefox oder andere Browser)' },
+                    { step: '2', icon: '⋮', text: 'Tippe auf die drei Punkte oben rechts im Browser' },
+                    { step: '3', icon: '📲', text: 'Wähle "App installieren" oder "Zum Startbildschirm hinzufügen"' },
+                    { step: '4', icon: '✅', text: 'Bestätige mit "Installieren" – fertig!' },
+                  ].map(item => (
+                    <div key={item.step} className={`flex items-start space-x-3 p-3 rounded-xl ${
+                      darkMode ? 'bg-white/5' : 'bg-black/5'
+                    }`}>
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-black flex-shrink-0"
+                        style={{ backgroundColor: BRAND_COLOR }}>
+                        {item.step}
+                      </div>
+                      <div>
+                        <span className="text-lg mr-2">{item.icon}</span>
+                        <span className="text-sm font-bold">{item.text}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* iOS Anleitung */}
+              {isIOS && (
+                <div className="space-y-4">
+                  <p className="text-sm font-bold opacity-80">
+                    So installierst du Bundeswiega auf iPhone/iPad:
+                  </p>
+                  {[
+                    { step: '1', icon: '🌐', text: 'Öffne diese Seite in Safari (nicht Chrome oder andere Browser)' },
+                    { step: '2', icon: '⬆️', text: 'Tippe auf das Teilen-Symbol unten in der Mitte (Quadrat mit Pfeil nach oben)' },
+                    { step: '3', icon: '➕', text: 'Scrolle runter und tippe auf "Zum Home-Bildschirm"' },
+                    { step: '4', icon: '✅', text: 'Tippe oben rechts auf "Hinzufügen" – fertig!' },
+                  ].map(item => (
+                    <div key={item.step} className={`flex items-start space-x-3 p-3 rounded-xl ${
+                      darkMode ? 'bg-white/5' : 'bg-black/5'
+                    }`}>
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-black flex-shrink-0"
+                        style={{ backgroundColor: BRAND_COLOR }}>
+                        {item.step}
+                      </div>
+                      <div>
+                        <span className="text-lg mr-2">{item.icon}</span>
+                        <span className="text-sm font-bold">{item.text}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className={`p-3 rounded-xl border ${darkMode ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-400/30 bg-amber-50'}`}>
+                    <p className="text-xs font-bold text-amber-500">
+                      💡 Tipp: Falls du Safari nicht verwendest, kopiere die URL und öffne sie in Safari.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Desktop oder unbekanntes Gerät */}
+              {!isIOS && !isAndroid && (
+                <div className="space-y-4">
+                  <p className="text-sm font-bold opacity-80">
+                    Bundeswiega ist am besten auf dem Smartphone:
+                  </p>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <p className="text-sm font-bold mb-2">📱 Auf Android:</p>
+                    <p className="text-xs opacity-70">Öffne bundeswiega.vercel.app in Chrome → Drei Punkte → App installieren</p>
+                  </div>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                    <p className="text-sm font-bold mb-2">🍎 Auf iPhone:</p>
+                    <p className="text-xs opacity-70">Öffne bundeswiega.vercel.app in Safari → Teilen → Zum Home-Bildschirm</p>
+                  </div>
+                  <div className={`p-3 rounded-xl border flex items-center space-x-2 ${
+                    darkMode ? 'border-[#238183]/30 bg-[#238183]/10' : 'border-[#238183]/20 bg-[#238183]/5'
+                  }`}>
+                    <i className="fas fa-qrcode text-2xl" style={{ color: BRAND_COLOR }}></i>
+                    <div>
+                      <p className="text-xs font-black" style={{ color: BRAND_COLOR }}>QR-Code scannen</p>
+                      <p className="text-xs opacity-60">Zeige deinen Mitspielern diesen Link:</p>
+                      <p className="text-xs font-bold opacity-80">bundeswiega.vercel.app</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20">
+              <button
+                onClick={() => setShowInstallModal(false)}
+                className="w-full py-4 rounded-2xl text-white font-black active:scale-95 cursor-pointer shadow-lg"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                Verstanden
               </button>
             </div>
           </div>

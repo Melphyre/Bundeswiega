@@ -17,8 +17,8 @@ const isSupabaseConfigured = () => {
 };
 
 const supabaseAdmin = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseSecretKey || 'placeholder-secret-key'
+  process.env.VITE_SUPABASE_URL || '',
+  process.env.SUPABASE_SECRET_KEY || ''
 );
 
 function getRequestBody(req: VercelRequest): any {
@@ -120,6 +120,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathName === '/api/admin/set-role' && req.method === 'POST') {
       return await handleAdminSetRole(req, res);
     }
+    if (pathName === '/api/admin/repair-database' && req.method === 'POST') {
+      return await handleRepairDatabase(req, res);
+    }
 
     // ── Tournament ───────────────────────────────────
     if (pathName === '/api/tournament/list' && req.method === 'GET') {
@@ -153,48 +156,45 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
     let content = "";
 
     if (token) {
-      console.log("Fetching list of blobs from Vercel Blob storage...");
       try {
-        const listResult = await list({ token });
-        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+        const { blobs } = await list({ prefix: 'results', token });
+        const resultsBlob = blobs.find(b => b.pathname === "results.csv");
         if (resultsBlob) {
-          console.log(`Fetching results.csv from URL: ${resultsBlob.url}`);
           const fetchRes = await fetch(resultsBlob.url);
           if (fetchRes.ok) {
             content = await fetchRes.text();
           }
         }
-      } catch (listErr) {
+      } catch (listErr: any) {
         console.error("Error listing or fetching results.csv from Vercel Blob:", listErr);
+        return res.status(500).json({ error: listErr.message || 'Blob Fehler', data: [] });
       }
     } else {
       // Local development fallback
       const localPath = path.join(process.cwd(), "results.csv");
-      console.log(`[Development Mode] Checking local file at: ${localPath}`);
       if (fs.existsSync(localPath)) {
         content = fs.readFileSync(localPath, "utf-8");
       }
     }
 
     if (!content) {
-      return res.json({ data: [] });
+      return res.status(200).json({ data: [] });
     }
 
     // Parse CSV line by line and split by semicolon
-    const lines = content.split(/\r?\n/);
-    const data: string[][] = lines
-      .map(line => line.trim())
-      .filter(line => line !== "") // filter out completely empty lines
-      .map(line => line.split(";"));
-
-    return res.json({ data });
+    const rows = content.trim().split(/\r?\n/).map(row => row.split(';'));
+    return res.status(200).json({ data: rows });
   } catch (error: any) {
     console.error("Error in records handler:", error);
-    return res.status(500).json({ error: error.message || "Fehler beim Laden der Statistiken aus dem verknüpften Storage." });
+    return res.status(500).json({ error: error.message || "Fehler beim Laden der Statistiken", data: [] });
   }
 }
 
 async function handleUpload(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   const body = getRequestBody(req);
   const { gameMode, results, date, achievements } = body;
 
@@ -209,42 +209,33 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
 
     if (token) {
       try {
-        console.log("Fetching list of blobs from Vercel Blob storage...");
-        const listResult = await list({ token });
-        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
+        const { blobs } = await list({ prefix: 'results', token });
+        const resultsBlob = blobs.find(b => b.pathname === "results.csv");
         if (resultsBlob) {
-          console.log(`Fetching results.csv from URL: ${resultsBlob.url}`);
           const fetchRes = await fetch(resultsBlob.url);
           if (fetchRes.ok) {
             existingContent = await fetchRes.text();
           }
         }
       } catch (listErr) {
-        console.error("Error finding or reading existing results.csv from Vercel Blob:", listErr);
+        console.error("Error reading existing results.csv from Vercel Blob:", listErr);
       }
     } else {
       // Local development fallback
       const localPath = path.join(process.cwd(), "results.csv");
-      console.log(`[Development Mode] Checking local file at: ${localPath}`);
       if (fs.existsSync(localPath)) {
         existingContent = fs.readFileSync(localPath, "utf-8");
       }
     }
 
-    // Split existingContent into lines and clean
-    let lines = existingContent ? existingContent.split(/\r?\n/) : [];
-    lines = lines.filter(line => line.trim() !== "");
-
-    // If empty or doesn't have the header, initialize header
-    const header = "Datum;Modus;Name;Avg;Schnaepse;Levels;Achievements";
-    if (lines.length === 0 || !lines[0].startsWith("Datum;Modus;Name")) {
-      lines = [header];
+    let csv = 'Datum;Modus;Name;Avg;Schnaepse;Levels;Achievements\n';
+    if (existingContent.trim()) {
+      csv = existingContent;
     }
 
-    // Append new records
     const TOGETHER_ACHIEVEMENT_IDS = ['twins', 'doppelganger', 'mirror_number', 'shadow', 'equilibrium'];
 
-    results.forEach((item: { name: string; avg: number; schnaepse: number; levels?: number; achievements?: any[] }) => {
+    const newLines = results.map((item: any) => {
       const rawPlayerAch = item.achievements && item.achievements.length > 0
         ? item.achievements
         : (achievements && Array.isArray(achievements)
@@ -272,64 +263,83 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
       });
 
       const achievementsStr = formattedAch.length > 0 ? encodeURIComponent(JSON.stringify(formattedAch)) : "";
-      const levelsStr = item.levels !== undefined ? String(item.levels) : "";
+      const levelsStr = item.levels !== undefined && item.levels !== null ? String(item.levels) : "";
 
-      let line = `${date};${gameMode};${item.name};${item.avg};${item.schnaepse};${levelsStr};${achievementsStr}`;
-      lines.push(line);
+      return `${date};${gameMode};${item.name};${item.avg};${item.schnaepse};${levelsStr};${achievementsStr}`;
     });
 
-    const newContent = lines.join("\n");
+    const updated = csv.trimEnd() + '\n' + newLines.join('\n') + '\n';
 
     if (token) {
-      console.log("Uploading updated results.csv to Vercel Blob storage...");
-      const blob = await put("results.csv", newContent, {
+      await put("results.csv", updated, {
         access: "public",
         addRandomSuffix: false,
         allowOverwrite: true,
         token,
         contentType: "text/csv",
       });
-      console.log(`Successfully uploaded to Vercel Blob at URL: ${blob.url}`);
-      return res.json({ success: true, message: "Ergebnisse wurden erfolgreich im verknüpften Storage (Vercel Blob) gespeichert!" });
+      return res.status(200).json({ message: "Ergebnisse wurden erfolgreich gespeichert!" });
     } else {
-      // Local development fallback
       const localPath = path.join(process.cwd(), "results.csv");
-      fs.writeFileSync(localPath, newContent, "utf-8");
-      console.log("results.csv successfully written to local fallback storage.");
-      return res.json({ success: true, message: "Ergebnisse wurden lokal unter results.csv gespeichert (Lokaler Entwicklungsmodus ohne Live-Token)." });
+      fs.writeFileSync(localPath, updated, "utf-8");
+      return res.status(200).json({ message: "Ergebnisse lokal gespeichert!" });
     }
   } catch (error: any) {
     console.error("Error in upload handler:", error);
-    return res.status(500).json({ error: error.message || "Ein Fehler ist beim Verarbeiten oder Hochladen der Ergebnisse aufgetreten." });
+    return res.status(500).json({ error: error.message || "Fehler beim Upload der Ergebnisse." });
   }
 }
 
 async function handleUsersList(req: VercelRequest, res: VercelResponse) {
-  if (!isSupabaseConfigured()) {
-    return res.status(200).json({ users: [] });
-  }
-
   try {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
-    if (error || !data?.users) {
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ users: [] });
+    }
+
+    // Aus profiles Tabelle laden (hat username korrekt gespeichert)
+    const { data: profiles, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, email, avatar_url, role')
+      .order('username');
+
+    if (!error && profiles && profiles.length > 0) {
+      const userList = profiles.map((p: any) => ({
+        id: p.id,
+        name: p.username || p.email || 'Unbekannt',
+        username: p.username || '',
+        email: p.email || '',
+        role: p.role || 'user',
+        imageUrl: p.avatar_url || ''
+      }));
+      return res.status(200).json({ users: userList });
+    }
+
+    // Fallback auf auth.admin.listUsers()
+    const { data, error: authError } = await supabaseAdmin.auth.admin.listUsers();
+    if (authError || !data?.users) {
       return res.status(200).json({ users: [] });
     }
 
     const userList = data.users.map((u: any) => ({
       id: u.id,
       name: u.user_metadata?.username || u.email || 'Unbekannt',
-      email: u.email || '',
       username: u.user_metadata?.username || '',
+      email: u.email || '',
+      role: u.user_metadata?.role || 'user',
       imageUrl: u.user_metadata?.avatar_url || ''
     }));
 
     return res.status(200).json({ users: userList });
   } catch (err: any) {
-    return res.status(200).json({ users: [] });
+    return res.status(500).json({ error: err.message, users: [] });
   }
 }
 
 async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
     const body = getRequestBody(req);
     const { userId, gameResult, achievements: achievementsList } = body;
@@ -363,7 +373,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       });
 
     if (resultError) {
-      console.error('game_results insert error:', resultError);
+      console.error('game_results insert error:', resultError.message);
       return res.status(500).json({ error: resultError.message });
     }
 
@@ -1975,6 +1985,380 @@ async function handleSaveCsv(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ message: 'CSV erfolgreich gespeichert' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
+  const report: string[] = [];
+  const fixes: string[] = [];
+  const errors: string[] = [];
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  try {
+    // ══════════════════════════════════════════
+    // SCHRITT 0: VOLLSTÄNDIGES BACKUP ERSTELLEN
+    // ══════════════════════════════════════════
+    report.push('💾 Erstelle Backup vor der Bereinigung...');
+
+    // Alle Daten aus allen Tabellen laden
+    const [
+      { data: allProfiles },
+      { data: allGameResults },
+      { data: allAchievements },
+      { data: allFriendships },
+      { data: authUsersResult }
+    ] = await Promise.all([
+      supabaseAdmin.from('profiles').select('*'),
+      supabaseAdmin.from('game_results').select('*'),
+      supabaseAdmin.from('achievements').select('*'),
+      supabaseAdmin.from('friendships').select('*'),
+      supabaseAdmin.auth.admin.listUsers()
+    ]);
+
+    const allAuthUsers = authUsersResult?.users || [];
+
+    // Backup als JSON in Blob speichern
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      profiles: allProfiles || [],
+      game_results: allGameResults || [],
+      achievements: allAchievements || [],
+      friendships: allFriendships || [],
+      auth_users_count: allAuthUsers.length
+    };
+
+    const backupFilename = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+
+    if (token) {
+      await put(`backups/${backupFilename}`, JSON.stringify(backupData, null, 2), {
+        access: 'public',
+        token,
+        addRandomSuffix: false
+      });
+      fixes.push(`💾 Backup erstellt: backups/${backupFilename}`);
+    }
+
+    report.push(`📋 Backup enthält: ${allProfiles?.length || 0} Profile, ${allGameResults?.length || 0} Ergebnisse, ${allAchievements?.length || 0} Achievements, ${allFriendships?.length || 0} Freundschaften`);
+
+    // Auth User Map erstellen
+    const authUserMap: Record<string, any> = {};
+    allAuthUsers.forEach((u: any) => { authUserMap[u.id] = u; });
+
+    // Profile Map erstellen
+    const profileMap: Record<string, any> = {};
+    (allProfiles || []).forEach((p: any) => { profileMap[p.id] = p; });
+
+    // ══════════════════════════════════════════
+    // SCHRITT 1: PROFILES REPARIEREN
+    // ══════════════════════════════════════════
+    report.push('─── Profiles ───');
+
+    // Fehlende Profile für Auth Users erstellen
+    let createdProfiles = 0;
+    for (const authUser of allAuthUsers) {
+      if (!profileMap[authUser.id]) {
+        const username = authUser.user_metadata?.username ||
+          authUser.email?.split('@')[0] ||
+          `user_${authUser.id.substring(0, 8)}`;
+
+        const { error } = await supabaseAdmin.from('profiles').insert({
+          id: authUser.id,
+          username,
+          email: authUser.email || '',
+          role: authUser.user_metadata?.role || 'user',
+          show_records: true,
+          show_standardspiel: true,
+          show_speedwiegen: true,
+          show_teamwiegen: true,
+          show_achievements: true
+        });
+
+        if (!error) {
+          createdProfiles++;
+          fixes.push(`➕ Profil erstellt für: ${username} (${authUser.email})`);
+        } else {
+          errors.push(`Profil erstellen fehlgeschlagen: ${authUser.email} → ${error.message}`);
+        }
+      }
+    }
+    if (createdProfiles === 0) report.push('✅ Alle Auth Users haben Profile');
+
+    // Profile ohne Username reparieren
+    let fixedUsernames = 0;
+    for (const profile of allProfiles || []) {
+      if (!profile.username?.trim()) {
+        const authUser = authUserMap[profile.id];
+        const newUsername = authUser?.user_metadata?.username ||
+          authUser?.email?.split('@')[0] ||
+          `user_${profile.id.substring(0, 8)}`;
+
+        const { error } = await supabaseAdmin
+          .from('profiles')
+          .update({
+            username: newUsername,
+            email: authUser?.email || profile.email || ''
+          })
+          .eq('id', profile.id);
+
+        if (!error) {
+          fixedUsernames++;
+          fixes.push(`✏️ Username ergänzt: ${newUsername}`);
+        }
+      }
+    }
+    if (fixedUsernames === 0) report.push('✅ Alle Profile haben Benutzernamen');
+
+    // Profile ohne Auth User → NICHT löschen, sondern markieren
+    let markedOrphanProfiles = 0;
+    for (const profile of allProfiles || []) {
+      if (!authUserMap[profile.id]) {
+        // Statt löschen: username mit Präfix markieren damit man es sieht
+        const { error } = await supabaseAdmin
+          .from('profiles')
+          .update({
+            username: `[ARCHIVIERT] ${profile.username || profile.id}`,
+            role: 'archived'
+          })
+          .eq('id', profile.id);
+
+        if (!error) {
+          markedOrphanProfiles++;
+          fixes.push(`📦 Verwaistes Profil archiviert: ${profile.username || profile.id} (kein Auth User mehr)`);
+        }
+      }
+    }
+    if (markedOrphanProfiles === 0) report.push('✅ Keine verwaisten Profile gefunden');
+
+    // ══════════════════════════════════════════
+    // SCHRITT 2: GAME_RESULTS REPARIEREN
+    // ══════════════════════════════════════════
+    report.push('─── Game Results ───');
+
+    // Alle game_results neu laden (inkl. neu erstellter Profile)
+    const { data: freshResults } = await supabaseAdmin
+      .from('game_results')
+      .select('id, user_id, game_mode, date, avg, schnaepse, total');
+
+    // total-Werte korrigieren
+    let fixedTotal = 0;
+    for (const r of freshResults || []) {
+      const correctTotal = Math.round(((Number(r.avg) || 0) + (Number(r.schnaepse) || 0)) * 100) / 100;
+      if (Math.abs((Number(r.total) || 0) - correctTotal) > 0.01) {
+        const { error } = await supabaseAdmin
+          .from('game_results')
+          .update({ total: correctTotal })
+          .eq('id', r.id);
+        if (!error) fixedTotal++;
+      }
+    }
+    if (fixedTotal > 0) fixes.push(`🔢 ${fixedTotal} total-Werte korrigiert (avg + schnaepse)`);
+    else report.push('✅ Alle total-Werte korrekt');
+
+    // Fehlende Datum/Modus reparieren
+    let fixedIncomplete = 0;
+    for (const r of freshResults || []) {
+      const needsUpdate = !r.date?.trim() || !r.game_mode?.trim();
+      if (needsUpdate) {
+        const { error } = await supabaseAdmin
+          .from('game_results')
+          .update({
+            date: r.date?.trim() || new Date().toLocaleDateString('de-DE'),
+            game_mode: r.game_mode?.trim() || 'Unbekannt'
+          })
+          .eq('id', r.id);
+        if (!error) fixedIncomplete++;
+      }
+    }
+    if (fixedIncomplete > 0) fixes.push(`🔧 ${fixedIncomplete} unvollständige game_results repariert`);
+    else report.push('✅ Alle game_results vollständig');
+
+    // Verwaiste game_results → in separaten Blob sichern statt löschen
+    const orphanResults = (freshResults || []).filter((r: any) => !authUserMap[r.user_id]);
+    if (orphanResults.length > 0) {
+      if (token) {
+        const orphanBackup = `orphan_results_${Date.now()}.json`;
+        await put(`backups/${orphanBackup}`, JSON.stringify(orphanResults, null, 2), {
+          access: 'public', token, addRandomSuffix: false
+        });
+        fixes.push(`💾 ${orphanResults.length} verwaiste game_results in ${orphanBackup} gesichert (nicht gelöscht)`);
+      }
+      report.push(`⚠️ ${orphanResults.length} game_results ohne Auth User gefunden (gesichert, nicht gelöscht)`);
+    } else {
+      report.push('✅ Keine verwaisten game_results');
+    }
+
+    // ══════════════════════════════════════════
+    // SCHRITT 3: ACHIEVEMENTS REPARIEREN
+    // ══════════════════════════════════════════
+    report.push('─── Achievements ───');
+
+    const { data: freshAchs } = await supabaseAdmin
+      .from('achievements')
+      .select('id, user_id, achievement_id, date, title, rarity, icon, game_mode, earned_with, earned_together, created_at');
+
+    // Duplikate entfernen – aber erst das Original identifizieren
+    const achMap: Record<string, any[]> = {};
+    for (const a of freshAchs || []) {
+      const key = `${a.user_id}|${a.achievement_id}|${a.date}`;
+      if (!achMap[key]) achMap[key] = [];
+      achMap[key].push(a);
+    }
+
+    let deletedDuplicates = 0;
+    const duplicatesToDelete: any[] = [];
+    for (const [, entries] of Object.entries(achMap)) {
+      if (entries.length > 1) {
+        // Ältestes behalten (niedrigste created_at), Rest löschen
+        entries.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+        duplicatesToDelete.push(...entries.slice(1));
+      }
+    }
+
+    if (duplicatesToDelete.length > 0) {
+      // Duplikate zuerst sichern
+      if (token) {
+        await put(`backups/duplicate_achievements_${Date.now()}.json`,
+          JSON.stringify(duplicatesToDelete, null, 2),
+          { access: 'public', token, addRandomSuffix: false }
+        );
+      }
+      // Dann löschen
+      for (const dup of duplicatesToDelete) {
+        const { error } = await supabaseAdmin.from('achievements').delete().eq('id', dup.id);
+        if (!error) deletedDuplicates++;
+      }
+      fixes.push(`🔄 ${deletedDuplicates} doppelte Achievements entfernt (Original behalten, Duplikat gesichert)`);
+    } else {
+      report.push('✅ Keine doppelten Achievements');
+    }
+
+    // Achievements ohne achievement_id sichern
+    const invalidAchs = (freshAchs || []).filter((a: any) => !a.achievement_id?.trim());
+    if (invalidAchs.length > 0) {
+      if (token) {
+        await put(`backups/invalid_achievements_${Date.now()}.json`,
+          JSON.stringify(invalidAchs, null, 2),
+          { access: 'public', token, addRandomSuffix: false }
+        );
+      }
+      report.push(`⚠️ ${invalidAchs.length} Achievements ohne ID gefunden und gesichert`);
+    } else {
+      report.push('✅ Alle Achievements haben IDs');
+    }
+
+    // Verwaiste Achievements sichern
+    const orphanAchs = (freshAchs || []).filter((a: any) => !authUserMap[a.user_id]);
+    if (orphanAchs.length > 0) {
+      if (token) {
+        await put(`backups/orphan_achievements_${Date.now()}.json`,
+          JSON.stringify(orphanAchs, null, 2),
+          { access: 'public', token, addRandomSuffix: false }
+        );
+      }
+      report.push(`⚠️ ${orphanAchs.length} verwaiste Achievements gesichert (nicht gelöscht)`);
+    } else {
+      report.push('✅ Keine verwaisten Achievements');
+    }
+
+    // ══════════════════════════════════════════
+    // SCHRITT 4: FRIENDSHIPS REPARIEREN
+    // ══════════════════════════════════════════
+    report.push('─── Friendships ───');
+
+    const { data: freshFriendships } = await supabaseAdmin
+      .from('friendships')
+      .select('id, requester_id, receiver_id, status');
+
+    // Ungültige Status reparieren
+    const validStatuses = ['pending', 'accepted', 'rejected'];
+    let fixedStatuses = 0;
+    for (const f of freshFriendships || []) {
+      if (!validStatuses.includes(f.status)) {
+        const { error } = await supabaseAdmin
+          .from('friendships')
+          .update({ status: 'pending' })
+          .eq('id', f.id);
+        if (!error) fixedStatuses++;
+      }
+    }
+    if (fixedStatuses > 0) fixes.push(`🔧 ${fixedStatuses} Friendship-Status repariert`);
+    else report.push('✅ Alle Friendship-Status gültig');
+
+    // Verwaiste Freundschaften sichern
+    const orphanFriends = (freshFriendships || []).filter(
+      (f: any) => !authUserMap[f.requester_id] || !authUserMap[f.receiver_id]
+    );
+    if (orphanFriends.length > 0) {
+      if (token) {
+        await put(`backups/orphan_friendships_${Date.now()}.json`,
+          JSON.stringify(orphanFriends, null, 2),
+          { access: 'public', token, addRandomSuffix: false }
+        );
+      }
+      report.push(`⚠️ ${orphanFriends.length} verwaiste Freundschaften gesichert (nicht gelöscht)`);
+    } else {
+      report.push('✅ Keine verwaisten Freundschaften');
+    }
+
+    // ══════════════════════════════════════════
+    // SCHRITT 5: PROFIL-STATISTIKEN NEU BERECHNEN
+    // ══════════════════════════════════════════
+    report.push('─── Profil-Statistiken ───');
+
+    const { data: profilesToUpdate } = await supabaseAdmin
+      .from('profiles')
+      .select('id, games_played, total_points, high_score');
+
+    let updatedStats = 0;
+    for (const profile of profilesToUpdate || []) {
+      const { data: userResults } = await supabaseAdmin
+        .from('game_results')
+        .select('avg, schnaepse')
+        .eq('user_id', profile.id);
+
+      const gamesPlayed = userResults?.length || 0;
+      const totalSchnaepse = userResults?.reduce((s: number, r: any) => s + (Number(r.schnaepse) || 0), 0) || 0;
+      const validAvgs = userResults?.filter((r: any) => r.avg != null && !isNaN(Number(r.avg))) || [];
+      const bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs.map((r: any) => Number(r.avg))) : null;
+
+      const { error } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          games_played: gamesPlayed,
+          total_points: totalSchnaepse,
+          high_score: bestAvg
+        })
+        .eq('id', profile.id);
+
+      if (!error) updatedStats++;
+    }
+
+    if (updatedStats > 0) fixes.push(`📊 ${updatedStats} Profil-Statistiken neu berechnet`);
+    else report.push('✅ Statistiken bereits aktuell');
+
+    // ══════════════════════════════════════════
+    // ZUSAMMENFASSUNG
+    // ══════════════════════════════════════════
+    report.push('─────────────────────────────');
+    report.push(`🔧 ${fixes.length} Reparaturen durchgeführt`);
+    report.push(`⚠️ Alle gesicherten Daten liegen in /backups/ im Blob Storage`);
+    if (errors.length > 0) report.push(`❌ ${errors.length} Fehler aufgetreten`);
+
+    return res.status(200).json({
+      success: errors.length === 0,
+      report,
+      fixes,
+      errors
+    });
+
+  } catch (err: any) {
+    console.error('repair-database error:', err);
+    return res.status(500).json({
+      success: false,
+      report: [...report, `Kritischer Fehler bei Schritt: ${err.message}`],
+      fixes,
+      errors: [...errors, err.message]
+    });
   }
 }
 

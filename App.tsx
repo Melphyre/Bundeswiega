@@ -1536,6 +1536,16 @@ const App: React.FC = () => {
   const [csvEditSaving, setCsvEditSaving] = useState(false);
   const [csvEditSuccess, setCsvEditSuccess] = useState<string | null>(null);
 
+  // DB Repair States
+  const [showDbRepairModal, setShowDbRepairModal] = useState(false);
+  const [dbRepairLoading, setDbRepairLoading] = useState(false);
+  const [dbRepairResult, setDbRepairResult] = useState<{
+    success: boolean;
+    report: string[];
+    fixes: string[];
+    errors: string[];
+  } | null>(null);
+
   // Friends & Privacy States
   const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
   const [pendingRequests, setPendingRequests] = useState<Array<{ id: string; requesterName: string; requesterId: string }>>([]);
@@ -2329,6 +2339,34 @@ const App: React.FC = () => {
         success: false,
         message: `❌ Fehler: ${err.message}`
       });
+    }
+  };
+
+  const handleDbRepair = async () => {
+    setDbRepairLoading(true);
+    setDbRepairResult(null);
+    try {
+      const res = await fetch('/api/admin/repair-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Fehler bei der Datenbankbereinigung');
+      setDbRepairResult(json);
+    } catch (err: any) {
+      setDbRepairResult({
+        success: false,
+        report: [],
+        fixes: [],
+        errors: [`Verbindungsfehler: ${err.message}`]
+      });
+    } finally {
+      setDbRepairLoading(false);
     }
   };
 
@@ -9866,6 +9904,16 @@ const App: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setShowDbRepairModal(true)}
+                className="w-full py-4 rounded-2xl text-white font-black flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all"
+                style={{ backgroundColor: '#DC2626' }}
+              >
+                <i className="fas fa-wrench"></i>
+                <span>🔧 Datenbank bereinigen & reparieren</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowAdminUsersView(prev => !prev)}
                 className="w-full p-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
               >
@@ -10402,6 +10450,121 @@ const App: React.FC = () => {
                   {csvEditSaving ? 'Speichern...' : '💾 Speichern'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔧 DB REPAIR MODAL */}
+      {showDbRepairModal && (
+        <div className="fixed inset-0 z-[900] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className={`w-full md:max-w-lg rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
+
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20 flex-shrink-0">
+              <h3 className="text-xl font-black text-red-500">
+                🔧 Datenbank bereinigen
+              </h3>
+              <button onClick={() => setShowDbRepairModal(false)} className="opacity-50 hover:opacity-100 cursor-pointer">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {!dbRepairResult && !dbRepairLoading && (
+                <div className="space-y-3">
+                  <p className="text-sm opacity-70">
+                    Diese Funktion prüft alle Supabase Tabellen auf:
+                  </p>
+                  <ul className="text-xs space-y-2 opacity-70">
+                    <li>✅ Fehlende oder falsche <code>total</code> Werte in game_results</li>
+                    <li>✅ Verwaiste Einträge ohne gültigen User</li>
+                    <li>✅ Profile ohne Username oder Email</li>
+                    <li>✅ Doppelte Achievements</li>
+                    <li>✅ Falsche Freundschafts-Status</li>
+                    <li>✅ game_results ohne Datum oder game_mode</li>
+                    <li>✅ Achievements ohne achievement_id</li>
+                    <li>✅ Profile Statistiken neu berechnen</li>
+                  </ul>
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-500 font-bold">
+                    ⚠️ Diese Funktion repariert Daten automatisch. Bitte nur ausführen wenn nötig.
+                  </div>
+                </div>
+              )}
+
+              {dbRepairLoading && (
+                <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                  <i className="fas fa-spinner animate-spin text-3xl" style={{ color: BRAND_COLOR }}></i>
+                  <p className="text-sm font-bold opacity-60">Datenbank wird analysiert und repariert...</p>
+                </div>
+              )}
+
+              {dbRepairResult && (
+                <div className="space-y-4">
+                  {/* Bericht */}
+                  <div>
+                    <h4 className="font-black text-sm mb-2 opacity-60 uppercase">📊 Analyse-Bericht</h4>
+                    <div className={`rounded-xl p-3 space-y-1 text-xs ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                      {dbRepairResult.report.map((line, i) => (
+                        <p key={i} className="font-bold">{line}</p>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Reparaturen */}
+                  {dbRepairResult.fixes.length > 0 && (
+                    <div>
+                      <h4 className="font-black text-sm mb-2 text-emerald-500 uppercase">✅ Reparaturen</h4>
+                      <div className="rounded-xl p-3 space-y-1 text-xs bg-emerald-500/10">
+                        {dbRepairResult.fixes.map((fix, i) => (
+                          <p key={i} className="text-emerald-500 font-bold">{fix}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fehler */}
+                  {dbRepairResult.errors.length > 0 && (
+                    <div>
+                      <h4 className="font-black text-sm mb-2 text-red-500 uppercase">❌ Fehler</h4>
+                      <div className="rounded-xl p-3 space-y-1 text-xs bg-red-500/10">
+                        {dbRepairResult.errors.map((err, i) => (
+                          <p key={i} className="text-red-500 font-bold">{err}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20 flex space-x-3">
+              <button
+                type="button"
+                onClick={() => { setShowDbRepairModal(false); setDbRepairResult(null); }}
+                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer"
+                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+              >
+                Schließen
+              </button>
+              {!dbRepairResult && (
+                <button
+                  type="button"
+                  onClick={handleDbRepair}
+                  disabled={dbRepairLoading}
+                  className="flex-1 py-3 rounded-xl text-white font-black disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  Reparieren starten
+                </button>
+              )}
+              {dbRepairResult && (
+                <button
+                  type="button"
+                  onClick={() => { setDbRepairResult(null); handleDbRepair(); }}
+                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  Erneut ausführen
+                </button>
+              )}
             </div>
           </div>
         </div>

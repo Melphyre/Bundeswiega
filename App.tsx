@@ -1659,20 +1659,33 @@ const App: React.FC = () => {
   };
 
   const loadMyResults = async () => {
-    if (!supabaseUser) return;
+    console.log('=== loadMyResults START ===');
+    console.log('supabaseUser:', supabaseUser?.id);
+
+    if (!supabaseUser) {
+      console.warn('❌ loadMyResults: kein supabaseUser');
+      return;
+    }
+
     try {
-      const { data, error } = await supabase
+      const { data, error, status, statusText } = await supabase
         .from('game_results')
         .select('*')
         .eq('user_id', supabaseUser.id)
         .order('created_at', { ascending: false });
 
+      console.log('game_results Status:', status, statusText);
+      console.log('game_results Error:', error);
+      console.log('game_results Data:', data);
+      console.log('game_results Count:', data?.length);
+
       if (error) {
-        console.error('loadMyResults error:', error.message);
+        console.error('❌ game_results Fehler:', error.message, error.code, (error as any).details, (error as any).hint);
         setMyGameData([]);
         return;
       }
       setMyGameData(data || []);
+      console.log('✅ myGameData gesetzt:', data?.length, 'Einträge');
     } catch (err: any) {
       console.error('loadMyResults catch:', err.message);
       setMyGameData([]);
@@ -1763,7 +1776,12 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    console.log('=== showProfileModal useEffect ===');
+    console.log('showProfileModal:', showProfileModal);
+    console.log('supabaseUser:', supabaseUser?.id);
+
     if (showProfileModal && supabaseUser) {
+      console.log('→ Lade Profil-Daten...');
       loadProfileStats();
       loadMyProfileData();
       loadMyResults();
@@ -1771,8 +1789,13 @@ const App: React.FC = () => {
       if (profileTab === 'freunde') {
         loadFriendships();
       }
+    } else {
+      console.warn('→ NICHT geladen weil:', {
+        showProfileModal,
+        supabaseUser: !!supabaseUser
+      });
     }
-  }, [showProfileModal, supabaseUser]);
+  }, [showProfileModal, supabaseUser?.id]);
 
   useEffect(() => {
     if (!showProfileModal || !supabaseUser) return;
@@ -4826,15 +4849,42 @@ const App: React.FC = () => {
   };
 
   const fetchRecords = async () => {
+    console.log('=== fetchRecords START ===');
     setRecordsLoading(true);
     setRecordsError(null);
     try {
-      // 1. CSV laden
-      const csvRes = await fetch('/api/records');
-      const csvJson = await csvRes.json();
-      const csvRows: string[][] = (csvJson.data || []).filter((row: string[]) =>
-        row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== ''
-      );
+      // Test 1: CSV
+      let csvRows: string[][] = [];
+      try {
+        const csvRes = await fetch('/api/records');
+        const csvJson = await csvRes.json();
+        console.log('CSV Rows:', csvJson.data?.length);
+        csvRows = (csvJson.data || []).filter((row: string[]) =>
+          row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== ''
+        );
+      } catch (e) {
+        console.error('❌ CSV Fehler:', e);
+      }
+
+      // Test 2: Supabase game_results direkt
+      const { data: testData, error: testError } = await supabase
+        .from('game_results')
+        .select('id, user_id, game_mode, date, avg, schnaepse, total')
+        .limit(5);
+
+      console.log('=== SUPABASE game_results TEST ===');
+      console.log('Error:', testError?.message, testError?.code);
+      console.log('Data:', testData);
+
+      // Test 3: Profiles direkt
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, username, show_records')
+        .limit(5);
+
+      console.log('=== SUPABASE profiles TEST ===');
+      console.log('Error:', profileError?.message, profileError?.code);
+      console.log('Data:', profileData);
 
       // 2. Supabase game_results laden
       const { data: supabaseResults, error: resultsError } = await supabase
@@ -10396,1116 +10446,13 @@ const App: React.FC = () => {
                         {[0, 1, 2, 3, 4, 5].map(colIdx => (
                           <td key={colIdx} className="p-1">
                             <input
-                              type="text"
-                              value={row[colIdx] || ''}
-                              onChange={e => updateCsvCell(rowIdx, colIdx, e.target.value)}
-                              className={`w-full p-1.5 rounded-lg border font-bold bg-transparent text-xs ${
-                                darkMode ? 'border-white/20 text-white' : 'border-black/20 text-gray-900'
-                              }`}
-                            />
-                          </td>
-                        ))}
-                        <td className="p-1 text-center">
-                          <button
-                            type="button"
-                            onClick={() => deleteCsvRow(rowIdx)}
-                            className="p-1.5 rounded-lg bg-red-500/10 text-red-500 font-bold text-xs hover:bg-red-500/20 cursor-pointer"
-                            title="Zeile löschen"
-                          >
-                            🗑️
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20 space-y-3">
-              {csvEditSuccess && (
-                <p className={`text-xs font-bold text-center ${
-                  csvEditSuccess.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'
-                }`}>
-                  {csvEditSuccess}
-                </p>
-              )}
-              <div className="flex space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCsvEditModal(false)}
-                  className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer text-xs"
-                  style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-                >
-                  Schließen
-                </button>
-                <button
-                  type="button"
-                  onClick={saveCsvChanges}
-                  disabled={csvEditSaving}
-                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer text-xs disabled:opacity-50"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  {csvEditSaving ? 'Speichern...' : '💾 Speichern'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🔧 DB REPAIR MODAL */}
-      {showDbRepairModal && (
-        <div className="fixed inset-0 z-[900] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md">
-          <div className={`w-full md:max-w-lg rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
-
-            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20 flex-shrink-0">
-              <h3 className="text-xl font-black text-red-500">
-                🔧 Datenbank bereinigen
-              </h3>
-              <button onClick={() => setShowDbRepairModal(false)} className="opacity-50 hover:opacity-100 cursor-pointer">✕</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {!dbRepairResult && !dbRepairLoading && (
-                <div className="space-y-3">
-                  <p className="text-sm opacity-70">
-                    Diese Funktion prüft alle Supabase Tabellen auf:
-                  </p>
-                  <ul className="text-xs space-y-2 opacity-70">
-                    <li>✅ Fehlende oder falsche <code>total</code> Werte in game_results</li>
-                    <li>✅ Verwaiste Einträge ohne gültigen User</li>
-                    <li>✅ Profile ohne Username oder Email</li>
-                    <li>✅ Doppelte Achievements</li>
-                    <li>✅ Falsche Freundschafts-Status</li>
-                    <li>✅ game_results ohne Datum oder game_mode</li>
-                    <li>✅ Achievements ohne achievement_id</li>
-                    <li>✅ Profile Statistiken neu berechnen</li>
-                  </ul>
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-500 font-bold">
-                    ⚠️ Diese Funktion repariert Daten automatisch. Bitte nur ausführen wenn nötig.
-                  </div>
-                </div>
-              )}
-
-              {dbRepairLoading && (
-                <div className="flex flex-col items-center justify-center py-8 space-y-3">
-                  <i className="fas fa-spinner animate-spin text-3xl" style={{ color: BRAND_COLOR }}></i>
-                  <p className="text-sm font-bold opacity-60">Datenbank wird analysiert und repariert...</p>
-                </div>
-              )}
-
-              {dbRepairResult && (
-                <div className="space-y-4">
-                  {/* Bericht */}
-                  <div>
-                    <h4 className="font-black text-sm mb-2 opacity-60 uppercase">📊 Analyse-Bericht</h4>
-                    <div className={`rounded-xl p-3 space-y-1 text-xs ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                      {dbRepairResult.report.map((line, i) => (
-                        <p key={i} className="font-bold">{line}</p>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Reparaturen */}
-                  {dbRepairResult.fixes.length > 0 && (
-                    <div>
-                      <h4 className="font-black text-sm mb-2 text-emerald-500 uppercase">✅ Reparaturen</h4>
-                      <div className="rounded-xl p-3 space-y-1 text-xs bg-emerald-500/10">
-                        {dbRepairResult.fixes.map((fix, i) => (
-                          <p key={i} className="text-emerald-500 font-bold">{fix}</p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Fehler */}
-                  {dbRepairResult.errors.length > 0 && (
-                    <div>
-                      <h4 className="font-black text-sm mb-2 text-red-500 uppercase">❌ Fehler</h4>
-                      <div className="rounded-xl p-3 space-y-1 text-xs bg-red-500/10">
-                        {dbRepairResult.errors.map((err, i) => (
-                          <p key={i} className="text-red-500 font-bold">{err}</p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex-shrink-0 p-6 pt-4 border-t border-gray-500/20 flex space-x-3">
-              <button
-                type="button"
-                onClick={() => { setShowDbRepairModal(false); setDbRepairResult(null); }}
-                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer"
-                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-              >
-                Schließen
-              </button>
-              {!dbRepairResult && (
-                <button
-                  type="button"
-                  onClick={handleDbRepair}
-                  disabled={dbRepairLoading}
-                  className="flex-1 py-3 rounded-xl text-white font-black disabled:opacity-50 cursor-pointer"
-                  style={{ backgroundColor: '#DC2626' }}
-                >
-                  Reparieren starten
-                </button>
-              )}
-              {dbRepairResult && (
-                <button
-                  type="button"
-                  onClick={() => { setDbRepairResult(null); handleDbRepair(); }}
-                  className="flex-1 py-3 rounded-xl text-white font-black cursor-pointer"
-                  style={{ backgroundColor: '#DC2626' }}
-                >
-                  Erneut ausführen
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* JOIN TABLE QR MODAL */}
-      {showJoinTableModal && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
-            <h3 className="text-xl font-black mb-2 flex items-center justify-center space-x-2" style={{ color: BRAND_COLOR }}>
-              <i className="fas fa-qrcode"></i>
-              <span>An Tisch teilnehmen</span>
-            </h3>
-            <p className="text-xs opacity-70 mb-6">Zeige diesen QR-Code dem Spielleiter:</p>
-
-            <div className="bg-white p-4 rounded-2xl shadow-inner inline-block mb-4 border border-gray-200">
-              {qrCodeValue ? (
-                <QRCode value={qrCodeValue} size={200} level="M" />
-              ) : (
-                <div className="w-[200px] h-[200px] flex flex-col items-center justify-center text-red-500 text-xs font-bold space-y-2">
-                  <i className="fas fa-exclamation-triangle text-2xl"></i>
-                  <span>QR-Code abgelaufen</span>
-                </div>
-              )}
-            </div>
-
-            <div className="mb-4">
-              <div className="font-bold text-sm">
-                {supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Benutzer'}
-              </div>
-              <div className="text-xs opacity-60">
-                {supabaseUser?.email}
-              </div>
-            </div>
-
-            <div className="text-[11px] font-bold opacity-60 mb-6">
-              {qrCodeValue ? (
-                <span className="text-amber-500 animate-pulse">⏱️ QR-Code ist 5 Minuten gültig.</span>
-              ) : (
-                <span className="text-red-400">QR-Code ist abgelaufen. Bitte neu generieren.</span>
-              )}
-            </div>
-
-            <div className="flex space-x-2">
-              <button
-                type="button"
-                onClick={generateQrCode}
-                className="flex-1 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95 shadow"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                Neu generieren
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowJoinTableModal(false)}
-                className="flex-1 py-3 rounded-xl border-2 font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95"
-                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* QR SCANNER MODAL */}
-      <QRScannerModal
-        isOpen={showQrScanner}
-        onClose={stopQrScanner}
-        onScanSuccess={(decodedText) => {
-          if (scanningForPlayerId) {
-            handleQrScan(decodedText, scanningForPlayerId);
-            stopQrScanner();
-          }
-        }}
-        title="Spieler QR-Code scannen"
-        description="Halte den QR-Code des Spielers in die Kamera"
-        darkMode={darkMode}
-      />
-
-      {/* PROFILE MANAGMENT MODAL */}
-      {showProfileModal && (
-        <div className="fixed inset-0 z-[650] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border-2 flex flex-col space-y-6 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
-            <div className="flex justify-between items-center border-b pb-4 border-gray-500/20">
-              <h3 className="text-2xl font-black uppercase flex items-center" style={{ color: BRAND_COLOR }}>
-                <i className="fas fa-user-circle mr-3"></i>Profil verwalten
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowProfileModal(false)}
-                className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Reiter Header */}
-            <div className="flex border-b border-gray-500/20 px-6">
-              <button
-                type="button"
-                onClick={() => setProfileTab('profil')}
-                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer ${
-                  profileTab === 'profil'
-                    ? 'border-[#238183] text-[#238183]'
-                    : 'border-transparent opacity-50'
-                }`}
-              >
-                👤 Profil
-              </button>
-              <button
-                type="button"
-                onClick={() => setProfileTab('rekorde')}
-                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer ${
-                  profileTab === 'rekorde'
-                    ? 'border-[#238183] text-[#238183]'
-                    : 'border-transparent opacity-50'
-                }`}
-              >
-                📊 Rekorde
-              </button>
-              <button
-                type="button"
-                onClick={() => setProfileTab('freunde')}
-                className={`py-3 px-4 font-black text-sm border-b-2 transition-colors cursor-pointer flex items-center space-x-2 ${
-                  profileTab === 'freunde'
-                    ? 'border-[#238183] text-[#238183]'
-                    : 'border-transparent opacity-50'
-                }`}
-              >
-                <span>🤝 Freunde</span>
-                {pendingRequests.length > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center">
-                    {pendingRequests.length}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {profileTab === 'profil' && (
-              <>
-                {/* Custom User Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-emerald-400">{profileStats.gamesPlayed}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Gespielte Spiele</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-amber-400">{profileStats.totalSchnaepse} 🥃</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Schnäpse</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-cyan-400">
-                      {profileStats.bestAvg !== null ? `${profileStats.bestAvg.toFixed(2)}g` : '-'}
-                    </div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Beste Abweichung</div>
-                  </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-purple-400">{profileStats.achievementsCount} 🏆</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase">Achievements</div>
-                  </div>
-                </div>
-
-                {/* Custom Profile Forms */}
-                <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-                  {profileSaveMessageOld && (
-                    <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between ${
-                      profileSaveMessageOld.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'
-                    }`}>
-                      <span>{profileSaveMessageOld.text}</span>
-                      <button type="button" onClick={() => setProfileSaveMessageOld(null)} className="text-gray-400 hover:text-white ml-2">✕</button>
-                    </div>
-                  )}
-
-                  {/* 1. Profilbild */}
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                      <i className="fas fa-camera"></i>
-                      <span>Profilbild</span>
-                    </h4>
-                    <div className="flex items-center space-x-4">
-                      <div className="relative w-16 h-16 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-slate-700 flex items-center justify-center flex-shrink-0 shadow">
-                        {supabaseUser?.user_metadata?.avatar_url ? (
-                          <img src={supabaseUser.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-2xl font-black text-gray-300">
-                            {(supabaseUser?.user_metadata?.username || supabaseUser?.email || 'U')[0].toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <label className="py-2.5 px-4 rounded-xl text-white font-bold text-xs cursor-pointer active:scale-95 shadow flex items-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
-                          <i className="fas fa-upload"></i>
-                          <span>📷 Bild hochladen</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file || !supabaseUser) return;
-                              setProfileLoadingSection('avatar');
-                              setProfileSaveMessageOld(null);
-                              try {
-                                let avatarUrl = '';
-                                const { data, error: uploadErr } = await supabase.storage
-                                  .from('avatars')
-                                  .upload(`${supabaseUser.id}/avatar_${Date.now()}.jpg`, file, { upsert: true });
-
-                                if (!uploadErr && data) {
-                                  avatarUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl;
-                                } else {
-                                  avatarUrl = await new Promise<string>((resolve) => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => resolve(reader.result as string);
-                                    reader.readAsDataURL(file);
-                                  });
-                                }
-                                const { error } = await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
-                                if (error) throw error;
-                                setProfileSaveMessageOld({ section: 'avatar', type: 'success', text: 'Profilbild erfolgreich aktualisiert!' });
-                              } catch (err: any) {
-                                setProfileSaveMessageOld({ section: 'avatar', type: 'error', text: err.message || 'Fehler beim Hochladen' });
-                              } finally {
-                                setProfileLoadingSection(null);
-                              }
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          disabled={profileLoadingSection === 'avatar'}
-                          onClick={async () => {
-                            if (!supabaseUser) return;
-                            setProfileLoadingSection('avatar');
-                            setProfileSaveMessageOld(null);
-                            try {
-                              const { error } = await supabase.auth.updateUser({ data: { avatar_url: null } });
-                              if (error) throw error;
-                              setProfileSaveMessageOld({ section: 'avatar', type: 'success', text: 'Profilbild entfernt!' });
-                            } catch (err: any) {
-                              setProfileSaveMessageOld({ section: 'avatar', type: 'error', text: err.message || 'Fehler beim Entfernen' });
-                            } finally {
-                              setProfileLoadingSection(null);
-                            }
-                          }}
-                          className="py-2.5 px-4 rounded-xl border-2 border-red-500/40 text-red-400 font-bold text-xs hover:bg-red-500/10 active:scale-95 cursor-pointer"
-                        >
-                          Bild entfernen
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. Nutzername */}
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                      <i className="fas fa-user"></i>
-                      <span>Nutzername</span>
-                    </h4>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={profileUsername}
-                        onChange={e => {
-                          setProfileUsername(e.target.value);
-                          setProfileSaveState(prev => ({ ...prev, username: 'idle' }));
-                        }}
-                        placeholder="Nutzername"
-                        className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                      <button
-                        type="button"
-                        disabled={profileSaveState['username'] === 'loading' || !profileUsername.trim()}
-                        onClick={handleUsernameChange}
-                        className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: BRAND_COLOR }}
-                      >
-                        {profileSaveState['username'] === 'loading' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
-                      </button>
-                    </div>
-                    {profileSaveState['username'] === 'error' && (
-                      <p className="text-xs text-red-500 font-bold mt-1">
-                        ❌ {profileSaveMessage['username']}
-                      </p>
-                    )}
-                    {profileSaveState['username'] === 'success' && (
-                      <p className="text-xs text-emerald-500 font-bold mt-1">
-                        ✅ {profileSaveMessage['username']}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 3. E-Mail Adresse */}
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                      <i className="fas fa-envelope"></i>
-                      <span>E-Mail Adresse</span>
-                    </h4>
-                    <div className="flex gap-2">
-                      <input
-                        type="email"
-                        value={profileEmail}
-                        onChange={e => setProfileEmail(e.target.value)}
-                        placeholder="E-Mail Adresse"
-                        className={`flex-1 p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                      <button
-                        type="button"
-                        disabled={profileLoadingSection === 'email' || !profileEmail.trim()}
-                        onClick={async () => {
-                          if (!supabaseUser || !profileEmail.trim()) return;
-                          setProfileLoadingSection('email');
-                          setProfileSaveMessageOld(null);
-                          try {
-                            const { error } = await supabase.auth.updateUser({ email: profileEmail.trim() });
-                            if (error) throw error;
-                            setProfileSaveMessageOld({ section: 'email', type: 'success', text: 'Bestätigungs-E-Mail gesendet! Bitte prüfe dein Postfach.' });
-                          } catch (err: any) {
-                            setProfileSaveMessageOld({ section: 'email', type: 'error', text: err.message || 'Fehler beim Speichern der E-Mail' });
-                          } finally {
-                            setProfileLoadingSection(null);
-                          }
-                        }}
-                        className="px-5 py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: BRAND_COLOR }}
-                      >
-                        {profileLoadingSection === 'email' ? <i className="fas fa-spinner animate-spin"></i> : 'Speichern'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 4. Passwort ändern */}
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                      <i className="fas fa-key"></i>
-                      <span>Passwort ändern</span>
-                    </h4>
-                    <div className="space-y-3">
-                      <input
-                        type="password"
-                        value={profileCurrentPw}
-                        onChange={e => setProfileCurrentPw(e.target.value)}
-                        placeholder="Aktuelles Passwort"
-                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                      <input
-                        type="password"
-                        value={profileNewPw}
-                        onChange={e => setProfileNewPw(e.target.value)}
-                        placeholder="Neues Passwort"
-                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                      <input
-                        type="password"
-                        value={profileNewPwConfirm}
-                        onChange={e => setProfileNewPwConfirm(e.target.value)}
-                        placeholder="Neues Passwort bestätigen"
-                        className={`w-full p-3 rounded-xl border-2 font-bold text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                      <button
-                        type="button"
-                        disabled={profileLoadingSection === 'password' || !profileNewPw}
-                        onClick={async () => {
-                          if (!supabaseUser) return;
-                          if (profileNewPw !== profileNewPwConfirm) {
-                            setProfileSaveMessageOld({ section: 'password', type: 'error', text: 'Die neuen Passwörter stimmen nicht überein.' });
-                            return;
-                          }
-                          setProfileLoadingSection('password');
-                          setProfileSaveMessageOld(null);
-                          try {
-                            const { error } = await supabase.auth.updateUser({ password: profileNewPw });
-                            if (error) throw error;
-                            setProfileCurrentPw('');
-                            setProfileNewPw('');
-                            setProfileNewPwConfirm('');
-                            setProfileSaveMessageOld({ section: 'password', type: 'success', text: 'Passwort erfolgreich geändert!' });
-                          } catch (err: any) {
-                            setProfileSaveMessageOld({ section: 'password', type: 'error', text: err.message || 'Fehler beim Ändern des Passworts' });
-                          } finally {
-                            setProfileLoadingSection(null);
-                          }
-                        }}
-                        className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: BRAND_COLOR }}
-                      >
-                        {profileLoadingSection === 'password' ? <i className="fas fa-spinner animate-spin"></i> : 'Passwort ändern'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 5. Datenschutz & Sicherheit */}
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                      <i className="fas fa-shield-alt"></i>
-                      <span>Datenschutz &amp; Sicherheit</span>
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="showRecordsCheck" className="font-bold text-xs cursor-pointer select-none">
-                          In öffentlicher Rekorde-Liste anzeigen
-                        </label>
-                        <input
-                          type="checkbox"
-                          id="showRecordsCheck"
-                          checked={privacyState.showRecords}
-                          onChange={e => setPrivacyState(prev => ({ ...prev, showRecords: e.target.checked }))}
-                          className="w-5 h-5 accent-[#238183] cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="showStandardCheck" className="font-bold text-xs cursor-pointer select-none">
-                          Standardspiel Ergebnisse anzeigen
-                        </label>
-                        <input
-                          type="checkbox"
-                          id="showStandardCheck"
-                          checked={privacyState.showStandardspiel}
-                          onChange={e => setPrivacyState(prev => ({ ...prev, showStandardspiel: e.target.checked }))}
-                          className="w-5 h-5 accent-[#238183] cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="showSpeedCheck" className="font-bold text-xs cursor-pointer select-none">
-                          Speedwiegen Ergebnisse anzeigen
-                        </label>
-                        <input
-                          type="checkbox"
-                          id="showSpeedCheck"
-                          checked={privacyState.showSpeedwiegen}
-                          onChange={e => setPrivacyState(prev => ({ ...prev, showSpeedwiegen: e.target.checked }))}
-                          className="w-5 h-5 accent-[#238183] cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="showTeamCheck" className="font-bold text-xs cursor-pointer select-none">
-                          Teamwiegen Ergebnisse anzeigen
-                        </label>
-                        <input
-                          type="checkbox"
-                          id="showTeamCheck"
-                          checked={privacyState.showTeamwiegen}
-                          onChange={e => setPrivacyState(prev => ({ ...prev, showTeamwiegen: e.target.checked }))}
-                          className="w-5 h-5 accent-[#238183] cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="showAchievementsCheck" className="font-bold text-xs cursor-pointer select-none">
-                          Achievements im Profil anzeigen
-                        </label>
-                        <input
-                          type="checkbox"
-                          id="showAchievementsCheck"
-                          checked={privacyState.showAchievements}
-                          onChange={e => setPrivacyState(prev => ({ ...prev, showAchievements: e.target.checked }))}
-                          className="w-5 h-5 accent-[#238183] cursor-pointer"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={profileLoadingSection === 'privacy'}
-                      onClick={handleSavePrivacy}
-                      className="w-full py-3 rounded-xl text-white font-bold text-xs uppercase tracking-wider shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: BRAND_COLOR }}
-                    >
-                      {profileLoadingSection === 'privacy' ? <i className="fas fa-spinner animate-spin"></i> : 'Einstellungen speichern'}
-                    </button>
-                  </div>
-
-                  {/* Ausloggen und Profil löschen */}
-                  <div className="border-t border-gray-500/20 pt-6 mt-6 space-y-3">
-                    {/* Ausloggen */}
-                    <button
-                      type="button"
-                      onClick={() => handleSignOut()}
-                      className="w-full py-3 rounded-2xl border-2 font-bold flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition-all"
-                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-                    >
-                      <i className="fas fa-sign-out-alt"></i>
-                      <span>Ausloggen</span>
-                    </button>
-
-                    {/* Profil löschen */}
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteProfileModal(true)}
-                      className="w-full py-3 rounded-2xl border-2 border-red-500 text-red-500 font-bold flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition-all"
-                    >
-                      <i className="fas fa-trash"></i>
-                      <span>Profil löschen</span>
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {profileTab === 'rekorde' && (
-              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-
-                {/* Unterreiter */}
-                <div className="flex space-x-1 mb-2 overflow-x-auto">
-                  {[
-                    { key: 'alle', label: '🎮 Alle' },
-                    { key: 'standard', label: '🍺 Standard' },
-                    { key: 'speed', label: '⚡ Speed' },
-                    { key: 'team', label: '👥 Team' }
-                  ].map(tab => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setRecordsSubTab(tab.key as any)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-colors cursor-pointer ${
-                        recordsSubTab === tab.key
-                          ? 'text-white'
-                          : darkMode ? 'bg-white/10' : 'bg-black/10'
-                      }`}
-                      style={recordsSubTab === tab.key ? { backgroundColor: BRAND_COLOR } : {}}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Sortier-Buttons */}
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {(['datum', 'avg', 'schnaepse', 'total'] as const).map(sort => (
-                    <button
-                      key={sort}
-                      type="button"
-                      onClick={() => {
-                        if (recordsSortBy === sort) {
-                          setRecordsSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                        } else {
-                          setRecordsSortBy(sort);
-                          setRecordsSortDir('desc');
-                        }
-                      }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center space-x-1 cursor-pointer transition-all ${
-                        recordsSortBy === sort
-                          ? 'text-white'
-                          : darkMode ? 'bg-white/10' : 'bg-black/10'
-                      }`}
-                      style={recordsSortBy === sort ? { backgroundColor: BRAND_COLOR } : {}}
-                    >
-                      <span>
-                        {sort === 'datum' && '📅 Datum'}
-                        {sort === 'avg' && '🎯 Durchschnitt'}
-                        {sort === 'schnaepse' && '🥂 Schnäpse'}
-                        {sort === 'total' && '📊 Total'}
-                      </span>
-                      {recordsSortBy === sort && (
-                        <i className={`fas fa-arrow-${recordsSortDir === 'asc' ? 'up' : 'down'} text-[10px]`}></i>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Spiele-Liste (Gefiltert & Sortiert) */}
-                {(() => {
-                  const filtered = myGameData.filter((r: any) => {
-                    const mode = r.game_mode || r.gameMode || '';
-                    if (recordsSubTab === 'alle') return true;
-                    if (recordsSubTab === 'standard') return mode.includes('Standardspiel') || mode.includes('Standard');
-                    if (recordsSubTab === 'speed') return mode.includes('Speedwiegen') || mode.includes('Speed');
-                    if (recordsSubTab === 'team') return mode.includes('Teamwiegen') || mode.includes('Team');
-                    return true;
-                  });
-
-                  const sorted = [...filtered].sort((a: any, b: any) => {
-                    let valA: any = a[recordsSortBy === 'datum' ? 'date' : recordsSortBy];
-                    let valB: any = b[recordsSortBy === 'datum' ? 'date' : recordsSortBy];
-                    if (recordsSortBy === 'datum') {
-                      valA = new Date(valA || 0).getTime();
-                      valB = new Date(valB || 0).getTime();
-                    } else {
-                      valA = Number(valA || 0);
-                      valB = Number(valB || 0);
-                    }
-                    return recordsSortDir === 'asc' ? valA - valB : valB - valA;
-                  });
-
-                  return sorted.length === 0 ? (
-                    <p className="text-xs opacity-60 text-center py-8">
-                      Keine Einträge für diesen Modus.
-                    </p>
-                  ) : (
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {sorted.map((r: any, idx: number) => (
-                        <div key={idx} className={`p-3 rounded-xl flex justify-between items-center ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                          <div>
-                            <p className="text-xs font-black">{r.game_mode || r.gameMode}</p>
-                            <p className="text-[10px] opacity-60">{r.date}</p>
-                            {r.team_name && <p className="text-[10px] opacity-60">Team: {r.team_name}</p>}
-                            {r.levels && <p className="text-[10px] opacity-60">{r.levels} Stufen • {r.time_seconds}s</p>}
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-black text-emerald-500">Ø {typeof r.avg === 'number' ? r.avg.toFixed(2) : r.avg}g</p>
-                            <p className="text-[10px] opacity-60">{r.schnaepse} Pkt • Total: {typeof r.total === 'number' ? r.total.toFixed(1) : r.total}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* Achievements */}
-                <div>
-                  <h4 className="font-black uppercase text-sm mb-3" style={{ color: BRAND_COLOR }}>
-                    🏆 Freigeschaltete Achievements
-                  </h4>
-                  {myAchievementsData.length === 0 ? (
-                    <p className="text-xs opacity-60">Noch keine Achievements freigeschaltet.</p>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {myAchievementsData.map((a: any) => (
-                        <div key={a.id || a.achievement_id} className={`p-2 rounded-xl flex items-center space-x-2 ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                          <span className="text-lg">{a.icon}</span>
-                          <div>
-                            <p className="text-xs font-black">{a.title}</p>
-                            <p className={`text-[10px] font-bold ${
-                              a.rarity === 'legendary' ? 'text-yellow-500' :
-                              a.rarity === 'epic' ? 'text-purple-500' :
-                              a.rarity === 'rare' ? 'text-blue-500' : 'text-gray-400'
-                            }`}>{a.rarity}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {profileTab === 'freunde' && (
-              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-                {/* 1. Freund suchen & Anfrage senden */}
-                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
-                  <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                    <i className="fas fa-user-plus"></i>
-                    <span>Freundschaftsanfrage senden</span>
-                  </h4>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={friendSearchQuery}
-                      onChange={e => setFriendSearchQuery(e.target.value)}
-                      placeholder="Benutzername oder E-Mail..."
-                      className={`flex-1 p-3 rounded-xl border-2 font-bold text-xs ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSendFriendRequest}
-                      disabled={!friendSearchQuery.trim()}
-                      className="px-5 py-3 rounded-xl text-white font-black text-xs uppercase shadow active:scale-95 cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: BRAND_COLOR }}
-                    >
-                      Senden
-                    </button>
-                  </div>
-                  {friendRequestError && (
-                    <p className="text-xs text-red-500 font-bold">❌ {friendRequestError}</p>
-                  )}
-                  {friendRequestSuccess && (
-                    <p className="text-xs text-emerald-500 font-bold">✅ {friendRequestSuccess}</p>
-                  )}
-                </div>
-
-                {/* 2. Offene Anfragen */}
-                {pendingRequests.length > 0 && (
-                  <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
-                    <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-amber-500">
-                      <i className="fas fa-clock"></i>
-                      <span>Offene Anfragen ({pendingRequests.length})</span>
-                    </h4>
-                    <div className="space-y-2">
-                      {pendingRequests.map(req => (
-                        <div key={req.id} className={`p-3 rounded-xl flex items-center justify-between ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                          <span className="font-bold text-xs">{req.requesterName}</span>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleAcceptFriendRequest(req.id)}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-white font-bold text-xs shadow active:scale-95 cursor-pointer"
-                            >
-                              Annehmen
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRejectFriendRequest(req.id)}
-                              className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 font-bold text-xs hover:bg-red-500/30 active:scale-95 cursor-pointer"
-                            >
-                              Ablehnen
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. Meine Freunde */}
-                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
-                  <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2" style={{ color: BRAND_COLOR }}>
-                    <i className="fas fa-users"></i>
-                    <span>Meine Freunde ({friends.length})</span>
-                  </h4>
-                  {friends.length === 0 ? (
-                    <p className="text-xs opacity-60">Du hast noch keine Freunde hinzugefügt.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {friends.map(fr => (
-                        <div key={fr.id} className={`p-3 rounded-xl flex items-center justify-between ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center text-xs font-bold text-white">
-                              {fr.imageUrl ? <img src={fr.imageUrl} alt={fr.name} className="w-full h-full object-cover" /> : fr.name[0].toUpperCase()}
-                            </div>
-                            <span className="font-bold text-xs">{fr.name}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFriend(fr.friendshipId)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 hover:bg-red-500/10 cursor-pointer"
-                          >
-                            Entfernen
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowProfileModal(false)}
-              className="w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow active:scale-95 cursor-pointer"
-              style={{ backgroundColor: BRAND_COLOR }}
-            >
-              Schließen
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* PROFIL LÖSCHEN MODAL */}
-      {showDeleteProfileModal && (
-        <div className="fixed inset-0 z-[900] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-6 max-w-sm w-full shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
-            <h3 className="text-xl font-black text-red-500 mb-2">
-              ⚠️ Profil löschen
-            </h3>
-            <p className={`text-sm mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-              Möchtest du dein Profil wirklich unwiderruflich löschen?
-              Alle deine gespeicherten Ergebnisse und Achievements gehen verloren.
-            </p>
-            <p className="text-xs font-bold mb-2 opacity-70">
-              Bitte gib <span className="font-black text-red-500">"delete"</span> ein um zu bestätigen:
-            </p>
-            <input
-              type="text"
-              value={deleteProfileInput}
-              onChange={e => setDeleteProfileInput(e.target.value)}
-              placeholder="delete"
-              className={`w-full p-3 rounded-xl border-2 font-bold mb-4 bg-transparent ${
-                deleteProfileInput === 'delete' ? 'border-red-500' : 'border-gray-500/30'
-              }`}
-            />
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteProfileModal(false);
-                  setDeleteProfileInput('');
-                }}
-                className="flex-1 py-3 rounded-xl border-2 font-bold cursor-pointer"
-                style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                disabled={deleteProfileInput !== 'delete' || deletingProfile}
-                onClick={handleDeleteProfile}
-                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {deletingProfile ? 'Wird gelöscht...' : 'Löschen bestätigen'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AUTH MODAL (LOGIN / REGISTER / FORGOT) */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-[800] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className={`w-full md:max-w-sm rounded-t-3xl md:rounded-3xl flex flex-col max-h-[92dvh] shadow-2xl ${darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900'}`}>
-            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-500/20">
-              <h3 className="text-xl font-black" style={{ color: BRAND_COLOR }}>
-                {authMode === 'login' ? '🔑 Anmelden' : authMode === 'register' ? '✨ Registrieren' : '🔑 Passwort zurücksetzen'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => { setShowAuthModal(false); setAuthSuccess(null); setAuthError(null); }}
-                className="opacity-50 hover:opacity-100 text-xl font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {authMode === 'forgot' ? (
-                <>
-                  <p className="text-xs opacity-70">
-                    Gib deine E-Mail-Adresse ein. Wir senden dir einen Link zum Zurücksetzen deines Passworts.
-                  </p>
-                  <div>
-                    <label className="text-xs font-black uppercase opacity-60 block mb-1">E-Mail</label>
-                    <input
-                      type="email"
-                      value={authEmailOrUsername}
-                      onChange={e => setAuthEmailOrUsername(e.target.value)}
-                      placeholder="email@beispiel.de"
-                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                    />
-                  </div>
-                  {authError && (
-                    <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
-                  )}
-                  {authSuccess && (
-                    <p className="text-xs text-emerald-500 font-bold">✅ {authSuccess}</p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleForgotPassword}
-                    disabled={authSubmitLoading}
-                    className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
-                    style={{ backgroundColor: BRAND_COLOR }}
-                  >
-                    {authSubmitLoading ? '...' : 'Reset-Link senden'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthMode('login');
-                      setAuthError(null);
-                      setAuthSuccess(null);
-                    }}
-                    className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
-                  >
-                    ← Zurück zum Anmelden
-                  </button>
-                </>
-              ) : (
-                <>
-                  {authMode === 'register' && (
-                    <div>
-                      <label className="text-xs font-black uppercase opacity-60 block mb-1">Nutzername</label>
-                      <input
-                        type="text"
-                        value={authUsername}
-                        onChange={e => setAuthUsername(e.target.value)}
-                        placeholder="dein_nutzername"
-                        className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                      />
-                    </div>
-                  )}
-                  <div>
-                    <label className="text-xs font-black uppercase opacity-60 block mb-1">
-                      {authMode === 'login' ? 'Benutzername oder E-Mail' : 'E-Mail'}
-                    </label>
-                    <input
-                      type="text"
-                      value={authEmailOrUsername}
-                      onChange={e => setAuthEmailOrUsername(e.target.value)}
-                      placeholder={authMode === 'login' ? 'benutzername oder email@beispiel.de' : 'email@beispiel.de'}
-                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-black uppercase opacity-60 block">Passwort</label>
-                      {authMode === 'login' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAuthMode('forgot');
-                            setAuthError(null);
-                            setAuthSuccess(null);
-                          }}
-                          className="text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer"
-                          style={{ color: BRAND_COLOR }}
-                        >
-                          Passwort vergessen?
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="password"
-                      value={authPassword}
-                      onChange={e => setAuthPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className={`w-full p-3 rounded-xl border-2 font-bold bg-transparent ${darkMode ? 'border-white/20' : 'border-black/20'}`}
-                    />
-                  </div>
-                  {authError && (
-                    <p className="text-xs text-red-500 font-bold">❌ {authError}</p>
-                  )}
-                  {authSuccess && (
-                    <p className="text-xs text-emerald-500 font-bold">✅ {authSuccess}</p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={authMode === 'login' ? handleSignIn : handleSignUp}
-                    disabled={authSubmitLoading}
-                    className="w-full py-4 rounded-2xl text-white font-black disabled:opacity-50 cursor-pointer shadow active:scale-95"
-                    style={{ backgroundColor: BRAND_COLOR }}
-                  >
-                    {authSubmitLoading ? '...' : authMode === 'login' ? 'Anmelden' : 'Registrieren'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthMode(authMode === 'login' ? 'register' : 'login');
-                      setAuthError(null);
-                      setAuthSuccess(null);
-                    }}
-                    className="w-full text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer pt-2"
-                  >
-                    {authMode === 'login' ? 'Noch kein Account? Registrieren' : 'Bereits registriert? Anmelden'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default App;
+       x��Y�n���+*���j>DӖeI�^Nx�)@�FT�]dWX�jTU�1Y$�d��n���d�?��r����GuS�Ab׫��=��S�Y?j��E�j�}D��b����[��7��=��;����2��G0�E���)�#+r!����k��d�}D�
+�Qm�m�{K�5���w3g3�"�� ���'��FH�ΙK4�r&ħ��\�D�/�[�G��b��	��uG�d�y��M�pfU���&�1O��Ȍ	�p��񠛎4O/���-;X���X�X1'�!I�GN/�p�Ӄ�a�����p�ӆ������|r���Gv��Y=*"v_��J�q�	X���p�1�sr>a�@��R�mAV�<	�> _|J�8;m�H�b!�p"N���8�TQ:�r.d��U^�kBA��_�H�q��
+����1�v`K2p0S;�������c��}��g��w���N��2R�(-r�����I�m����\;��Ni8�.z�Y���گ]4dd� �'2E4�m,.��!��� bq�t+x?6�+m���O�M�yDJ��)j�L##���k.g>�Yq��2U�WT�ݏ��awO���G&D`f k�*��������v�V�W��:�j�^��aA�8s�oa�z���%��D�|v���3i�Ay��60��#�U}�fg�j�<Ϩ#k�u��Qݴ�)g�+��K�ԅ�g0��S��Mn���R����B��n��k2�sٶ�nSۮ��6��k;�T`������y��&�#t~}���o.޽}w�V���R<�����Pp������O��ot�{8����! =aQUu޴�Q�K�
+�������O��Oty����9{s��zwy�6G�K	1r�^�Sa���W���s�#Bt9]��s{8�o ���0�(qu�k�AK,���pH'Z�Q�\���n(mcy���?��9��G�s�&x��tNO����g��JH��e���Z�*×e�4��ڤa����Fe�2[�ۗ�i��$Pe��n���2�Y���
+�I����d�rRlHyA?��$�Y>��("�Ò����Z�*:
+�$Y8(H0[R�jΙ��;&��^�B�c�AhHuL>E�.(����v�	����m��RJZfI�piVz�;��k"c�Z!`:,�3�p�_�[#r��6��V5����V������l6��Y4?Cz�CA�pp�x���DvY��*���Z�y_t�0ӈ�a :/)h��ñ�H���
+a���؅0@����CP�r�ހo�әP2��� �З�����	�R�|K�}4�B� ���� �en��Dw#K;��(}/  i2O�5�����	
+�M�K�2��\ M.z�X �CC��w�s�8��[�����~
+߷ܘ�.}���q_sY �3���cSȈ�!�ϒ�~N����Ț{j�OE�l��L����̨�ш��Ю��G�P0v۶~NT�!|�x�o�d�������S��<�h���>̅�h��D���`It��#��m]uy9��j�X�)�Ԕ���j���Ss�M@�J�� ��OSf����)�Y9Q��Bqլ#[1��YV���B`y�c��������'o�xTx,4�F氈f��JP�@�~gm}��~OL>5�-B���Ө)T7�l$��F؅�0.%	R_n;*.1�
+�6,���x��{��+=% ��E5��� ��d֎6��H�u����&�^Z0�!O�u��E���5ӒN�������ņ�6�+H�uaP];�n�pe4���@�g���vN?}��!1�Q�%�������B{��VK�d���F��-����,N�0vu���VV��>u���IUr6���/���Blh�Vf��vJ�zS��R�p���z�VPd0�W�Xx����"M�e��4�	V{�AL2� �>/��$3S�[�^{�\b7�����*�?�\<�$\�f�񙰹5��r�g��ǿ�)�8U���8�S���� ����Z����W��"���=V1e�F��@�@n+�7�8�o����������U�� 7��R]՚�9?g��R���P��`:H�@nJ�,6S)1���U�w�*�n@�Qr��R!����w�p�3�y��M]�t�m���82W�����6��Ғ:'�Sr$=̈�r`���Q�2���O����~���U. ���z[Z'/�0aĕI����۠����dF�Vo�.�6X���ƽWO��̍4���]�Eѫ'�  �� i�B

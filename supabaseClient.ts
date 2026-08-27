@@ -1,11 +1,25 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || 'placeholder-anon-key';
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-if (!(import.meta as any).env?.VITE_SUPABASE_URL || !(import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY) {
-  console.warn('Supabase VITE_SUPABASE_URL oder VITE_SUPABASE_PUBLISHABLE_KEY fehlt!');
-}
+console.log('=== SUPABASE INIT ===');
+console.log('URL vorhanden:', !!supabaseUrl);
+console.log('Key vorhanden:', !!supabaseKey);
+console.log('URL:', supabaseUrl?.substring(0, 30));
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseKey || 'placeholder-anon-key'
+);
+
+// Sofortiger Verbindungstest:
+supabase.from('profiles').select('count').limit(1).then(({ data, error }) => {
+  if (error) {
+    console.error('❌ SUPABASE VERBINDUNG FEHLGESCHLAGEN:', error.message, error.code);
+  } else {
+    console.log('✅ SUPABASE VERBINDUNG OK');
+  }
+});
+

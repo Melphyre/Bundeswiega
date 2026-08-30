@@ -41,6 +41,7 @@ import SqlMigrationModal from './src/components/SqlMigrationModal';
 import TournamentMigrationModal from './src/components/TournamentMigrationModal';
 import CsvEditModal from './src/components/CsvEditModal';
 import DbRepairModal from './src/components/DbRepairModal';
+import ProfileModal from './src/components/ProfileModal';
 
 declare const html2canvas: any;
 
@@ -8913,6 +8914,61 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+            {/* 👤 PROFIL MODAL */}
+      <ProfileModal
+        showProfileModal={showProfileModal}
+        setShowProfileModal={setShowProfileModal}
+        supabaseUser={supabaseUser}
+        darkMode={darkMode}
+        isAdmin={isAdmin}
+        profileTab={profileTab}
+        setProfileTab={setProfileTab}
+        profileUsername={profileUsername}
+        setProfileUsername={setProfileUsername}
+        handleUsernameChange={handleUsernameChange}
+        profileSaveState={profileSaveState}
+        setProfileSaveState={setProfileSaveState}
+        profileSaveMessage={profileSaveMessage}
+        setProfileSaveMessage={setProfileSaveMessage}
+        profileEmail={profileEmail}
+        setProfileEmail={setProfileEmail}
+        profileNewPw={profileNewPw}
+        setProfileNewPw={setProfileNewPw}
+        profileNewPwConfirm={profileNewPwConfirm}
+        setProfileNewPwConfirm={setProfileNewPwConfirm}
+        privacyState={privacyState}
+        setPrivacyState={setPrivacyState}
+        handleSavePrivacy={handleSavePrivacy}
+        profileLoadingSection={profileLoadingSection}
+        profileSaveMessageOld={profileSaveMessageOld}
+        profileStats={profileStats}
+        myGameData={myGameData}
+        myAchievementsData={myAchievementsData}
+        recordsSubTab={recordsSubTab}
+        setRecordsSubTab={setRecordsSubTab}
+        recordsSortBy={recordsSortBy}
+        setRecordsSortBy={setRecordsSortBy}
+        recordsSortDir={recordsSortDir}
+        setRecordsSortDir={setRecordsSortDir}
+        friends={friends}
+        pendingRequests={pendingRequests}
+        friendSearchQuery={friendSearchQuery}
+        setFriendSearchQuery={setFriendSearchQuery}
+        friendRequestError={friendRequestError}
+        friendRequestSuccess={friendRequestSuccess}
+        handleSendFriendRequest={handleSendFriendRequest}
+        handleAcceptFriendRequest={handleAcceptFriendRequest}
+        handleRejectFriendRequest={handleRejectFriendRequest}
+        handleRemoveFriend={handleRemoveFriend}
+        showDeleteProfileModal={showDeleteProfileModal}
+        setShowDeleteProfileModal={setShowDeleteProfileModal}
+        deleteProfileInput={deleteProfileInput}
+        setDeleteProfileInput={setDeleteProfileInput}
+        deletingProfile={deletingProfile}
+        handleDeleteProfile={handleDeleteProfile}
+        refreshUserData={refreshUserData}
+      />
 
       {/* 🗄️ SQL MIGRATION MODAL */}
       <SqlMigrationModal

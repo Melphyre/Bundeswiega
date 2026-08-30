@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabaseClient';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -1300,9 +1300,16 @@ const App: React.FC = () => {
   const [authSubmitLoading, setAuthSubmitLoading] = useState(false);
 
   useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setAuthLoading(false);
+      return;
+    }
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSupabaseSession(session);
       setSupabaseUser(session?.user ?? null);
+      setAuthLoading(false);
+    }).catch(err => {
+      console.warn('Supabase getSession warning:', err);
       setAuthLoading(false);
     });
 
@@ -1659,11 +1666,7 @@ const App: React.FC = () => {
   };
 
   const loadMyResults = async () => {
-    console.log('=== loadMyResults START ===');
-    console.log('supabaseUser:', supabaseUser?.id);
-
-    if (!supabaseUser) {
-      console.warn('❌ loadMyResults: kein supabaseUser');
+    if (!supabaseUser || !isSupabaseConfigured()) {
       return;
     }
 
@@ -1693,7 +1696,7 @@ const App: React.FC = () => {
   };
 
   const loadMyAchievements = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser || !isSupabaseConfigured()) return;
     try {
       const { data, error } = await supabase
         .from('achievements')
@@ -2705,7 +2708,7 @@ const App: React.FC = () => {
 
   // Friends Functions & Effects
   const loadFriends = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser || !isSupabaseConfigured()) return;
 
     const { data: friendships, error } = await supabase
       .from('friendships')
@@ -4866,87 +4869,71 @@ const App: React.FC = () => {
         console.error('❌ CSV Fehler:', e);
       }
 
-      // Test 2: Supabase game_results direkt
-      const { data: testData, error: testError } = await supabase
-        .from('game_results')
-        .select('id, user_id, game_mode, date, avg, schnaepse, total')
-        .limit(5);
-
-      console.log('=== SUPABASE game_results TEST ===');
-      console.log('Error:', testError?.message, testError?.code);
-      console.log('Data:', testData);
-
-      // Test 3: Profiles direkt
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, username, show_records')
-        .limit(5);
-
-      console.log('=== SUPABASE profiles TEST ===');
-      console.log('Error:', profileError?.message, profileError?.code);
-      console.log('Data:', profileData);
-
-      // 2. Supabase game_results laden
-      const { data: supabaseResults, error: resultsError } = await supabase
-        .from('game_results')
-        .select('id, user_id, game_mode, date, avg, schnaepse, total, levels, time_seconds, team_name');
-
-      if (resultsError) {
-        console.error('game_results fetch error:', resultsError.message);
-      }
-
-      // 3. Profiles separat laden
-      const { data: allProfiles } = await supabase
-        .from('profiles')
-        .select('id, username, show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements');
-
-      // Profile-Map erstellen
+      // 2. Supabase Ergebnisse nur laden, wenn Supabase konfiguriert ist
+      let supabaseRows: string[][] = [];
       const profileMap: Record<string, any> = {};
-      (allProfiles || []).forEach(p => { profileMap[p.id] = p; });
 
-      // 4. Achievements laden
-      const { data: supabaseAchievements } = await supabase
-        .from('achievements')
-        .select('user_id, achievement_id, title, icon, rarity, game_mode, earned_with, earned_together, date');
+      if (isSupabaseConfigured()) {
+        try {
+          const { data: supabaseResults, error: resultsError } = await supabase
+            .from('game_results')
+            .select('id, user_id, game_mode, date, avg, schnaepse, total, levels, time_seconds, team_name');
 
-      // 5. Supabase Ergebnisse filtern und konvertieren
-      const supabaseRows: string[][] = (supabaseResults || [])
-        .filter(r => {
-          const profile = profileMap[r.user_id];
-          if (!profile) return false;
-          if (profile.show_records === false) return false;
-          if (r.game_mode?.includes('Standardspiel') && profile.show_standardspiel === false) return false;
-          if (r.game_mode?.includes('Speedwiegen') && profile.show_speedwiegen === false) return false;
-          if (r.game_mode?.includes('Teamwiegen') && profile.show_teamwiegen === false) return false;
-          return true;
-        })
-        .map(r => {
-          const profile = profileMap[r.user_id];
-          const entryAchs = (supabaseAchievements || [])
-            .filter(a =>
-              a.user_id === r.user_id &&
-              a.date === r.date &&
-              a.game_mode === r.game_mode
-            )
-            .map(a => ({
-              id: a.achievement_id,
-              title: a.title,
-              icon: a.icon,
-              rarity: a.rarity,
-              earnedBy: a.earned_with,
-              earnedTogether: a.earned_together
-            }));
+          if (resultsError) {
+            console.warn('game_results fetch warning:', resultsError.message);
+          }
 
-          return [
-            r.date || '',
-            r.game_mode || '',
-            profile?.username || '',
-            r.avg?.toString() || '0',
-            r.schnaepse?.toString() || '0',
-            r.total?.toString() || '0',
-            entryAchs.length > 0 ? JSON.stringify(entryAchs) : ''
-          ];
-        });
+          const { data: allProfiles } = await supabase
+            .from('profiles')
+            .select('id, username, show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements');
+
+          (allProfiles || []).forEach(p => { profileMap[p.id] = p; });
+
+          const { data: supabaseAchievements } = await supabase
+            .from('achievements')
+            .select('user_id, achievement_id, title, icon, rarity, game_mode, earned_with, earned_together, date');
+
+          supabaseRows = (supabaseResults || [])
+            .filter(r => {
+              const profile = profileMap[r.user_id];
+              if (!profile) return false;
+              if (profile.show_records === false) return false;
+              if (r.game_mode?.includes('Standardspiel') && profile.show_standardspiel === false) return false;
+              if (r.game_mode?.includes('Speedwiegen') && profile.show_speedwiegen === false) return false;
+              if (r.game_mode?.includes('Teamwiegen') && profile.show_teamwiegen === false) return false;
+              return true;
+            })
+            .map(r => {
+              const profile = profileMap[r.user_id];
+              const entryAchs = (supabaseAchievements || [])
+                .filter(a =>
+                  a.user_id === r.user_id &&
+                  a.date === r.date &&
+                  a.game_mode === r.game_mode
+                )
+                .map(a => ({
+                  id: a.achievement_id,
+                  title: a.title,
+                  icon: a.icon,
+                  rarity: a.rarity,
+                  earnedBy: a.earned_with,
+                  earnedTogether: a.earned_together
+                }));
+
+              return [
+                r.date || '',
+                r.game_mode || '',
+                profile?.username || '',
+                r.avg?.toString() || '0',
+                r.schnaepse?.toString() || '0',
+                r.total?.toString() || '0',
+                entryAchs.length > 0 ? JSON.stringify(entryAchs) : ''
+              ];
+            });
+        } catch (supaErr: any) {
+          console.warn('Supabase fetchRecords warning:', supaErr?.message || supaErr);
+        }
+      }
 
       // 6. Duplikate zwischen CSV und Supabase vermeiden
       const supabaseUsernames = new Set(
@@ -10446,15 +10433,16 @@ const App: React.FC = () => {
                         {[0, 1, 2, 3, 4, 5].map(colIdx => (
                           <td key={colIdx} className="p-1">
                             <input
-       x��Y�n���+�������,)�ˉ�x ��0"V��iv�@��1=�HV	0�d�L  ��B�l�'���r�bu׃�-M� ����{�9��6BΏ���hC���x�Q|Ƙe�h.��m�٫p�}�5�ܼY3�'g1N"�J��1��+r&�g��-XV�A��;�tQ��ukK����o�1�R���G�gIHB�E��"$x�<�����Nd�I�g��=��yB!��yH���f��7��"���&:X��Cݶf��������>쪰�{��UX2�lc��L)���)���`x4���>	#�Ǘ|b]�ƕ����1�|�����^�5�\�m�̘��8(M�������#��������߬tFn��uV������F��p֜�g��Q[����Jۼ�zɹ�|֭��U�<���T�%xf͌�L�b$� �+�6��f�OԄ�Č�d,h2�z���Տ6��"��*"%z�m�L�N*�P b�����:4G�_Som~���ۚ�f��A�!xu�@_��j�]�7ڜ��uV�De��Â�ޞ�����?�v1��lI�U�'g�A1�`&�R]F�`�μ���5}cŚ�Y��yOz��EC�dBrᥜjt57�rʉ�Ĥi�v�~�I<6��@'B*5eãh�&�zk��Ay�	Q5�!��<�m[Y{ߩ�R�k�|xCd�������ߜ�y���4O��K�ԚwW)��(�t:ù���z�{8����	 ݎp�m�tШ)��A�G��������w�@����˓W���7�'�K�9���s����
-C��^5�K�$D4vy=�����~��
-!��F�#�n<�����В	o"��$[�š�[ц�6�����:�>A�� ����z�mh�1��ۅQ�� T�H�[ϣ*9S�I�7�hl'�O{�X�d*�ȭ�-��딓����{��7��M����.�ڍ�$8�C�3�ԃX�1E�R�AqEȋ���ˉ��D�Ҕ� K���+��Q� )��n%GrZ9$����ɍ��.uL01�ܐ�8"�B�9�	 ��В�c�a7�k��(�j}���y�*��Q��,:.�̘�J ���P�J��你�ZF.�RC��������k�t�-�;�m��:�l~���H>�p�x��>J�g�L�iy��O{��4ba���sJ �/�d�#�����0c�
-�pQ�m})��2"w�/�(�&<�1%cH���@��2���F8�WɐC��`��H���\R�<$fD�x *s��F��ɘ��#�^@@�D�5�����!Ҧ��2�ј��ECO`�	�whH�)�w
-$�R�i�5��Z���ƌ��שY����"3�y�yW�آ2�I� ��sl���B{�rRGL�'G%��P��XdhW� Q0v[�~)�\@�"�6��86&TI���������gz��>�A{7.������`It��#��v�:�N��rָ���P�R��#�O�57O JW*}��	����=���e�<[(U��{ղ�k��;]��ḱ�s���A���`�T,Oh��La��v+A�V }��-)bn˹[6�Z����Z�@*R7�,:�F؇J3.%I~�^�:�.1�
-�4*�T�h)��{ݱ˞�����f�` ������^[a=m
-r�s�x�sp������jb-Γ���v���<�+)��6�B׭���!\�_�5�1�l����ۿ�3�.	�-�D�m�:#�nm1��Dé���_X}HfGs{s<��n�[|�
-�����l6��_p�w����m"̴��m��u�ܭ)������ݵ�(`�������E�9�N˜��&�پb�0���xi�?y03�E,�w�W���@�a7�be����y!wE&�7��w|"l�����X�I���o��	���=;Հ����𻿣9L��zu���+��cS�kD�5 Ry�������]�9{���p^����/-�1���3�;~7,by5�/��W�/���TI�S�Tb��4gl�
-7J��6*���Ο1NBF
-o5ݳ��׮�+�6-�,���⨭M����Ήp��� 3�=�w���(�
-����`����n.��% ��eQo�u��F\��d
-�L��9y={7�ё���.�68������LMj�ֻ<I��  �� ~���
+                              type="text"
+                              value={row[colIdx] || ''}
+                              onChange={e => updateCsvCell(rowIdx, colIdx, e.target.value)}
+                              className={`w-full p-1.5 rounded-lg border font-bold bg-transparent text-xs ${
+                                darkMode ? 'x��Y[o�~ϯ`�El/2�,Ź8����n�}5g�Ұ����e��}j��7�e�e�B}�?�h~B93�\8#{�X�ې�|�w�|!C"�YD5��{�� m�i��p06mP�����uD������������u����O��V��m���O��u���1���;�����M���R�v���
+�-�1��~f�0a��:�H���$���#O·�^���C��u����k�,L��
+EbJ�AaJ��ղ���#�����?����H�봹�����F�pQ��g��QY����R۲�)z)�&}ڭ��e�<F�u�e$�"3322G@����͊�K��Å�=#����$�c�W�ޡ�]�h�@M/B���  J��ю�4*Ƽ���u��5F>���QK�~Cu������o�_�m;�L���"����m���k���.4�O��;sV�DE�X�Â������f�E��.�T�������,=�g"�lg��"N�Q3���������oR<!g�z�=�eL����A"��^,�AW}�.����$AD�&h��G0��S#�g�#�BH��lx��R>�l���41(m�!�b5�%�j*���v�����������ȇ7����� �^�|~�۳7��\���	\~)����*&%y�ӱ��p���w��)eV� �l�v�M�tШ.��A�G�w��H�ۿ���O���'�.�go�O^�s��#��%�1��$e����I�(vy=�����~�!����t�Y�:$�"��Dz�aN'X������-iCe��L����O�$<��gh���̄�,4��b��aT*: �<�A^Kf��	��-lV1���@�lB���+�5M�FrK��@r`�b�uc�yo���Qf@l��bm��k��;D<�N5���'~(��ѱ[B^4(�/%2+9�c"��!n0�x��"� I���h��{Z�����1�Ƭsp�1#�HB95�|�$�]Rh���v؍���m��JHZ�A�D�,*�0�y�%Q	�;0�*e��P�rJX�od�:��5���n�����fM��5evg�-��F��l~�̖�H��p�E��=K�/�3u�ŵ��>�!43���a:�)h�L��D$xͻ��a����r��Cʈz�~o@�7��$�(�B����K !UDc��p2D��X@�S`��	��BJ:�yHĈ��T�*�LL7�0���|���" R6�d[Ͱ]YR c*\��M�DF\�$։}��N��S q�Nͭq�}��0��ka��N}���k_{Y �sϻ���P1���A�<�����J{�rREL��&[��Q�ɐa\����D��m����r����~�؈P�2�u��Oݦw8��u�P�a
+ڻ�p�F�O��4 K�SlQe�s��u��Y���m����O�X�^x��iP�R�{|��g!��9��T��5��f��@yռcP.�Vk�ӕ(��6�d�>�9(�����ʀ�	��9,b�n-)�
+�ϼ�� y�m8w����ӌ5�J��I�M#��%��P��_4W��KL�F/�����������]�)�pL!��m��9;: �#�c�k*#l�MNν�@�E
+��{{���&����4y\LjY�z��^)�}�D�F�uv}?�+����=��M|S�p��?@`�#.����m�Bg��F9y�h8����+����h	co��fލSc�OS��qR]���M�na�ڱu������
+���R���X���檛� �ở"��:�1i��4�	nvt�|�?^j�O�lyo��:���n+PK��M�XeC�G���RȻ"�����L;>67��~!�~T<����YĩC�t��a/�j���X������_��4�~E�S{{�c�y�a�XC����R�����C6��n��%���K�zL������_0��^%��JW�/���TJ�S�Tb���g��
+7J���*���Ο�!#����Y��+��֪M�#ep��8jk3j$-�s"h:%*��x��]u�*
+2�|Rt�i�_W�S7W��?� ��2��eu��F\HN�p�l܆���������[�K��z��q��h"s���d��.O��Ń�   �� �\ou

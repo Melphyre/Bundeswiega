@@ -1,8 +1,11 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) console.error('❌ VITE_SUPABASE_URL fehlt!');
+if (!supabaseKey) console.error('❌ VITE_SUPABASE_PUBLISHABLE_KEY fehlt!');
 
 export const isSupabaseConfigured = (): boolean => {
   return (
@@ -15,19 +18,19 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 export const supabase = createClient(
-  isSupabaseConfigured() ? supabaseUrl : 'https://placeholder.supabase.co',
-  isSupabaseConfigured() ? supabaseKey : 'placeholder-anon-key'
+  supabaseUrl || '',
+  supabaseKey || ''
 );
 
 if (isSupabaseConfigured()) {
   console.log('=== SUPABASE INIT ===');
   console.log('URL vorhanden:', true);
   console.log('Key vorhanden:', true);
-  console.log('URL:', supabaseUrl.substring(0, 30));
+  console.log('URL:', supabaseUrl?.substring(0, 30));
 
   // Sanfter Verbindungstest
   Promise.resolve(supabase.from('profiles').select('count').limit(1))
-    .then(({ data, error }) => {
+    .then(({ error }) => {
       if (error) {
         console.warn('⚠️ Supabase Verbindungswarnung:', error.message, error.code);
       } else {
@@ -40,3 +43,4 @@ if (isSupabaseConfigured()) {
 } else {
   console.log('ℹ️ Supabase ist nicht konfiguriert oder Platzhalter aktiv');
 }
+

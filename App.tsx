@@ -362,17 +362,25 @@ const App: React.FC = () => {
   });
 
   const loadProfileStats = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser?.id) return;
     try {
-      const { data: results } = await supabase
+      const { data: results, error: resErr } = await supabase
         .from('game_results')
         .select('avg, schnaepse')
         .eq('user_id', supabaseUser.id);
 
-      const { count: achCount } = await supabase
+      if (resErr) {
+        console.error('loadProfileStats game_results error:', resErr);
+      }
+
+      const { count: achCount, error: achErr } = await supabase
         .from('achievements')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', supabaseUser.id);
+
+      if (achErr) {
+        console.error('loadProfileStats achievements count error:', achErr);
+      }
 
       const gamesPlayed = results?.length || 0;
       const totalSchnaepse = results?.reduce((s, r) => s + (r.schnaepse || 0), 0) || 0;
@@ -391,7 +399,7 @@ const App: React.FC = () => {
   };
 
   const loadMyProfileData = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser?.id) return;
     try {
       const { data: resData } = await supabase
         .from('game_results')
@@ -409,11 +417,15 @@ const App: React.FC = () => {
 
       if (achData) setMyAchievementsData(achData);
 
-      const { data: prof } = await supabase
+      const { data: prof, error: profErr } = await supabase
         .from('profiles')
         .select('show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements')
         .eq('id', supabaseUser.id)
         .maybeSingle();
+
+      if (profErr) {
+        console.error('loadMyProfileData profiles error:', profErr);
+      }
 
       if (prof) {
         setPrivacyState({
@@ -431,7 +443,8 @@ const App: React.FC = () => {
   };
 
   const loadMyResults = async () => {
-    if (!supabaseUser || !isSupabaseConfigured()) {
+    if (!supabaseUser?.id) {
+      console.warn('loadMyResults: keine User ID');
       return;
     }
 
@@ -442,26 +455,26 @@ const App: React.FC = () => {
         .eq('user_id', supabaseUser.id)
         .order('created_at', { ascending: false });
 
-      console.log('game_results Status:', status, statusText);
-      console.log('game_results Error:', error);
-      console.log('game_results Data:', data);
-      console.log('game_results Count:', data?.length);
-
       if (error) {
         console.error('❌ game_results Fehler:', error.message, error.code, (error as any).details, (error as any).hint);
         setMyGameData([]);
         return;
       }
+
+      console.log('game_results geladen:', data?.length, 'Einträge');
       setMyGameData(data || []);
-      console.log('✅ myGameData gesetzt:', data?.length, 'Einträge');
     } catch (err: any) {
-      console.error('loadMyResults catch:', err.message);
+      console.error('loadMyResults Exception:', err.message);
       setMyGameData([]);
     }
   };
 
   const loadMyAchievements = async () => {
-    if (!supabaseUser || !isSupabaseConfigured()) return;
+    if (!supabaseUser?.id) {
+      console.warn('loadMyAchievements: keine User ID');
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('achievements')
@@ -474,15 +487,17 @@ const App: React.FC = () => {
         setMyAchievementsData([]);
         return;
       }
+
+      console.log('achievements geladen:', data?.length, 'Einträge');
       setMyAchievementsData(data || []);
     } catch (err: any) {
-      console.error('loadMyAchievements catch:', err.message);
+      console.error('loadMyAchievements Exception:', err.message);
       setMyAchievementsData([]);
     }
   };
 
   const loadFriendships = async () => {
-    if (!supabaseUser) return;
+    if (!supabaseUser?.id) return;
     try {
       const { data: rels } = await supabase
         .from('friendships')
@@ -544,12 +559,11 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    console.log('=== showProfileModal useEffect ===');
-    console.log('showProfileModal:', showProfileModal);
-    console.log('supabaseUser:', supabaseUser?.id);
+    if (!showProfileModal || !supabaseUser) return;
 
-    if (showProfileModal && supabaseUser) {
-      console.log('→ Lade Profil-Daten...');
+    // Kurze Verzögerung damit React den Modal-State gesetzt hat
+    const timer = setTimeout(() => {
+      console.log('→ Lade Profil-Daten für:', supabaseUser.id);
       loadProfileStats();
       loadMyProfileData();
       loadMyResults();
@@ -557,12 +571,9 @@ const App: React.FC = () => {
       if (profileTab === 'freunde') {
         loadFriendships();
       }
-    } else {
-      console.warn('→ NICHT geladen weil:', {
-        showProfileModal,
-        supabaseUser: !!supabaseUser
-      });
-    }
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [showProfileModal, supabaseUser?.id]);
 
   useEffect(() => {

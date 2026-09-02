@@ -1,6 +1,19 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+
+// Normalize Supabase URL in process.env
+if (process.env.VITE_SUPABASE_URL) {
+  if (process.env.VITE_SUPABASE_URL.includes('.supabase.com')) {
+    process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL.replace('.supabase.com', '.supabase.co');
+  } else if (!process.env.VITE_SUPABASE_URL.includes('.supabase.co')) {
+    const clean = process.env.VITE_SUPABASE_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    if (!clean.includes('.')) {
+      process.env.VITE_SUPABASE_URL = `https://${clean}.supabase.co`;
+    }
+  }
+}
+
 import apiHandler from "./api/index";
 
 // Setup express app

@@ -1,46 +1,57 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+let rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+
+// Automatische Korrektur: Falls .supabase.com statt .supabase.co oder reine Projekt-ID angegeben wurde
+if (rawUrl.includes('.supabase.com')) {
+  rawUrl = rawUrl.replace('.supabase.com', '.supabase.co');
+} else if (rawUrl && !rawUrl.includes('.supabase.co')) {
+  const clean = rawUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  if (!clean.includes('.')) {
+    rawUrl = `https://${clean}.supabase.co`;
+  }
+}
+
+const supabaseUrl = rawUrl;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl) console.error('❌ VITE_SUPABASE_URL fehlt!');
-if (!supabaseKey) console.error('❌ VITE_SUPABASE_PUBLISHABLE_KEY fehlt!');
+// Validierung
+if (!supabaseUrl || !supabaseUrl.includes('supabase.co')) {
+  console.error('❌ VITE_SUPABASE_URL ungültig:', supabaseUrl);
+}
+if (!supabaseKey) {
+  console.error('❌ VITE_SUPABASE_PUBLISHABLE_KEY fehlt');
+}
 
 export const isSupabaseConfigured = (): boolean => {
   return (
     !!supabaseUrl &&
     !!supabaseKey &&
+    supabaseUrl.includes('supabase.co') &&
     !supabaseUrl.includes('placeholder') &&
-    !supabaseKey.includes('placeholder') &&
-    supabaseUrl.startsWith('http')
+    !supabaseKey.includes('placeholder')
   );
 };
 
 export const supabase = createClient(
   supabaseUrl || '',
-  supabaseKey || ''
+  supabaseKey || '',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+    }
+  }
 );
 
-if (isSupabaseConfigured()) {
-  console.log('=== SUPABASE INIT ===');
-  console.log('URL vorhanden:', true);
-  console.log('Key vorhanden:', true);
-  console.log('URL:', supabaseUrl?.substring(0, 30));
+// Test beim Start
+supabase.from('profiles').select('id').limit(1).then(({ error }) => {
+  if (error) {
+    console.error('❌ Supabase Test fehlgeschlagen:', error.message);
+  } else {
+    console.log('✅ Supabase Verbindung OK');
+  }
+});
 
-  // Sanfter Verbindungstest
-  Promise.resolve(supabase.from('profiles').select('count').limit(1))
-    .then(({ error }) => {
-      if (error) {
-        console.warn('⚠️ Supabase Verbindungswarnung:', error.message, error.code);
-      } else {
-        console.log('✅ SUPABASE VERBINDUNG OK');
-      }
-    })
-    .catch((err) => {
-      console.warn('⚠️ Supabase Verbindungsprüfung fehlgeschlagen:', err?.message || err);
-    });
-} else {
-  console.log('ℹ️ Supabase ist nicht konfiguriert oder Platzhalter aktiv');
-}
 

@@ -42,6 +42,7 @@ import TournamentMigrationModal from './src/components/TournamentMigrationModal'
 import CsvEditModal from './src/components/CsvEditModal';
 import DbRepairModal from './src/components/DbRepairModal';
 import ProfileModal from './src/components/ProfileModal';
+import AuthModal from './src/components/AuthModal';
 
 declare const html2canvas: any;
 
@@ -156,7 +157,7 @@ const App: React.FC = () => {
     }
 
     // Registrierung durchführen
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: authEmailOrUsername.trim(),
       password: authPassword,
       options: {
@@ -171,7 +172,11 @@ const App: React.FC = () => {
       setAuthError(error.message);
     } else {
       setAuthError(null);
-      setShowAuthModal(false);
+      if (signUpData?.session) {
+        setShowAuthModal(false);
+      } else {
+        setAuthSuccess('Registrierung erfolgreich! Falls erforderlich, bestätige bitte den Link in deinem E-Mail-Postfach.');
+      }
     }
     setAuthSubmitLoading(false);
   };
@@ -8926,7 +8931,30 @@ const App: React.FC = () => {
         </div>
       )}
 
-            {/* 👤 PROFIL MODAL */}
+      {/* 🔐 AUTH MODAL (Anmelden / Registrieren) */}
+      <AuthModal
+        showAuthModal={showAuthModal}
+        setShowAuthModal={setShowAuthModal}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        authEmailOrUsername={authEmailOrUsername}
+        setAuthEmailOrUsername={setAuthEmailOrUsername}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authUsername={authUsername}
+        setAuthUsername={setAuthUsername}
+        authError={authError}
+        setAuthError={setAuthError}
+        authSuccess={authSuccess}
+        setAuthSuccess={setAuthSuccess}
+        authSubmitLoading={authSubmitLoading}
+        handleSignIn={handleSignIn}
+        handleSignUp={handleSignUp}
+        handleForgotPassword={handleForgotPassword}
+        darkMode={darkMode}
+      />
+
+      {/* 👤 PROFIL MODAL */}
       <ProfileModal
         showProfileModal={showProfileModal}
         setShowProfileModal={setShowProfileModal}

@@ -4,21 +4,32 @@ import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import fs from 'fs';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+let rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
+if (rawSupabaseUrl.includes('.supabase.com')) {
+  rawSupabaseUrl = rawSupabaseUrl.replace('.supabase.com', '.supabase.co');
+} else if (rawSupabaseUrl && !rawSupabaseUrl.includes('.supabase.co')) {
+  const clean = rawSupabaseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  if (!clean.includes('.')) {
+    rawSupabaseUrl = `https://${clean}.supabase.co`;
+  }
+}
+
+const supabaseUrl = rawSupabaseUrl;
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
 
 const isSupabaseConfigured = () => {
   return (
     !!supabaseUrl &&
     !!supabaseSecretKey &&
+    supabaseUrl.includes('supabase.co') &&
     !supabaseUrl.includes('placeholder') &&
     !supabaseSecretKey.includes('placeholder')
   );
 };
 
 const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL || '',
-  process.env.SUPABASE_SECRET_KEY || ''
+  supabaseUrl || '',
+  supabaseSecretKey || ''
 );
 
 function getRequestBody(req: VercelRequest): any {

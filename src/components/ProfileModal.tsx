@@ -131,7 +131,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   // Avatar-Update
   const handleUpdateAvatar = async (url: string) => {
-    if (!supabaseUser) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || supabaseUser?.id;
+    if (!currentUserId) return;
     setAvatarLoading(true);
     setAvatarMessage(null);
     try {
@@ -143,7 +145,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       await supabase
         .from('profiles')
         .update({ avatar_url: url.trim() })
-        .eq('id', supabaseUser.id);
+        .eq('id', currentUserId);
 
       setAvatarMessage('✅ Profilbild erfolgreich aktualisiert!');
       if (refreshUserData) await refreshUserData();

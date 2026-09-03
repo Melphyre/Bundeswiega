@@ -200,8 +200,16 @@ const App: React.FC = () => {
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      if (isSupabaseConfigured()) {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('SignOut warning:', err);
+    }
     setSupabaseUser(null);
+    setSupabaseSession(null);
+    setShowProfileModal(false);
     window.location.reload();
   };
   
@@ -366,70 +374,163 @@ const App: React.FC = () => {
     achievementsCount: 0
   });
 
+  const resetUserStates = () => {
+    setSupabaseUser(null);
+    setSupabaseSession(null);
+    setProfileStats({
+      gamesPlayed: 0,
+      totalSchnaepse: 0,
+      bestAvg: null,
+      achievementsCount: 0
+    });
+    setMyGameData([]);
+    setMyAchievementsData([]);
+    setFriends([]);
+    setPendingRequests([]);
+    setProfileUsername('');
+    setProfileEmail('');
+    setProfileCurrentPw('');
+    setProfileNewPw('');
+    setProfileNewPwConfirm('');
+    setProfileSaveMessageOld(null);
+    setProfileSaveState({});
+    setProfileSaveMessage({});
+    setAccountResultsSaved([]);
+    setPlayerAccountLinks({});
+    setTeamMemberAccountLinks({});
+  };
+
   const loadProfileStats = async () => {
-    if (!supabaseUser?.id) return;
+    if (!isSupabaseConfigured()) {
+      setProfileStats({
+        gamesPlayed: 0,
+        totalSchnaepse: 0,
+        bestAvg: null,
+        achievementsCount: 0
+      });
+      return;
+    }
+
+    // 1. Dynamic User-ID: Frisch aus der aktiven Supabase-Session lesen
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    // 2. Sichere Abfragelogik: Vor jedem DB-Fetch prüfen, ob currentUserId vorhanden ist
+    if (!currentUserId) {
+      setProfileStats({
+        gamesPlayed: 0,
+        totalSchnaepse: 0,
+        bestAvg: null,
+        achievementsCount: 0
+      });
+      return;
+    }
+
     try {
       const { data: results, error: resErr } = await supabase
         .from('game_results')
         .select('avg, schnaepse')
-        .eq('user_id', supabaseUser.id);
+        .eq('user_id', currentUserId);
 
       if (resErr) {
-        console.error('loadProfileStats game_results error:', resErr);
+        console.warn('loadProfileStats game_results warning:', resErr.message || resErr);
+      }
+
+      // 3. Clean Error & Empty-State Handling:
+      const safeResults = Array.isArray(results) ? results : [];
+
+      let gamesPlayed = 0;
+      let totalSchnaepse = 0;
+      let bestAvg: number | null = null;
+
+      if (safeResults.length === 0) {
+        gamesPlayed = 0;
+        totalSchnaepse = 0;
+        bestAvg = null;
+      } else {
+        gamesPlayed = safeResults.length;
+        totalSchnaepse = safeResults.reduce((s, r) => s + (Number(r.schnaepse) || 0), 0);
+        const validAvgs = safeResults
+          .map(r => r.avg)
+          .filter((a): a is number => typeof a === 'number' && !isNaN(a) && a !== 999);
+        bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs) : null;
       }
 
       const { count: achCount, error: achErr } = await supabase
         .from('achievements')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', supabaseUser.id);
+        .eq('user_id', currentUserId);
 
       if (achErr) {
-        console.error('loadProfileStats achievements count error:', achErr);
+        console.warn('loadProfileStats achievements count warning:', achErr.message || achErr);
       }
-
-      const gamesPlayed = results?.length || 0;
-      const totalSchnaepse = results?.reduce((s, r) => s + (r.schnaepse || 0), 0) || 0;
-      const validAvgs = (results || []).map(r => r.avg).filter((a): a is number => typeof a === 'number');
-      const bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs) : null;
 
       setProfileStats({
         gamesPlayed,
         totalSchnaepse,
-        bestAvg: bestAvg !== null && bestAvg !== 999 ? bestAvg : null,
+        bestAvg: bestAvg !== null ? Number(bestAvg.toFixed(2)) : null,
         achievementsCount: achCount || 0
       });
     } catch (err) {
       console.error('Error loading profile stats:', err);
+      setProfileStats({
+        gamesPlayed: 0,
+        totalSchnaepse: 0,
+        bestAvg: null,
+        achievementsCount: 0
+      });
     }
   };
 
   const loadMyProfileData = async () => {
-    if (!supabaseUser?.id) return;
+    if (!isSupabaseConfigured()) {
+      setMyGameData([]);
+      setMyAchievementsData([]);
+      return;
+    }
+
+    // 1. Dynamic User-ID
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    // 2. Sichere Abfragelogik
+    if (!currentUserId) {
+      setMyGameData([]);
+      setMyAchievementsData([]);
+      return;
+    }
+
     try {
-      const { data: resData } = await supabase
+      const { data: resData, error: resErr } = await supabase
         .from('game_results')
         .select('*')
-        .eq('user_id', supabaseUser.id)
+        .eq('user_id', currentUserId)
         .order('created_at', { ascending: false });
 
-      if (resData) setMyGameData(resData);
+      if (resErr) {
+        console.warn('loadMyProfileData game_results warning:', resErr.message || resErr);
+      }
+      setMyGameData(Array.isArray(resData) ? resData : []);
 
-      const { data: achData } = await supabase
+      const { data: achData, error: achErr } = await supabase
         .from('achievements')
         .select('*')
-        .eq('user_id', supabaseUser.id)
+        .eq('user_id', currentUserId)
         .order('created_at', { ascending: false });
 
-      if (achData) setMyAchievementsData(achData);
+      if (achErr) {
+        console.warn('loadMyProfileData achievements warning:', achErr.message || achErr);
+      }
+      setMyAchievementsData(Array.isArray(achData) ? achData : []);
 
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
         .select('show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements')
-        .eq('id', supabaseUser.id)
+        .eq('id', currentUserId)
         .maybeSingle();
 
       if (profErr) {
-        console.error('loadMyProfileData profiles error:', profErr);
+        console.warn('loadMyProfileData profiles warning:', profErr.message || profErr);
       }
 
       if (prof) {
@@ -444,30 +545,44 @@ const App: React.FC = () => {
       }
     } catch (e) {
       console.error('Error loading profile data:', e);
+      setMyGameData([]);
+      setMyAchievementsData([]);
     }
   };
 
   const loadMyResults = async () => {
-    if (!supabaseUser?.id) {
-      console.warn('loadMyResults: keine User ID');
+    if (!isSupabaseConfigured()) {
+      setMyGameData([]);
+      return;
+    }
+
+    // 1. Dynamic User-ID
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    // 2. Sichere Abfragelogik
+    if (!currentUserId) {
+      console.warn('loadMyResults: keine User ID vorhanden');
+      setMyGameData([]);
       return;
     }
 
     try {
-      const { data, error, status, statusText } = await supabase
+      const { data, error } = await supabase
         .from('game_results')
         .select('*')
-        .eq('user_id', supabaseUser.id)
+        .eq('user_id', currentUserId)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('❌ game_results Fehler:', error.message, error.code, (error as any).details, (error as any).hint);
+        console.warn('❌ game_results Fehler:', error.message);
         setMyGameData([]);
         return;
       }
 
-      console.log('game_results geladen:', data?.length, 'Einträge');
-      setMyGameData(data || []);
+      const safeData = Array.isArray(data) ? data : [];
+      console.log('game_results geladen:', safeData.length, 'Einträge');
+      setMyGameData(safeData);
     } catch (err: any) {
       console.error('loadMyResults Exception:', err.message);
       setMyGameData([]);
@@ -475,8 +590,19 @@ const App: React.FC = () => {
   };
 
   const loadMyAchievements = async () => {
-    if (!supabaseUser?.id) {
-      console.warn('loadMyAchievements: keine User ID');
+    if (!isSupabaseConfigured()) {
+      setMyAchievementsData([]);
+      return;
+    }
+
+    // 1. Dynamic User-ID
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    // 2. Sichere Abfragelogik
+    if (!currentUserId) {
+      console.warn('loadMyAchievements: keine User ID vorhanden');
+      setMyAchievementsData([]);
       return;
     }
 
@@ -484,17 +610,18 @@ const App: React.FC = () => {
       const { data, error } = await supabase
         .from('achievements')
         .select('*')
-        .eq('user_id', supabaseUser.id)
+        .eq('user_id', currentUserId)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('loadMyAchievements error:', error.message);
+        console.warn('loadMyAchievements error:', error.message);
         setMyAchievementsData([]);
         return;
       }
 
-      console.log('achievements geladen:', data?.length, 'Einträge');
-      setMyAchievementsData(data || []);
+      const safeData = Array.isArray(data) ? data : [];
+      console.log('achievements geladen:', safeData.length, 'Einträge');
+      setMyAchievementsData(safeData);
     } catch (err: any) {
       console.error('loadMyAchievements Exception:', err.message);
       setMyAchievementsData([]);
@@ -502,26 +629,54 @@ const App: React.FC = () => {
   };
 
   const loadFriendships = async () => {
-    if (!supabaseUser?.id) return;
+    if (!isSupabaseConfigured()) {
+      setFriends([]);
+      setPendingRequests([]);
+      return;
+    }
+
+    // 1. Dynamic User-ID
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    // 2. Sichere Abfragelogik
+    if (!currentUserId) {
+      setFriends([]);
+      setPendingRequests([]);
+      return;
+    }
+
     try {
-      const { data: rels } = await supabase
+      const { data: rels, error: relsErr } = await supabase
         .from('friendships')
         .select('*')
-        .or(`requester_id.eq.${supabaseUser.id},receiver_id.eq.${supabaseUser.id}`);
+        .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
 
-      if (!rels) return;
+      if (relsErr) {
+        console.warn('loadFriendships friendships warning:', relsErr.message);
+        setFriends([]);
+        setPendingRequests([]);
+        return;
+      }
 
-      const accepted = rels.filter(r => r.status === 'accepted');
-      const pendingIncoming = rels.filter(r => r.status === 'pending' && r.receiver_id === supabaseUser.id);
+      const safeRels = Array.isArray(rels) ? rels : [];
+      if (safeRels.length === 0) {
+        setFriends([]);
+        setPendingRequests([]);
+        return;
+      }
 
-      const friendUserIds = accepted.map(r => r.requester_id === supabaseUser.id ? r.receiver_id : r.requester_id);
+      const accepted = safeRels.filter(r => r.status === 'accepted');
+      const pendingIncoming = safeRels.filter(r => r.status === 'pending' && r.receiver_id === currentUserId);
+
+      const friendUserIds = accepted.map(r => r.requester_id === currentUserId ? r.receiver_id : r.requester_id);
       if (friendUserIds.length > 0) {
         const { data: friendProfiles } = await supabase
           .from('profiles')
           .select('id, username, avatar_url')
           .in('id', friendUserIds);
 
-        if (friendProfiles) {
+        if (friendProfiles && Array.isArray(friendProfiles) && friendProfiles.length > 0) {
           const formattedFriends = friendProfiles.map(p => {
             const rel = accepted.find(r => r.requester_id === p.id || r.receiver_id === p.id);
             return {
@@ -532,6 +687,8 @@ const App: React.FC = () => {
             };
           });
           setFriends(formattedFriends);
+        } else {
+          setFriends([]);
         }
       } else {
         setFriends([]);
@@ -544,7 +701,7 @@ const App: React.FC = () => {
           .select('id, username')
           .in('id', requesterIds);
 
-        if (requesterProfiles) {
+        if (requesterProfiles && Array.isArray(requesterProfiles) && requesterProfiles.length > 0) {
           const formattedRequests = pendingIncoming.map(r => {
             const p = requesterProfiles.find(p => p.id === r.requester_id);
             return {
@@ -554,35 +711,51 @@ const App: React.FC = () => {
             };
           });
           setPendingRequests(formattedRequests);
+        } else {
+          setPendingRequests([]);
         }
       } else {
         setPendingRequests([]);
       }
     } catch (e) {
       console.error('Error loading friendships:', e);
+      setFriends([]);
+      setPendingRequests([]);
     }
   };
 
   useEffect(() => {
-    if (!showProfileModal || !supabaseUser) return;
+    if (!showProfileModal) return;
 
-    // Kurze Verzögerung damit React den Modal-State gesetzt hat
-    const timer = setTimeout(() => {
-      console.log('→ Lade Profil-Daten für:', supabaseUser.id);
-      loadProfileStats();
-      loadMyProfileData();
-      loadMyResults();
-      loadMyAchievements();
-      if (profileTab === 'freunde') {
-        loadFriendships();
+    let isMounted = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const currentUserId = user?.id;
+
+      if (!currentUserId) {
+        console.warn('showProfileModal: Keine aktive Supabase-Session');
+        resetUserStates();
+        return;
       }
-    }, 100);
 
-    return () => clearTimeout(timer);
-  }, [showProfileModal, supabaseUser?.id]);
+      if (!isMounted) return;
+      console.log('→ Lade Profil-Daten für:', currentUserId);
+      setSupabaseUser(user);
+
+      await Promise.allSettled([
+        loadProfileStats(),
+        loadMyProfileData(),
+        loadMyResults(),
+        loadMyAchievements(),
+        profileTab === 'freunde' ? loadFriendships() : Promise.resolve()
+      ]);
+    })();
+
+    return () => { isMounted = false; };
+  }, [showProfileModal]);
 
   useEffect(() => {
-    if (!showProfileModal || !supabaseUser) return;
+    if (!showProfileModal) return;
     if (profileTab === 'rekorde') {
       loadMyResults();
       loadMyAchievements();
@@ -590,10 +763,12 @@ const App: React.FC = () => {
     if (profileTab === 'freunde') {
       loadFriendships();
     }
-  }, [profileTab]);
+  }, [profileTab, showProfileModal]);
 
   const handleSendFriendRequest = async () => {
-    if (!supabaseUser || !friendSearchQuery.trim()) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+    if (!currentUserId || !friendSearchQuery.trim()) return;
     setFriendRequestError(null);
     setFriendRequestSuccess(null);
 
@@ -610,7 +785,7 @@ const App: React.FC = () => {
       }
 
       const target = foundProfiles[0];
-      if (target.id === supabaseUser.id) {
+      if (target.id === currentUserId) {
         setFriendRequestError('Du kannst dir selbst keine Freundschaftsanfrage senden.');
         return;
       }
@@ -618,7 +793,7 @@ const App: React.FC = () => {
       const { data: existing } = await supabase
         .from('friendships')
         .select('id, status')
-        .or(`and(requester_id.eq.${supabaseUser.id},receiver_id.eq.${target.id}),and(requester_id.eq.${target.id},receiver_id.eq.${supabaseUser.id})`);
+        .or(`and(requester_id.eq.${currentUserId},receiver_id.eq.${target.id}),and(requester_id.eq.${target.id},receiver_id.eq.${currentUserId})`);
 
       if (existing && existing.length > 0) {
         setFriendRequestError('Eine Freundschaft oder Anfrage existiert bereits.');
@@ -628,7 +803,7 @@ const App: React.FC = () => {
       const { error: insErr } = await supabase
         .from('friendships')
         .insert({
-          requester_id: supabaseUser.id,
+          requester_id: currentUserId,
           receiver_id: target.id,
           status: 'pending'
         });
@@ -671,7 +846,11 @@ const App: React.FC = () => {
   };
 
   const handleSavePrivacy = async () => {
-    if (!supabaseUser) return;
+    if (!isSupabaseConfigured()) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || supabaseUser?.id;
+    if (!currentUserId) return;
+
     setProfileLoadingSection('privacy');
     setProfileSaveMessageOld(null);
     try {
@@ -685,7 +864,7 @@ const App: React.FC = () => {
           show_achievements: privacyState.showAchievements,
           updated_at: new Date().toISOString()
         })
-        .eq('id', supabaseUser.id);
+        .eq('id', currentUserId);
 
       if (dbErr) throw dbErr;
 
@@ -717,6 +896,17 @@ const App: React.FC = () => {
       return;
     }
 
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || supabaseUser?.id;
+    if (!currentUserId) {
+      setProfileSaveState(prev => ({ ...prev, username: 'error' }));
+      setProfileSaveMessage(prev => ({
+        ...prev,
+        username: 'Nicht authentifiziert. Bitte erneut anmelden.'
+      }));
+      return;
+    }
+
     setProfileSaveState(prev => ({ ...prev, username: 'loading' }));
 
     // Prüfen ob Username bereits vergeben (case-insensitive, eigenen ausschließen)
@@ -724,7 +914,7 @@ const App: React.FC = () => {
       .from('profiles')
       .select('id, username')
       .ilike('username', profileUsername.trim())
-      .neq('id', supabaseUser?.id || '') // eigenen Account ausschließen
+      .neq('id', currentUserId) // eigenen Account ausschließen
       .limit(1);
 
     if (existingProfile && existingProfile.length > 0) {
@@ -751,7 +941,7 @@ const App: React.FC = () => {
     const { error: profileError } = await supabase
       .from('profiles')
       .update({ username: profileUsername.trim() })
-      .eq('id', supabaseUser?.id);
+      .eq('id', currentUserId);
 
     if (profileError) {
       setProfileSaveState(prev => ({ ...prev, username: 'error' }));
@@ -767,13 +957,15 @@ const App: React.FC = () => {
   };
 
   const handleDeleteProfile = async () => {
-    if (deleteProfileInput !== 'delete' || !supabaseUser) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || supabaseUser?.id;
+    if (deleteProfileInput !== 'delete' || !currentUserId) return;
     setDeletingProfile(true);
     try {
       const res = await fetch('/api/users/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: supabaseUser.id })
+        body: JSON.stringify({ userId: currentUserId })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -3718,8 +3910,12 @@ const App: React.FC = () => {
             .from('achievements')
             .select('user_id, achievement_id, title, icon, rarity, game_mode, earned_with, earned_together, date');
 
-          supabaseRows = (supabaseResults || [])
+          const safeResults = Array.isArray(supabaseResults) ? supabaseResults : [];
+          const safeAchs = Array.isArray(supabaseAchievements) ? supabaseAchievements : [];
+
+          supabaseRows = safeResults
             .filter(r => {
+              if (!r || !r.user_id) return false;
               const profile = profileMap[r.user_id];
               if (!profile) return false;
               if (profile.show_records === false) return false;
@@ -3730,8 +3926,9 @@ const App: React.FC = () => {
             })
             .map(r => {
               const profile = profileMap[r.user_id];
-              const entryAchs = (supabaseAchievements || [])
+              const entryAchs = safeAchs
                 .filter(a =>
+                  a &&
                   a.user_id === r.user_id &&
                   a.date === r.date &&
                   a.game_mode === r.game_mode
@@ -7828,7 +8025,7 @@ const App: React.FC = () => {
                                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                                       : 'bg-black/10 dark:bg-white/10 font-mono'
                                   }`}>
-                                    {tbl.id === 'table_final' ? `👑 ${p}` : p}
+                                    {tbl.id === 'table_final' ? `������ ${p}` : p}
                                   </span>
                                 ))}
                               </div>
@@ -8923,7 +9120,9 @@ const App: React.FC = () => {
                       type="button"
                       disabled={!assignCsvName || !assignTargetUserId || assignSubmitting}
                       onClick={async () => {
-                        if (!assignCsvName || !assignTargetUserId || !supabaseUser) return;
+                        const { data: { user } } = await supabase.auth.getUser();
+                        const currentUserId = user?.id || supabaseUser?.id;
+                        if (!assignCsvName || !assignTargetUserId || !currentUserId) return;
                         setAssignSubmitting(true);
                         setAssignMessage(null);
                         try {
@@ -8931,7 +9130,7 @@ const App: React.FC = () => {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                              requesterUserId: supabaseUser.id,
+                              requesterUserId: currentUserId,
                               csvName: assignCsvName,
                               targetUserId: assignTargetUserId
                             })

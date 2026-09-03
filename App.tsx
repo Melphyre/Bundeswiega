@@ -1772,114 +1772,158 @@ const App: React.FC = () => {
   }, [gameState]);
 
   // Auto-save results when RESULT_SCREEN or SPEED_RESULT is loaded
-  useEffect(() => {
-    if (gameState !== GameState.RESULT_SCREEN) return;
+  const resultSavedRef = useRef<boolean>(false);
 
-    const today = new Date().toLocaleDateString('de-DE');
+  const calculatePlayerAvg = (playerId: string, roundsData: Round[]) => calculateAverageDistance(playerId, roundsData);
 
-    // Standardspiel – für jeden Spieler mit Account
-    if (teams.length === 0) {
-      Object.entries(playerAccountLinks).forEach(async ([playerId, accountLink]: [string, any]) => {
-        if (!accountLink.userId) return;
-        if (accountResultsSaved.includes(accountLink.userId)) return;
-
-        const player = players.find(p => p.id === playerId);
-        if (!player) return;
-
-        const avg = calculateAverageDistance(playerId, rounds);
-        const gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
-
-        const playerAchievements = earnedAchievements.filter(a =>
-          a.earnedBy && a.earnedBy.includes(player.name)
-        );
-
-        const success = await saveResultToSupabase(
-          accountLink.userId,
-          {
-            game_mode: gameMode,
-            date: today,
-            avg: Number(avg.toFixed(2)),
-            schnaepse: player.schnaepse,
-            total: Number((avg + player.schnaepse).toFixed(2))
-          },
-          playerAchievements
-        );
-
-        if (success) {
-          setAccountResultsSaved(prev => prev.includes(accountLink.userId) ? prev : [...prev, accountLink.userId]);
-        }
-      });
-    }
-
-    // Teamwiegen
-    if (teams.length > 0) {
-      Object.entries(teamMemberAccountLinks).forEach(async ([memberId, accountLink]: [string, any]) => {
-        if (!accountLink.userId) return;
-        if (accountResultsSaved.includes(accountLink.userId)) return;
-
-        const team = teams.find(t => t.members.some((m: any) => m.id === memberId));
-        const member = team?.members.find((m: any) => m.id === memberId);
-        if (!member || !team) return;
-
-        const success = await saveResultToSupabase(
-          accountLink.userId,
-          {
-            game_mode: 'Teamwiegen',
-            date: today,
-            avg: Number((member.avg || 0).toFixed(2)),
-            schnaepse: team.schnaepse || 0,
-            total: Number(((member.avg || 0) + (team.schnaepse || 0)).toFixed(2)),
-            team_name: team.name
-          },
-          []
-        );
-
-        if (success) {
-          setAccountResultsSaved(prev => prev.includes(accountLink.userId) ? prev : [...prev, accountLink.userId]);
-        }
-      });
-    }
-  }, [gameState]);
-
-  // Speedwiegen Auto-Save
-  useEffect(() => {
-    if (gameState !== GameState.SPEED_RESULT) return;
-    if (!supabaseUser || !isSignedIn) return;
-    if (accountResultsSaved.includes(supabaseUser.id)) return;
-
-    const today = new Date().toLocaleDateString('de-DE');
-    const gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
-
+  const calculateSpeedAvg = () => {
     const keys = Object.keys(speedResults);
     const totalDiff = keys.reduce((acc, key) => {
       const k = parseInt(key);
       return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
     }, 0);
-    const speedAvg = keys.length > 0 ? totalDiff / keys.length : 0;
+    return keys.length > 0 ? totalDiff / keys.length : 0;
+  };
 
-    const speedAchievements = earnedAchievements.filter(a =>
-      a.earnedBy && a.earnedBy.includes(speedPlayerName || '')
-    );
+  useEffect(() => {
+    // Nur einmal pro Spiel speichern
+    if (gameState !== GameState.RESULT_SCREEN) {
+      resultSavedRef.current = false;
+      return;
+    }
+    if (resultSavedRef.current) return;
+    resultSavedRef.current = true;
 
-    const timeSec = (speedEndTime && speedStartTime) ? (speedEndTime - speedStartTime) / 1000 : 0;
+    const today = new Date().toLocaleDateString('de-DE');
 
-    saveResultToSupabase(
-      supabaseUser.id,
-      {
-        game_mode: gameMode,
-        date: today,
-        avg: Number(speedAvg.toFixed(2)),
-        schnaepse: 0,
-        total: Number(speedAvg.toFixed(2)),
-        levels: parseInt(speedLevels) || undefined,
-        time_seconds: Number(timeSec.toFixed(2))
-      },
-      speedAchievements
-    ).then(success => {
-      if (success) {
-        setAccountResultsSaved(prev => prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]);
+    const saveForPlayer = async (
+      userId: string,
+      playerName: string,
+      avg: number,
+      schnaepse: number,
+      gameMode: string,
+      extraFields: Record<string, any> = {}
+    ) => {
+      const total = Math.round((avg + schnaepse) * 100) / 100;
+
+      console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total });
+
+      const res = await fetch('/api/users/save-game-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          gameResult: {
+            game_mode: gameMode,
+            date: today,
+            avg: Number(avg.toFixed(2)),
+            schnaepse,
+            total,
+            ...extraFields
+          },
+          achievements: earnedAchievements
+            .filter(a => a.earnedBy?.includes(playerName))
+            .map(a => ({
+              id: a.id,
+              title: a.title,
+              description: a.description || '',
+              icon: a.icon || '',
+              rarity: a.rarity,
+              earnedBy: a.earnedBy,
+              earnedTogether: a.earnedTogether || false
+            }))
+        })
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        console.error(`Speichern fehlgeschlagen für ${playerName}:`, json.error);
+      } else {
+        console.log(`✅ Erfolgreich gespeichert für ${playerName}`);
+        setAccountResultsSaved(prev => [...prev, userId]);
       }
-    });
+    };
+
+    // Standardspiel
+    if (teams.length === 0 && Object.keys(playerAccountLinks).length > 0) {
+      const gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
+      Object.entries(playerAccountLinks).forEach(([playerId, accountLink]: [string, any]) => {
+        const player = players.find(p => p.id === playerId);
+        if (!player || !accountLink.userId) return;
+        const avg = calculatePlayerAvg(playerId, rounds);
+        saveForPlayer(accountLink.userId, player.name, avg, player.schnaepse, gameMode);
+      });
+    }
+
+    // Teamwiegen
+    if (teams.length > 0 && Object.keys(teamMemberAccountLinks || {}).length > 0) {
+      Object.entries(teamMemberAccountLinks || {}).forEach(([memberId, accountLink]: [string, any]) => {
+        const team = teams.find(t => t.members?.some((m: any) => m.id === memberId));
+        const member = team?.members?.find((m: any) => m.id === memberId);
+        if (!member || !team || !accountLink.userId) return;
+        const avg = member.avg || 0;
+        saveForPlayer(accountLink.userId, member.name, avg, team.schnaepse || 0, 'Teamwiegen', {
+          team_name: team.name
+        });
+      });
+    }
+
+    // Eingeloggter Spieler im Speedwiegen
+    // (wird separat im SPEED_RESULT useEffect behandelt)
+
+  }, [gameState]);
+
+  // Speedwiegen separat
+  useEffect(() => {
+    if (gameState !== GameState.SPEED_RESULT) return;
+    if (!supabaseUser || !isSignedIn) return;
+
+    const today = new Date().toLocaleDateString('de-DE');
+    const gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+    const speedAvg = calculateSpeedAvg();
+    const timeSeconds = speedEndTime && speedStartTime
+      ? (speedEndTime - speedStartTime) / 1000
+      : 0;
+
+    console.log('Speichere Speedwiegen für:', supabaseUser.id);
+
+    fetch('/api/users/save-game-result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: supabaseUser.id,
+        gameResult: {
+          game_mode: gameMode,
+          date: today,
+          avg: Number(speedAvg.toFixed(2)),
+          schnaepse: 0,
+          total: Number(speedAvg.toFixed(2)),
+          levels: parseInt(speedLevels),
+          time_seconds: timeSeconds
+        },
+        achievements: earnedAchievements
+          .filter(a => a.earnedBy?.includes(speedPlayerName || ''))
+          .map(a => ({
+          id: a.id,
+          title: a.title,
+          icon: a.icon || '',
+          rarity: a.rarity,
+          earnedBy: a.earnedBy,
+          earnedTogether: false
+        }))
+    })
+  })
+  .then(r => r.json())
+  .then(json => {
+    if (json.message) {
+      console.log('✅ Speedwiegen gespeichert');
+      setAccountResultsSaved(prev => prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]);
+    } else {
+      console.error('Speedwiegen Speichern fehlgeschlagen:', json.error);
+    }
+  })
+  .catch(err => console.error('Speedwiegen fetch error:', err));
+
   }, [gameState]);
 
   const saveTournamentParticipants = async () => {

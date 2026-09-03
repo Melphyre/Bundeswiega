@@ -347,54 +347,54 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const body = getRequestBody(req);
+    const body = getRequestBody(req) || req.body || {};
     const { userId, gameResult, achievements: achievementsList } = body;
 
-    if (!userId || !gameResult) {
-      return res.status(400).json({ error: 'userId und gameResult erforderlich' });
-    }
+    if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+    if (!gameResult) return res.status(400).json({ error: 'gameResult fehlt' });
+    if (!gameResult.game_mode) return res.status(400).json({ error: 'game_mode fehlt' });
+    if (!gameResult.date) return res.status(400).json({ error: 'date fehlt' });
 
-    if (!isSupabaseConfigured()) {
-      return res.status(500).json({ error: 'Supabase nicht konfiguriert oder SUPABASE_SECRET_KEY fehlt' });
-    }
-
-    // Total berechnen
-    const avg = parseFloat(gameResult.avg) || 0;
-    const schnaepse = parseInt(gameResult.schnaepse) || 0;
+    const avg = Number(gameResult.avg) || 0;
+    const schnaepse = Number(gameResult.schnaepse) || 0;
     const total = Math.round((avg + schnaepse) * 100) / 100;
 
-    // Ergebnis speichern mit Admin-Client
-    const { error: resultError } = await supabaseAdmin
+    console.log('save-game-result:', { userId, game_mode: gameResult.game_mode, avg, schnaepse, total });
+
+    const { data: insertedResult, error: insertError } = await supabaseAdmin
       .from('game_results')
       .insert({
         user_id: userId,
         game_mode: gameResult.game_mode,
         date: gameResult.date,
-        avg: avg,
-        schnaepse: schnaepse,
-        total: total,
+        avg,
+        schnaepse,
+        total,
         levels: gameResult.levels || null,
         time_seconds: gameResult.time_seconds || null,
         team_name: gameResult.team_name || null
-      });
+      })
+      .select()
+      .single();
 
-    if (resultError) {
-      console.error('game_results insert error:', resultError.message);
-      return res.status(500).json({ error: resultError.message });
+    if (insertError) {
+      console.error('game_results insert error:', insertError);
+      return res.status(500).json({ error: insertError.message, code: insertError.code });
     }
 
+    console.log('game_results gespeichert:', insertedResult?.id);
+
     // Achievements speichern
-    if (achievementsList && Array.isArray(achievementsList) && achievementsList.length > 0) {
+    let achSaved = 0;
+    if (achievementsList?.length > 0) {
       for (const ach of achievementsList) {
         if (!ach.id) continue;
 
         // Duplikat prüfen
-        const { data: existingAch } = await supabaseAdmin
+        const { data: existing } = await supabaseAdmin
           .from('achievements')
           .select('id')
           .eq('user_id', userId)
@@ -402,7 +402,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
           .eq('date', gameResult.date)
           .limit(1);
 
-        if (existingAch && existingAch.length > 0) continue;
+        if (existing && existing.length > 0) continue;
 
         const { error: achError } = await supabaseAdmin
           .from('achievements')
@@ -418,14 +418,45 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
             earned_together: ach.earnedTogether || false,
             date: gameResult.date
           });
-        if (achError) console.error('achievement insert error:', achError.message);
+
+        if (!achError) achSaved++;
+        else console.error('Achievement insert error:', achError.message);
       }
     }
 
-    return res.status(200).json({ message: 'Ergebnis erfolgreich gespeichert' });
+    // Profile-Statistiken manuell aktualisieren
+    // (als Backup falls Trigger nicht feuert)
+    const { data: userResults } = await supabaseAdmin
+      .from('game_results')
+      .select('avg, schnaepse')
+      .eq('user_id', userId);
+
+    const gamesPlayed = userResults?.length || 0;
+    const totalSchnaepse = userResults?.reduce((s: number, r: any) => s + (Number(r.schnaepse) || 0), 0) || 0;
+    const validAvgs = userResults?.filter((r: any) => r.avg != null) || [];
+    const bestAvg = validAvgs.length > 0
+      ? Math.min(...validAvgs.map((r: any) => Number(r.avg)))
+      : null;
+
+    await supabaseAdmin
+      .from('profiles')
+      .update({
+        games_played: gamesPlayed,
+        total_points: totalSchnaepse,
+        high_score: bestAvg,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    return res.status(200).json({
+      message: 'Ergebnis gespeichert',
+      resultId: insertedResult?.id,
+      achSaved
+    });
+
   } catch (err: any) {
-    console.error('save-game-result error:', err);
-    return res.status(500).json({ error: err.message || 'Fehler beim Speichern' });
+    console.error('save-game-result exception:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
 
@@ -2316,36 +2347,57 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // ══════════════════════════════════════════
     report.push('─── Profil-Statistiken ───');
 
-    const { data: profilesToUpdate } = await supabaseAdmin
-      .from('profiles')
-      .select('id, games_played, total_points, high_score');
+    // Profile-Statistiken für ALLE User neu berechnen
+    const { data: allResults } = await supabaseAdmin
+      .from('game_results')
+      .select('user_id, avg, schnaepse');
 
-    let updatedStats = 0;
-    for (const profile of profilesToUpdate || []) {
-      const { data: userResults } = await supabaseAdmin
-        .from('game_results')
-        .select('avg, schnaepse')
-        .eq('user_id', profile.id);
+    const { data: allAchs } = await supabaseAdmin
+      .from('achievements')
+      .select('user_id, achievement_id');
 
-      const gamesPlayed = userResults?.length || 0;
-      const totalSchnaepse = userResults?.reduce((s: number, r: any) => s + (Number(r.schnaepse) || 0), 0) || 0;
-      const validAvgs = userResults?.filter((r: any) => r.avg != null && !isNaN(Number(r.avg))) || [];
-      const bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs.map((r: any) => Number(r.avg))) : null;
+    // Gruppierung nach user_id
+    const statsMap: Record<string, {
+      gamesPlayed: number;
+      totalSchnaepse: number;
+      bestAvg: number | null;
+      achCount: number;
+    }> = {};
 
+    for (const r of allResults || []) {
+      if (!statsMap[r.user_id]) {
+        statsMap[r.user_id] = { gamesPlayed: 0, totalSchnaepse: 0, bestAvg: null, achCount: 0 };
+      }
+      statsMap[r.user_id].gamesPlayed++;
+      statsMap[r.user_id].totalSchnaepse += r.schnaepse || 0;
+      const avg = r.avg || 999;
+      if (statsMap[r.user_id].bestAvg === null || avg < statsMap[r.user_id].bestAvg) {
+        statsMap[r.user_id].bestAvg = avg;
+      }
+    }
+
+    for (const a of allAchs || []) {
+      if (!statsMap[a.user_id]) {
+        statsMap[a.user_id] = { gamesPlayed: 0, totalSchnaepse: 0, bestAvg: null, achCount: 0 };
+      }
+      statsMap[a.user_id].achCount++;
+    }
+
+    let profilesUpdated = 0;
+    for (const [userId, stats] of Object.entries(statsMap)) {
       const { error } = await supabaseAdmin
         .from('profiles')
         .update({
-          games_played: gamesPlayed,
-          total_points: totalSchnaepse,
-          high_score: bestAvg
+          games_played: stats.gamesPlayed,
+          total_points: stats.totalSchnaepse,
+          high_score: stats.bestAvg,
+          updated_at: new Date().toISOString()
         })
-        .eq('id', profile.id);
-
-      if (!error) updatedStats++;
+        .eq('id', userId);
+      if (!error) profilesUpdated++;
     }
 
-    if (updatedStats > 0) fixes.push(`📊 ${updatedStats} Profil-Statistiken neu berechnet`);
-    else report.push('✅ Statistiken bereits aktuell');
+    fixes.push(`📊 ${profilesUpdated} Profile-Statistiken neu berechnet aus game_results und achievements`);
 
     // ══════════════════════════════════════════
     // ZUSAMMENFASSUNG

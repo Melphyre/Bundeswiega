@@ -1,52 +1,45 @@
-const CACHE_NAME = 'bundeswiega-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
-];
+const CACHE_NAME = 'app-cache-v5'; // Version hochgezählt für sofortiges Update
 
-// Installation
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
-  );
+// 1. Sofort installieren ohne Warten
+self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Aktivierung – alte Caches löschen
-self.addEventListener('activate', event => {
+// 2. Sofort aktivieren & ALLE alten Caches radikal löschen
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => caches.delete(key)) // Löscht ausnahmslos alle alten Caches
+      );
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch – Network first, dann Cache als Fallback
-self.addEventListener('fetch', event => {
-  // API-Requests und externe Dienste immer direkt vom Netzwerk
-  if (
-    event.request.url.includes('/api/') ||
-    event.request.url.includes('supabase.co') ||
-    event.request.method !== 'GET'
-  ) {
-    event.respondWith(fetch(event.request));
+// Message Listener für manuelles/automatisches SKIP_WAITING
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// 3. Network Fetch Handling
+self.addEventListener('fetch', (event) => {
+  const url = event.request.url;
+
+  // CRITICAL: Supabase API/Auth/Realtime Traffic komplett ignorieren (echter Netzwerk-Pass-Through)
+  // Niemals event.respondWith() ausführen!
+  if (url.includes('supabase.co') || url.includes('supabase')) {
     return;
   }
 
+  // Backend APIs (/api/) & Nicht-GET-Requests direkt an das native Netzwerk übergeben
+  if (event.request.method !== 'GET' || url.includes('/api/')) {
+    return;
+  }
+
+  // Statische Assets: Network First mit Cache Fallback
   event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        // Erfolgreiche Response in Cache speichern
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });

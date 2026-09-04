@@ -97,6 +97,135 @@ export const getPlayerColor = (name: string, playersList: Player[] = []): string
   return PLAYER_COLORS[idx];
 };
 
+export const GAME_MODES = [
+  'Standardspiel (500ml)',
+  'Standardspiel (0,33L)',
+  'Speedwiegen (500ml)',
+  'Speedwiegen (0,33L)'
+] as const;
+
+export function normalizeGameMode(rawMode?: string | null): string {
+  if (!rawMode) return 'Standardspiel (500ml)';
+  const trimmed = rawMode.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Speedwiegen variants
+  if (lower.includes('speed')) {
+    if (lower.includes('0,33') || lower.includes('0.33') || lower.includes('0,3') || lower.includes('330') || lower.includes('33l')) {
+      return 'Speedwiegen (0,33L)';
+    }
+    return 'Speedwiegen (500ml)';
+  }
+
+  // Standardspiel variants
+  if (lower.includes('standard')) {
+    if (lower.includes('0,33') || lower.includes('0.33') || lower.includes('0,3') || lower.includes('330') || lower.includes('33l')) {
+      return 'Standardspiel (0,33L)';
+    }
+    return 'Standardspiel (500ml)';
+  }
+
+  // Exact fallback checks
+  if (trimmed === 'Speedwiegen (0,33L)') return 'Speedwiegen (0,33L)';
+  if (trimmed === 'Speedwiegen (500ml)') return 'Speedwiegen (500ml)';
+  if (trimmed === 'Standardspiel (0,33L)') return 'Standardspiel (0,33L)';
+  if (trimmed === 'Standardspiel (500ml)') return 'Standardspiel (500ml)';
+
+  return trimmed;
+}
+
+export function matchesGameMode(itemMode: string | undefined | null, targetMode: string): boolean {
+  if (!itemMode || !targetMode) return false;
+  if (targetMode.trim().toLowerCase() === 'alle') return true;
+  
+  const normalizedItem = normalizeGameMode(itemMode).trim().toLowerCase();
+  const normalizedTarget = normalizeGameMode(targetMode).trim().toLowerCase();
+  return normalizedItem === normalizedTarget;
+}
+
+export interface UserModeStats {
+  gamesPlayed: number;
+  totalSchnaepse: number;
+  bestAvg: number | null;
+  bestTime: number | null;
+  bestScore: number | null;
+  achievementsCount: number;
+  careerAvg: number | null;
+}
+
+export function calculateUserModeStats(
+  gameResults: Array<{
+    user_id?: string;
+    game_mode?: string;
+    mode?: string;
+    avg?: number;
+    schnaepse?: number;
+    total?: number;
+    time_seconds?: number;
+    levels?: number;
+  }>,
+  achievements: Array<{
+    user_id?: string;
+    game_mode?: string;
+  }>,
+  userId: string,
+  selectedGameMode: string | 'alle'
+): UserModeStats {
+  const userResults = (gameResults || []).filter(r => {
+    if (!r) return false;
+    if (!userId) return true;
+    return !r.user_id || r.user_id === userId;
+  });
+
+  const modeFiltered = selectedGameMode === 'alle'
+    ? userResults
+    : userResults.filter(r => matchesGameMode(r.game_mode || r.mode, selectedGameMode));
+
+  const gamesPlayed = modeFiltered.length;
+  const totalSchnaepse = modeFiltered.reduce((sum, r) => sum + (Number(r.schnaepse) || 0), 0);
+
+  const validAvgs = modeFiltered
+    .map(r => r.avg)
+    .filter((a): a is number => typeof a === 'number' && !isNaN(a) && a !== 999);
+  const bestAvg = validAvgs.length > 0 ? Number(Math.min(...validAvgs).toFixed(2)) : null;
+  const careerAvg = validAvgs.length > 0
+    ? Number((validAvgs.reduce((s, a) => s + a, 0) / validAvgs.length).toFixed(2))
+    : null;
+
+  const validTimes = modeFiltered
+    .map(r => r.time_seconds !== undefined && r.time_seconds !== null ? r.time_seconds : r.schnaepse)
+    .filter((t): t is number => typeof t === 'number' && !isNaN(t) && t > 0);
+  const bestTime = validTimes.length > 0 ? Number(Math.min(...validTimes).toFixed(1)) : null;
+
+  const validScores = modeFiltered
+    .map(r => {
+      const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
+      const t = r.time_seconds !== undefined && r.time_seconds !== null ? r.time_seconds : (r.schnaepse || 0);
+      return a + t;
+    })
+    .filter(s => s > 0);
+  const bestScore = validScores.length > 0 ? Number(Math.min(...validScores).toFixed(1)) : null;
+
+  const userAchs = (achievements || []).filter(a => {
+    if (!a) return false;
+    if (!userId) return true;
+    return !a.user_id || a.user_id === userId;
+  });
+  const achFiltered = selectedGameMode === 'alle'
+    ? userAchs
+    : userAchs.filter(a => matchesGameMode(a.game_mode, selectedGameMode));
+
+  return {
+    gamesPlayed,
+    totalSchnaepse,
+    bestAvg,
+    bestTime,
+    bestScore,
+    achievementsCount: achFiltered.length,
+    careerAvg
+  };
+}
+
 export const parseRecords = (data: any[][]): ParsedRecord[] => {
   if (!data || data.length < 2) return [];
   const list: ParsedRecord[] = [];
@@ -107,7 +236,7 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
     if (!row || row.length < 5) continue;
     
     const dateVal = row[0];
-    const gameMode = row[1];
+    const rawGameMode = row[1];
     const playerName = row[2];
     const avgVal = row[3] !== undefined && row[3] !== null ? Number(row[3]) : 0;
     const schnaepseVal = row[4] !== undefined && row[4] !== null ? Number(row[4]) : 0;
@@ -141,8 +270,10 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
     }
 
     if (dateVal && playerName) {
+      const canonicalMode = normalizeGameMode(rawGameMode);
       list.push({
-        gameMode: String(gameMode),
+        game_mode: canonicalMode,
+        gameMode: canonicalMode,
         playerName: String(playerName),
         date: String(dateVal),
         avg: avgVal,

@@ -106,6 +106,10 @@ export async function signUpUser(email: string, password: string, username: stri
  * Ruft das Profil des aktuell angemeldeten oder angegebenen Nutzers ab.
  */
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  if (!userId) {
+    console.warn('getUserProfile: Keine userId übergeben.');
+    return null;
+  }
   const { data, error } = await supabase
     .from('profiles')
     .select('*')

@@ -679,86 +679,101 @@ const App: React.FC = () => {
   };
 
   const loadFriendships = async (targetUserId?: string) => {
-    if (!isSupabaseConfigured()) {
-      setFriends([]);
-      setPendingRequests([]);
-      return;
-    }
-
     const currentUserId = targetUserId || supabaseUser?.id;
-    if (!currentUserId) {
+    if (!currentUserId || !isSupabaseConfigured()) {
       setFriends([]);
       setPendingRequests([]);
       return;
     }
 
     try {
-      // 2. Einziger Datenbank-Call mit FK-Joins
-      const { data: rels, error: relsErr } = await supabase
-        .from('friendships')
-        .select(`
-          id,
-          requester_id,
-          receiver_id,
-          status,
-          requester:profiles!friendships_requester_id_fkey(id, username, avatar_url),
-          receiver:profiles!friendships_receiver_id_fkey(id, username, avatar_url)
-        `)
-        .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
+      // 1. & 2. Anfragen parallel laden (ohne fehleranfälliges .or())
+      const [
+        { data: sent, error: errSent },
+        { data: received, error: errReceived }
+      ] = await Promise.all([
+        supabase
+          .from('friendships')
+          .select('id, receiver_id, status')
+          .eq('requester_id', currentUserId),
+        supabase
+          .from('friendships')
+          .select('id, requester_id, status')
+          .eq('receiver_id', currentUserId)
+      ]);
 
-      if (relsErr) {
-        console.warn('loadFriendships warning:', relsErr.message);
+      if (errSent || errReceived) {
+        console.error('Fehler beim Laden der Freundschaften:', errSent || errReceived);
         setFriends([]);
         setPendingRequests([]);
         return;
       }
 
-      if (!rels || rels.length === 0) {
+      const allRels = [...(sent || []), ...(received || [])];
+
+      // Partner-IDs filtern
+      const friendPartnerIds = allRels
+        .filter(r => r.status === 'accepted')
+        .map(r => 'receiver_id' in r && r.receiver_id ? r.receiver_id : (r as any).requester_id)
+        .filter(Boolean);
+
+      const pendingRequestsRaw = (received || []).filter(r => r.status === 'pending');
+      const pendingUserIds = pendingRequestsRaw.map(r => r.requester_id).filter(Boolean);
+
+      // Profile der Freunde & Anfragenden abrufen
+      const allNeededUserIds = Array.from(new Set([...friendPartnerIds, ...pendingUserIds]));
+
+      if (allNeededUserIds.length === 0) {
         setFriends([]);
         setPendingRequests([]);
         return;
       }
 
-      const safeRels = rels as unknown as FriendshipJoined[];
+      const { data: profiles, error: profErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', allNeededUserIds);
 
-      // 3. Akzeptierte Freunde filtern & mappen
-      const acceptedRels = safeRels.filter(r => r.status === 'accepted');
-      const formattedFriends: Friend[] = acceptedRels
-        .map(rel => {
-          const isRequester = rel.requester_id === currentUserId;
-          const friendProfile = isRequester ? rel.receiver : rel.requester;
-          const friendData = Array.isArray(friendProfile) ? friendProfile[0] : friendProfile;
+      if (profErr) throw profErr;
 
+      // Friends State setzen
+      const mappedFriends: Friend[] = (profiles || [])
+        .filter(p => friendPartnerIds.includes(p.id))
+        .map(p => {
+          const rel = allRels.find(r =>
+            ('receiver_id' in r && r.receiver_id === p.id) ||
+            ('requester_id' in r && (r as any).requester_id === p.id)
+          );
           return {
-            id: isRequester ? rel.receiver_id : rel.requester_id,
-            name: friendData?.username || 'Benutzer',
-            imageUrl: friendData?.avatar_url || undefined,
-            friendshipId: rel.id
+            ...p,
+            id: p.id,
+            name: p.username || 'Benutzer',
+            username: p.username || 'Benutzer',
+            imageUrl: p.avatar_url || '',
+            avatar_url: p.avatar_url,
+            friendshipId: rel?.id || '',
+            friendship_id: rel?.id || ''
           };
         })
-        .filter((f, idx, arr) => arr.findIndex(x => x.id === f.id) === idx)
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
-      setFriends(formattedFriends);
-
-      // 4. Offene eingehende Anfragen mappen
-      const pendingIncoming = safeRels.filter(
-        r => r.status === 'pending' && r.receiver_id === currentUserId
-      );
-
-      const formattedRequests: PendingFriendRequest[] = pendingIncoming.map(r => {
-        const requesterData = Array.isArray(r.requester) ? r.requester[0] : r.requester;
+      // Pending Requests State setzen
+      const mappedPending: PendingFriendRequest[] = pendingRequestsRaw.map(req => {
+        const profile = profiles?.find(p => p.id === req.requester_id);
         return {
-          id: r.id,
-          requesterId: r.requester_id,
-          requesterName: requesterData?.username || 'Unbekannt'
-        };
+          id: req.id,
+          requesterId: req.requester_id,
+          requester_id: req.requester_id,
+          requesterName: profile?.username || 'Unbekannt',
+          username: profile?.username || 'Unbekannt',
+          avatar_url: profile?.avatar_url
+        } as any;
       });
 
-      setPendingRequests(formattedRequests);
-
-    } catch (e) {
-      console.error('Error loading friendships:', e);
+      setFriends(mappedFriends);
+      setPendingRequests(mappedPending);
+    } catch (err) {
+      console.error('Unerwarteter Fehler beim Laden der Freunde:', err);
       setFriends([]);
       setPendingRequests([]);
     }
@@ -820,7 +835,6 @@ const App: React.FC = () => {
 
   const handleSendFriendRequest = async () => {
     const currentUserId = supabaseUser?.id;
-
     const queryTerm = friendSearchQuery.trim();
     if (!currentUserId || !queryTerm) return;
 
@@ -828,7 +842,7 @@ const App: React.FC = () => {
     setFriendRequestSuccess(null);
 
     try {
-      // 1. Suche ausschließlich nach Username (case-insensitive)
+      // 1. Suche ausschließlich nach Username
       const { data: foundProfiles, error: searchErr } = await supabase
         .from('profiles')
         .select('id, username')
@@ -848,19 +862,28 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Abrufen aller Freundschaften des Nutzers (ohne Leerzeichen nach Komma)
-      const { data: rels, error: relsErr } = await supabase
-        .from('friendships')
-        .select('id, requester_id, receiver_id, status')
-        .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
+      // 2. Sichere Prüfung bestehender Relationen über 2 parallele Abfragen (verhindert net::ERR_CONNECTION_CLOSED)
+      const [
+        { data: relsSent, error: errSent },
+        { data: relsReceived, error: errReceived }
+      ] = await Promise.all([
+        supabase
+          .from('friendships')
+          .select('id, requester_id, receiver_id, status')
+          .eq('requester_id', currentUserId)
+          .eq('receiver_id', target.id),
+        supabase
+          .from('friendships')
+          .select('id, requester_id, receiver_id, status')
+          .eq('requester_id', target.id)
+          .eq('receiver_id', currentUserId)
+      ]);
 
-      if (relsErr) throw relsErr;
+      if (errSent || errReceived) {
+        throw (errSent || errReceived);
+      }
 
-      // 3. Relationen-Prüfung sauber in JavaScript
-      const existing = (rels || []).find(
-        r => (r.requester_id === currentUserId && r.receiver_id === target.id) ||
-             (r.requester_id === target.id && r.receiver_id === currentUserId)
-      );
+      const existing = [...(relsSent || []), ...(relsReceived || [])][0];
 
       if (existing) {
         const currentStatus = existing.status;
@@ -888,7 +911,7 @@ const App: React.FC = () => {
         }
       }
 
-      // 4. Neue Anfrage einfügen
+      // 3. Neue Anfrage einfügen
       const { error: insErr } = await supabase
         .from('friendships')
         .insert({

@@ -38,6 +38,21 @@ export interface Friendship {
   created_at?: string;
 }
 
+export interface FriendshipProfileJoin {
+  id: string;
+  username: string;
+  avatar_url?: string | null;
+}
+
+export interface FriendshipJoined {
+  id: string;
+  requester_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'declined';
+  requester?: FriendshipProfileJoin | FriendshipProfileJoin[] | null;
+  receiver?: FriendshipProfileJoin | FriendshipProfileJoin[] | null;
+}
+
 export interface Friend {
   id: string;
   name: string;

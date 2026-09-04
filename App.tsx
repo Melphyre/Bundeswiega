@@ -813,17 +813,29 @@ const App: React.FC = () => {
     if (!query || !supabaseUser) return;
 
     try {
-      // 1. Profil exakt per Username ODER Email suchen (ohne komplexe Wildcards)
-      const { data: targetProfile, error: searchErr } = await supabase
+      // 1. Profil per Username suchen (case-insensitive)
+      let { data: profiles, error: searchErr } = await supabase
         .from('profiles')
         .select('id, username')
-        .or(`username.eq.${query},email.eq.${query}`)
-        .maybeSingle();
+        .ilike('username', query);
 
       if (searchErr) throw searchErr;
 
+      // Falls nicht gefunden, versuche E-Mail Suche
+      if (!profiles || profiles.length === 0) {
+        const { data: emailProfiles, error: emailErr } = await supabase
+          .from('profiles')
+          .select('id, username')
+          .eq('email', query);
+
+        if (emailErr) throw emailErr;
+        profiles = emailProfiles;
+      }
+
+      const targetProfile = profiles && profiles[0];
+
       if (!targetProfile) {
-        setFriendRequestError('Kein Benutzer mit diesem Namen oder E-Mail gefunden.');
+        setFriendRequestError('Kein Benutzer mit diesem Namen gefunden.');
         return;
       }
 
@@ -832,19 +844,25 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Prüfen, ob bereits eine Freundschaft/Anfrage existiert
-      const { data: existing } = await supabase
+      // 2. Existierende Freundschaft prüfen (2 einfache Abfragen statt .or)
+      const { data: relSent } = await supabase
         .from('friendships')
-        .select('id')
-        .or(`and(requester_id.eq.${supabaseUser.id},receiver_id.eq.${targetProfile.id}),and(requester_id.eq.${targetProfile.id},receiver_id.eq.${supabaseUser.id})`)
-        .maybeSingle();
+        .select('id, status')
+        .eq('requester_id', supabaseUser.id)
+        .eq('receiver_id', targetProfile.id);
 
-      if (existing) {
-        setFriendRequestError('Es besteht bereits eine Anfrage oder Freundschaft.');
+      const { data: relRec } = await supabase
+        .from('friendships')
+        .select('id, status')
+        .eq('requester_id', targetProfile.id)
+        .eq('receiver_id', supabaseUser.id);
+
+      if ((relSent && relSent.length > 0) || (relRec && relRec.length > 0)) {
+        setFriendRequestError(`${targetProfile.username} ist bereits dein Freund oder hat eine offene Anfrage.`);
         return;
       }
 
-      // 3. Anfrage einfügen
+      // 3. Anfrage absenden
       const { error: insertErr } = await supabase
         .from('friendships')
         .insert({
@@ -857,7 +875,7 @@ const App: React.FC = () => {
 
       setFriendRequestSuccess(`Anfrage an ${targetProfile.username} gesendet!`);
       setFriendSearchQuery('');
-      loadFriendships(); // Liste aktualisieren
+      loadFriendships();
     } catch (err: any) {
       console.error('Fehler beim Senden:', err);
       setFriendRequestError('Anfrage konnte nicht gesendet werden.');

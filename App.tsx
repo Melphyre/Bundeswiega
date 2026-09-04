@@ -3952,41 +3952,30 @@ const App: React.FC = () => {
         console.warn('CSV Fehler beim Laden der Records (offline oder nicht verfügbar):', e);
       }
 
-      // 2. Supabase Ergebnisse laden, wenn konfiguriert
+      // 2. Supabase Aufrufe in EINEM parallelen Aufruf (Promise.all)
       let supabaseRows: string[][] = [];
       const profileMap: Record<string, any> = {};
 
       if (isSupabaseConfigured()) {
         try {
-          // Verwende .select('*'), um überlange Query-Strings und net::ERR_HTTP2_PROTOCOL_ERROR zu vermeiden
-          const { data: supabaseResults, error: resultsError } = await supabase
-            .from('game_results')
-            .select('*');
+          // Parallelisierung verhindert Network Timeouts, Connection Closes & HTTP/2 Protocol Errors
+          const [resultsRes, profilesRes, achRes] = await Promise.all([
+            supabase.from('game_results').select('*'),
+            supabase.from('profiles').select('*'),
+            supabase.from('achievements').select('*')
+          ]);
 
-          if (resultsError) {
-            console.warn('game_results fetch warning:', resultsError.message);
-          }
+          if (resultsRes.error) console.warn('game_results fetch warning:', resultsRes.error.message);
+          if (profilesRes.error) console.warn('profiles fetch warning:', profilesRes.error.message);
+          if (achRes.error) console.warn('achievements fetch warning:', achRes.error.message);
 
-          const { data: allProfiles, error: profilesError } = await supabase
-            .from('profiles')
-            .select('*');
+          // Profile Mapping
+          (profilesRes.data || []).forEach(p => {
+            if (p && p.id) profileMap[p.id] = p;
+          });
 
-          if (profilesError) {
-            console.warn('profiles fetch warning:', profilesError.message);
-          }
-
-          (allProfiles || []).forEach(p => { profileMap[p.id] = p; });
-
-          const { data: supabaseAchievements, error: achError } = await supabase
-            .from('achievements')
-            .select('*');
-
-          if (achError) {
-            console.warn('achievements fetch warning:', achError.message);
-          }
-
-          const safeResults = Array.isArray(supabaseResults) ? supabaseResults : [];
-          const safeAchs = Array.isArray(supabaseAchievements) ? supabaseAchievements : [];
+          const safeResults = Array.isArray(resultsRes.data) ? resultsRes.data : [];
+          const safeAchs = Array.isArray(achRes.data) ? achRes.data : [];
 
           supabaseRows = safeResults
             .filter(r => {
@@ -4124,7 +4113,6 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!recordsData || recordsData.length === 0) fetchRecords();
                     setShowProfileModal(true);
                   }}
                   className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"

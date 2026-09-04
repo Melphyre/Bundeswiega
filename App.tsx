@@ -914,19 +914,25 @@ const App: React.FC = () => {
     if (!currentUserId && supabaseUser?.id) {
       currentUserId = supabaseUser.id;
     }
-    if (!currentUserId || !friendSearchQuery.trim()) return;
+
+    const queryTerm = friendSearchQuery.trim();
+    if (!currentUserId || !queryTerm) return;
+
     setFriendRequestError(null);
     setFriendRequestSuccess(null);
 
     try {
-      const { data: foundProfiles } = await supabase
+      // 1. Suche ausschließlich nach Username (case-insensitive)
+      const { data: foundProfiles, error: searchErr } = await supabase
         .from('profiles')
         .select('id, username')
-        .or(`username.ilike.${friendSearchQuery.trim()},email.ilike.${friendSearchQuery.trim()}`)
+        .ilike('username', `%${queryTerm}%`)
         .limit(1);
 
+      if (searchErr) throw searchErr;
+
       if (!foundProfiles || foundProfiles.length === 0) {
-        setFriendRequestError('Kein Benutzer mit diesem Namen oder E-Mail gefunden.');
+        setFriendRequestError('Kein Benutzer mit diesem Namen gefunden.');
         return;
       }
 
@@ -936,7 +942,7 @@ const App: React.FC = () => {
         return;
       }
 
-      // Prüfe beide Richtungen ohne verschachtelte and()-Ausdrücke in .or()
+      // 2. Abrufen aller Freundschaften des Nutzers (ohne Leerzeichen nach Komma)
       const { data: rels, error: relsErr } = await supabase
         .from('friendships')
         .select('id, requester_id, receiver_id, status')
@@ -944,6 +950,7 @@ const App: React.FC = () => {
 
       if (relsErr) throw relsErr;
 
+      // 3. Relationen-Prüfung sauber in JavaScript
       const existing = (rels || []).find(
         r => (r.requester_id === currentUserId && r.receiver_id === target.id) ||
              (r.requester_id === target.id && r.receiver_id === currentUserId)
@@ -975,6 +982,7 @@ const App: React.FC = () => {
         }
       }
 
+      // 4. Neue Anfrage einfügen
       const { error: insErr } = await supabase
         .from('friendships')
         .insert({
@@ -1934,75 +1942,7 @@ const App: React.FC = () => {
   };
 
   const sendFriendRequest = async () => {
-    setFriendRequestError(null);
-    setFriendRequestSuccess(null);
-    if (!friendSearchQuery.trim()) {
-      setFriendRequestError('Bitte einen Benutzernamen eingeben.');
-      return;
-    }
-
-    // Direkt in Supabase profiles suchen (case-insensitive)
-    const { data: targetProfiles, error: searchError } = await supabase
-      .from('profiles')
-      .select('id, username')
-      .ilike('username', friendSearchQuery.trim())
-      .limit(1);
-
-    const targetProfile = targetProfiles && targetProfiles.length > 0 ? targetProfiles[0] : null;
-
-    if (searchError || !targetProfile) {
-      setFriendRequestError(`Kein Nutzer mit dem Benutzernamen "${friendSearchQuery}" gefunden.`);
-      return;
-    }
-
-    if (targetProfile.id === supabaseUser?.id) {
-      setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
-      return;
-    }
-
-    // Prüfen ob bereits eine Freundschaft oder Anfrage existiert (beide Richtungen)
-    const { data: rels, error: relsErr } = await supabase
-      .from('friendships')
-      .select('id, requester_id, receiver_id, status')
-      .or(`requester_id.eq.${supabaseUser?.id},receiver_id.eq.${supabaseUser?.id}`);
-
-    if (relsErr) {
-      setFriendRequestError(`Fehler: ${relsErr.message}`);
-      return;
-    }
-
-    const existing = (rels || []).find(
-      r => (r.requester_id === supabaseUser?.id && r.receiver_id === targetProfile.id) ||
-           (r.requester_id === targetProfile.id && r.receiver_id === supabaseUser?.id)
-    );
-
-    if (existing) {
-      const status = existing.status;
-      if (status === 'accepted') {
-        setFriendRequestError('Ihr seid bereits befreundet.');
-      } else if (status === 'pending') {
-        setFriendRequestError('Eine Anfrage ist bereits ausstehend.');
-      } else {
-        setFriendRequestError('Eine Freundschaftsanfrage wurde bereits gesendet oder abgelehnt.');
-      }
-      return;
-    }
-
-    // Anfrage senden
-    const { error: insertError } = await supabase
-      .from('friendships')
-      .insert({
-        requester_id: supabaseUser?.id,
-        receiver_id: targetProfile.id,
-        status: 'pending'
-      });
-
-    if (insertError) {
-      setFriendRequestError(`Fehler: ${insertError.message}`);
-    } else {
-      setFriendRequestSuccess(`Freundschaftsanfrage an ${targetProfile.username} gesendet! ✅`);
-      setFriendSearchQuery('');
-    }
+    await handleSendFriendRequest();
   };
 
   const acceptFriendRequest = async (friendshipId: string) => {

@@ -30,7 +30,11 @@ import {
   shuffleArray,
   distributePlayers,
   getPlayerColor,
-  parseRecords
+  parseRecords,
+  GAME_MODES,
+  normalizeGameMode,
+  matchesGameMode,
+  calculateUserModeStats
 } from './src/constants';
 
 import PlayerBadges from './src/components/PlayerBadges';
@@ -366,7 +370,7 @@ const App: React.FC = () => {
 
   const [myGameData, setMyGameData] = useState<any[]>([]);
   const [myAchievementsData, setMyAchievementsData] = useState<any[]>([]);
-  const [recordsSubTab, setRecordsSubTab] = useState<'alle' | 'standard' | 'speed' | 'team'>('alle');
+  const [recordsSubTab, setRecordsSubTab] = useState<string>('alle');
   const [profileStats, setProfileStats] = useState({
     gamesPlayed: 0,
     totalSchnaepse: 0,
@@ -400,6 +404,18 @@ const App: React.FC = () => {
     setTeamMemberAccountLinks({});
   };
 
+  const fetchServerProfileData = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(userId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('fetchServerProfileData network warning:', err);
+    }
+    return null;
+  };
+
   const loadProfileStats = async () => {
     if (!isSupabaseConfigured()) {
       setProfileStats({
@@ -411,9 +427,17 @@ const App: React.FC = () => {
       return;
     }
 
-    // 1. Dynamic User-ID: Frisch aus der aktiven Supabase-Session lesen
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    // 1. Dynamic User-ID: Frisch aus der aktiven Supabase-Session oder state
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // ignore
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
 
     // 2. Sichere Abfragelogik: Vor jedem DB-Fetch prüfen, ob currentUserId vorhanden ist
     if (!currentUserId) {
@@ -427,33 +451,36 @@ const App: React.FC = () => {
     }
 
     try {
+      // Versuche primär über das sichere Serverless-Backend abzufragen
+      const serverData = await fetchServerProfileData(currentUserId);
+      if (serverData && serverData.gameResults) {
+        const stats = calculateUserModeStats(
+          serverData.gameResults,
+          serverData.achievements || [],
+          currentUserId,
+          'alle'
+        );
+
+        setProfileStats({
+          gamesPlayed: stats.gamesPlayed,
+          totalSchnaepse: stats.totalSchnaepse,
+          bestAvg: stats.bestAvg,
+          achievementsCount: stats.achievementsCount
+        });
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('loadProfileStats via API fallback triggered:', apiErr);
+    }
+
+    try {
       const { data: results, error: resErr } = await supabase
         .from('game_results')
-        .select('avg, schnaepse')
+        .select('user_id, game_mode, avg, schnaepse, total, time_seconds')
         .eq('user_id', currentUserId);
 
       if (resErr) {
         console.warn('loadProfileStats game_results warning:', resErr.message || resErr);
-      }
-
-      // 3. Clean Error & Empty-State Handling:
-      const safeResults = Array.isArray(results) ? results : [];
-
-      let gamesPlayed = 0;
-      let totalSchnaepse = 0;
-      let bestAvg: number | null = null;
-
-      if (safeResults.length === 0) {
-        gamesPlayed = 0;
-        totalSchnaepse = 0;
-        bestAvg = null;
-      } else {
-        gamesPlayed = safeResults.length;
-        totalSchnaepse = safeResults.reduce((s, r) => s + (Number(r.schnaepse) || 0), 0);
-        const validAvgs = safeResults
-          .map(r => r.avg)
-          .filter((a): a is number => typeof a === 'number' && !isNaN(a) && a !== 999);
-        bestAvg = validAvgs.length > 0 ? Math.min(...validAvgs) : null;
       }
 
       const { count: achCount, error: achErr } = await supabase
@@ -465,11 +492,18 @@ const App: React.FC = () => {
         console.warn('loadProfileStats achievements count warning:', achErr.message || achErr);
       }
 
+      const stats = calculateUserModeStats(
+        results || [],
+        [],
+        currentUserId,
+        'alle'
+      );
+
       setProfileStats({
-        gamesPlayed,
-        totalSchnaepse,
-        bestAvg: bestAvg !== null ? Number(bestAvg.toFixed(2)) : null,
-        achievementsCount: achCount || 0
+        gamesPlayed: stats.gamesPlayed,
+        totalSchnaepse: stats.totalSchnaepse,
+        bestAvg: stats.bestAvg,
+        achievementsCount: achCount || stats.achievementsCount
       });
     } catch (err) {
       console.error('Error loading profile stats:', err);
@@ -490,14 +524,45 @@ const App: React.FC = () => {
     }
 
     // 1. Dynamic User-ID
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // ignore
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
 
     // 2. Sichere Abfragelogik
     if (!currentUserId) {
       setMyGameData([]);
       setMyAchievementsData([]);
       return;
+    }
+
+    try {
+      // Versuche primär über das sichere Serverless-Backend abzufragen
+      const serverData = await fetchServerProfileData(currentUserId);
+      if (serverData) {
+        setMyGameData(Array.isArray(serverData.gameResults) ? serverData.gameResults : []);
+        setMyAchievementsData(Array.isArray(serverData.achievements) ? serverData.achievements : []);
+        if (serverData.profile) {
+          const prof = serverData.profile;
+          setPrivacyState({
+            showRecords: prof.show_records ?? true,
+            showStandardspiel: prof.show_standardspiel ?? true,
+            showSpeedwiegen: prof.show_speedwiegen ?? true,
+            showTeamwiegen: prof.show_teamwiegen ?? true,
+            showAchievements: prof.show_achievements ?? true,
+          });
+          setProfileShowRecords(prof.show_records ?? true);
+        }
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('loadMyProfileData via API fallback triggered:', apiErr);
     }
 
     try {
@@ -557,14 +622,32 @@ const App: React.FC = () => {
     }
 
     // 1. Dynamic User-ID
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // ignore
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
 
     // 2. Sichere Abfragelogik
     if (!currentUserId) {
       console.warn('loadMyResults: keine User ID vorhanden');
       setMyGameData([]);
       return;
+    }
+
+    try {
+      const serverData = await fetchServerProfileData(currentUserId);
+      if (serverData && Array.isArray(serverData.gameResults)) {
+        setMyGameData(serverData.gameResults);
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('loadMyResults API fallback:', apiErr);
     }
 
     try {
@@ -596,14 +679,32 @@ const App: React.FC = () => {
     }
 
     // 1. Dynamic User-ID
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // ignore
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
 
     // 2. Sichere Abfragelogik
     if (!currentUserId) {
       console.warn('loadMyAchievements: keine User ID vorhanden');
       setMyAchievementsData([]);
       return;
+    }
+
+    try {
+      const serverData = await fetchServerProfileData(currentUserId);
+      if (serverData && Array.isArray(serverData.achievements)) {
+        setMyAchievementsData(serverData.achievements);
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('loadMyAchievements API fallback:', apiErr);
     }
 
     try {
@@ -729,8 +830,20 @@ const App: React.FC = () => {
 
     let isMounted = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id;
+      let currentUserId: string | undefined;
+      let currentUser = supabaseUser;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          currentUser = user;
+          currentUserId = user.id;
+        }
+      } catch (err) {
+        console.warn('getUser warning:', err);
+      }
+      if (!currentUserId && supabaseUser?.id) {
+        currentUserId = supabaseUser.id;
+      }
 
       if (!currentUserId) {
         console.warn('showProfileModal: Keine aktive Supabase-Session');
@@ -740,7 +853,9 @@ const App: React.FC = () => {
 
       if (!isMounted) return;
       console.log('→ Lade Profil-Daten für:', currentUserId);
-      setSupabaseUser(user);
+      if (currentUser) {
+        setSupabaseUser(currentUser);
+      }
 
       await Promise.allSettled([
         loadProfileStats(),
@@ -1259,6 +1374,7 @@ const App: React.FC = () => {
     achievements: any[]
   ) => {
     try {
+      const canonicalMode = normalizeGameMode(gameResult.game_mode);
       const avg = Number(gameResult.avg) || 0;
       const schnaepse = Number(gameResult.schnaepse) || 0;
       const total = Math.round((avg + schnaepse) * 100) / 100;
@@ -1270,11 +1386,15 @@ const App: React.FC = () => {
           userId,
           gameResult: {
             ...gameResult,
+            game_mode: canonicalMode,
             avg,
             schnaepse,
             total
           },
-          achievements
+          achievements: (achievements || []).map(a => ({
+            ...a,
+            game_mode: a.game_mode ? normalizeGameMode(a.game_mode) : canonicalMode
+          }))
         })
       });
 
@@ -2006,7 +2126,7 @@ const App: React.FC = () => {
         body: JSON.stringify({
           userId,
           gameResult: {
-            game_mode: gameMode,
+            game_mode: normalizeGameMode(gameMode),
             date: today,
             avg: Number(avg.toFixed(2)),
             schnaepse,
@@ -2085,7 +2205,7 @@ const App: React.FC = () => {
       body: JSON.stringify({
         userId: supabaseUser.id,
         gameResult: {
-          game_mode: gameMode,
+          game_mode: normalizeGameMode(gameMode),
           date: today,
           avg: Number(speedAvg.toFixed(2)),
           schnaepse: 0,
@@ -3926,12 +4046,13 @@ const App: React.FC = () => {
             })
             .map(r => {
               const profile = profileMap[r.user_id];
+              const canonicalMode = normalizeGameMode(r.game_mode);
               const entryAchs = safeAchs
                 .filter(a =>
                   a &&
                   a.user_id === r.user_id &&
                   a.date === r.date &&
-                  a.game_mode === r.game_mode
+                  matchesGameMode(a.game_mode, canonicalMode)
                 )
                 .map(a => ({
                   id: a.achievement_id,
@@ -3944,7 +4065,7 @@ const App: React.FC = () => {
 
               return [
                 r.date || '',
-                r.game_mode || '',
+                canonicalMode,
                 profile?.username || '',
                 r.avg?.toString() || '0',
                 r.schnaepse?.toString() || '0',
@@ -6189,29 +6310,13 @@ const App: React.FC = () => {
 
                   let filtered: any[] = [];
                   if (activeRecordsTab === 'Standardspiel') {
-                    if (standardspielSizeTab === '500ml') {
-                      filtered = list.filter(r => r.gameMode === 'Standardspiel (500ml)' || r.gameMode === 'Standardspiel');
-                    } else {
-                      filtered = list.filter(r => r.gameMode === 'Standardspiel (0,33L)');
-                    }
+                    const target = standardspielSizeTab === '500ml' ? 'Standardspiel (500ml)' : 'Standardspiel (0,33L)';
+                    filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, target));
                   } else if (activeRecordsTab === 'Speedwiegen') {
-                    // RÜCKWÄRTSKOMPATIBILITÄT:
-                    // Alle Speedwiegen-Einträge die vor der Einführung des 0,33L Modus gespeichert wurden
-                    // haben gameMode === 'Speedwiegen' (ohne Modusangabe).
-                    // Diese werden automatisch dem 500ml Modus zugeordnet.
-                    // Neue Einträge werden explizit als 'Speedwiegen (500ml)' oder 'Speedwiegen (0,33L)' gespeichert.
-                    if (speedwiegenSizeTab === '500ml') {
-                      filtered = list.filter(r =>
-                        r.gameMode === 'Speedwiegen (500ml)' ||
-                        r.gameMode === 'Speedwiegen'
-                      );
-                    } else {
-                      filtered = list.filter(r =>
-                        r.gameMode === 'Speedwiegen (0,33L)'
-                      );
-                    }
+                    const target = speedwiegenSizeTab === '500ml' ? 'Speedwiegen (500ml)' : 'Speedwiegen (0,33L)';
+                    filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, target));
                   } else {
-                    filtered = list.filter(r => r.gameMode === activeRecordsTab);
+                    filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, activeRecordsTab));
                   }
 
                   if (filtered.length === 0) {
@@ -7031,12 +7136,8 @@ const App: React.FC = () => {
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
               {(() => {
                 const list = parseRecords(recordsData || []);
-                let filteredList = [];
-                if (standardspielSizeTab === '500ml') {
-                  filteredList = list.filter(r => (r.gameMode === 'Standardspiel (500ml)' || r.gameMode === 'Standardspiel') && r.playerName === selectedPlayerForDetails);
-                } else {
-                  filteredList = list.filter(r => r.gameMode === 'Standardspiel (0,33L)' && r.playerName === selectedPlayerForDetails);
-                }
+                const targetMode = standardspielSizeTab === '500ml' ? 'Standardspiel (500ml)' : 'Standardspiel (0,33L)';
+                const filteredList = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, targetMode) && r.playerName === selectedPlayerForDetails);
                 
                 if (filteredList.length === 0) {
                   return <p className="text-center opacity-60 py-8 text-sm">Keine Spiele für diesen Modus aufgezeichnet.</p>;
@@ -7047,7 +7148,7 @@ const App: React.FC = () => {
                     <div>
                       <p className="font-bold text-sm">{item.date}</p>
                       <p className="text-[10px] opacity-60">
-                        {item.gameMode}
+                        {normalizeGameMode(item.game_mode || item.gameMode)}
                       </p>
                     </div>
                     <div className="text-right">
@@ -8025,7 +8126,7 @@ const App: React.FC = () => {
                                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                                       : 'bg-black/10 dark:bg-white/10 font-mono'
                                   }`}>
-                                    {tbl.id === 'table_final' ? `������ ${p}` : p}
+                                    {tbl.id === 'table_final' ? `👑 ${p}` : p}
                                   </span>
                                 ))}
                               </div>

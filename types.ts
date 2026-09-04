@@ -7,6 +7,53 @@ export interface Player {
   isDisqualified?: boolean;
 }
 
+export const GAME_MODES = [
+  'Standardspiel (500ml)',
+  'Standardspiel (0,33L)',
+  'Speedwiegen (500ml)',
+  'Speedwiegen (0,33L)'
+] as const;
+
+export type GameMode = typeof GAME_MODES[number];
+
+export interface GameResult {
+  id?: string;
+  user_id: string;
+  game_mode: string;
+  date?: string;
+  avg: number;
+  schnaepse?: number;
+  total?: number;
+  levels?: number;
+  time_seconds?: number;
+  team_name?: string;
+  created_at?: string;
+}
+
+export interface RecordItem {
+  id?: string;
+  user_id?: string;
+  game_mode: string;
+  gameMode?: string;
+  playerName: string;
+  date: string;
+  avg: number;
+  schnaepse: number;
+  total?: number;
+  levels?: number;
+  time_seconds?: number;
+  team_name?: string;
+  created_at?: string;
+  achievements?: Array<{
+    id: string;
+    title: string;
+    icon: string;
+    rarity: string;
+    earnedBy?: string[];
+    earnedTogether?: boolean;
+  }>;
+}
+
 export interface Achievement {
   id: string;          // z.B. "sharpshooter"
   title: string;       // z.B. "Scharfschütze"
@@ -18,12 +65,15 @@ export interface Achievement {
 }
 
 export interface ParsedRecord {
+  game_mode: string;
   gameMode: string;
   playerName: string;
   date: string;
   avg: number;
   schnaepse: number;
   levels?: number;
+  time_seconds?: number;
+  total?: number;
   achievements?: Array<{
     id: string;
     title: string;

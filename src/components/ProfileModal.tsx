@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { BRAND_COLOR, normalizeGameMode, matchesGameMode, calculateUserModeStats } from '../constants';
 import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
+import { Friend, PendingFriendRequest } from '../../types';
 
 interface ProfileModalProps {
   showProfileModal: boolean;
@@ -43,8 +44,8 @@ interface ProfileModalProps {
   setRecordsSortBy: (s: 'datum' | 'avg' | 'schnaepse' | 'total') => void;
   recordsSortDir: 'asc' | 'desc';
   setRecordsSortDir: (d: 'asc' | 'desc') => void;
-  friends: Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>;
-  pendingRequests: Array<{ id: string; requesterName: string; requesterId: string }>;
+  friends: Friend[];
+  pendingRequests: PendingFriendRequest[];
   friendSearchQuery: string;
   setFriendSearchQuery: (q: string) => void;
   friendRequestError: string | null;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { BRAND_COLOR } from '../constants';
+import { BRAND_COLOR, normalizeGameMode, matchesGameMode, calculateUserModeStats } from '../constants';
 import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
 
 interface ProfileModalProps {
@@ -37,8 +37,8 @@ interface ProfileModalProps {
   };
   myGameData: any[];
   myAchievementsData: any[];
-  recordsSubTab: 'alle' | 'standard' | 'speed' | 'team';
-  setRecordsSubTab: (t: 'alle' | 'standard' | 'speed' | 'team') => void;
+  recordsSubTab: string;
+  setRecordsSubTab: (t: string) => void;
   recordsSortBy: 'datum' | 'avg' | 'schnaepse' | 'total';
   setRecordsSortBy: (s: 'datum' | 'avg' | 'schnaepse' | 'total') => void;
   recordsSortDir: 'asc' | 'desc';
@@ -225,13 +225,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   // Gefilterte & sortierte Spiele für Tab 2
-  const filteredGames = myGameData.filter(g => {
+  const filteredGames = (myGameData || []).filter(g => {
+    if (!g) return false;
     if (recordsSubTab === 'alle') return true;
-    const mode = (g.game_mode || g.mode || '').toLowerCase();
-    if (recordsSubTab === 'standard') return mode.includes('standard');
-    if (recordsSubTab === 'speed') return mode.includes('speed');
-    if (recordsSubTab === 'team') return mode.includes('team');
-    return true;
+    return matchesGameMode(g.game_mode, recordsSubTab);
   });
 
   const sortedGames = [...filteredGames].sort((a, b) => {
@@ -246,8 +243,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         valB = b.avg ?? 999;
         break;
       case 'schnaepse':
-        valA = a.schnaepse ?? 0;
-        valB = b.schnaepse ?? 0;
+        valA = a.time_seconds !== undefined && a.time_seconds !== null ? a.time_seconds : (a.schnaepse ?? 0);
+        valB = b.time_seconds !== undefined && b.time_seconds !== null ? b.time_seconds : (b.schnaepse ?? 0);
         break;
       case 'total':
         valA = a.total ?? 0;
@@ -260,6 +257,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       return valA < valB ? 1 : -1;
     }
   });
+
+  // Dynamische Stats-Berechnung auf Basis von user_id und dem ausgewählten Spielmodus
+  const dynamicStats = calculateUserModeStats(
+    myGameData,
+    myAchievementsData,
+    supabaseUser?.id || '',
+    recordsSubTab
+  );
 
   return (
     <>
@@ -594,22 +599,28 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 {/* Statistik-Karten */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-[#238183]">{profileStats.gamesPlayed}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Gespielt</div>
+                    <div className="text-2xl font-black text-[#238183]">{dynamicStats.gamesPlayed}</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Spiele absolviert</div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-amber-500">{profileStats.totalSchnaepse}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">🥃 Schnäpse</div>
+                    <div className="text-2xl font-black text-amber-500">
+                      {recordsSubTab.includes('Speedwiegen')
+                        ? (dynamicStats.bestTime !== null ? `${dynamicStats.bestTime}s` : '-')
+                        : dynamicStats.totalSchnaepse}
+                    </div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
+                      {recordsSubTab.includes('Speedwiegen') ? '⚡ Schnellste Zeit' : '🥃 Schnäpse'}
+                    </div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="text-2xl font-black text-emerald-500">
-                      {profileStats.bestAvg !== null ? `${profileStats.bestAvg}g` : '-'}
+                      {dynamicStats.bestAvg !== null ? `${dynamicStats.bestAvg}g` : '-'}
                     </div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">🎯 Bester Ø</div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">🎯 Bester Ø Abstand</div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="text-2xl font-black text-purple-500">
-                      {myAchievementsData.length || profileStats.achievementsCount}
+                      {dynamicStats.achievementsCount}
                     </div>
                     <div className="text-[11px] font-bold opacity-60 uppercase mt-1">🏆 Badges</div>
                   </div>
@@ -617,17 +628,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
                 {/* Filter & Sortierung */}
                 <div className="flex flex-col sm:flex-row gap-3 items-center justify-between border-b pb-3 border-gray-500/20">
-                  <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto">
+                  <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto pb-1">
                     {[
-                      { key: 'alle' as const, label: 'Alle' },
-                      { key: 'standard' as const, label: '🍺 Standard' },
-                      { key: 'speed' as const, label: '⚡ Speed' },
-                      { key: 'team' as const, label: '👥 Team' }
+                      { key: 'alle', label: 'Alle Modi' },
+                      { key: 'Standardspiel (500ml)', label: '🍺 Standard (500ml)' },
+                      { key: 'Standardspiel (0,33L)', label: '🍺 Standard (0,33L)' },
+                      { key: 'Speedwiegen (500ml)', label: '⚡ Speed (500ml)' },
+                      { key: 'Speedwiegen (0,33L)', label: '⚡ Speed (0,33L)' }
                     ].map(f => (
                       <button
                         key={f.key}
                         onClick={() => setRecordsSubTab(f.key)}
-                        className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer transition-all ${
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer transition-all whitespace-nowrap ${
                           recordsSubTab === f.key
                             ? 'bg-[#238183] text-white shadow'
                             : 'bg-black/5 dark:bg-white/5 opacity-60 hover:opacity-100'
@@ -649,8 +661,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     >
                       <option value="datum">Datum</option>
                       <option value="avg">Ø Abstand</option>
-                      <option value="schnaepse">Schnäpse</option>
-                      <option value="total">Total</option>
+                      <option value="schnaepse">{recordsSubTab.includes('Speedwiegen') ? 'Zeit' : 'Schnäpse'}</option>
+                      <option value="total">Total / Score</option>
                     </select>
                     <button
                       type="button"
@@ -678,30 +690,40 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           <th className="p-3">Datum</th>
                           <th className="p-3">Modus</th>
                           <th className="p-3 text-right">Ø Abstand</th>
-                          <th className="p-3 text-right">Schnäpse</th>
-                          <th className="p-3 text-right">Total</th>
+                          <th className="p-3 text-right">
+                            {recordsSubTab.includes('Speedwiegen') ? 'Zeit' : 'Schnäpse'}
+                          </th>
+                          <th className="p-3 text-right">Total / Score</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-500/10">
-                        {sortedGames.map((g, idx) => (
-                          <tr key={idx} className="hover:bg-black/5 dark:hover:bg-white/5">
-                            <td className="p-3 font-mono font-bold">{g.date || g.created_at?.slice(0, 10) || '-'}</td>
-                            <td className="p-3 font-bold">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] bg-[#238183]/10 text-[#238183] border border-[#238183]/30">
-                                {g.game_mode || g.mode || 'Standard'}
-                              </span>
-                            </td>
-                            <td className="p-3 text-right font-black">
-                              {g.avg !== undefined && g.avg !== null ? `${g.avg}g` : '-'}
-                            </td>
-                            <td className="p-3 text-right font-bold text-amber-500">
-                              {g.schnaepse ? `🥃 ${g.schnaepse}` : '0'}
-                            </td>
-                            <td className="p-3 text-right font-black">
-                              {g.total ? `${g.total}g` : '-'}
-                            </td>
-                          </tr>
-                        ))}
+                        {sortedGames.map((g, idx) => {
+                          const canonicalMode = normalizeGameMode(g.game_mode);
+                          const isSpeed = canonicalMode.includes('Speedwiegen');
+                          return (
+                            <tr key={idx} className="hover:bg-black/5 dark:hover:bg-white/5">
+                              <td className="p-3 font-mono font-bold">{g.date || g.created_at?.slice(0, 10) || '-'}</td>
+                              <td className="p-3 font-bold">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] bg-[#238183]/10 text-[#238183] border border-[#238183]/30 whitespace-nowrap">
+                                  {canonicalMode}
+                                </span>
+                              </td>
+                              <td className="p-3 text-right font-black">
+                                {g.avg !== undefined && g.avg !== null ? `${g.avg}g` : '-'}
+                              </td>
+                              <td className="p-3 text-right font-bold text-amber-500">
+                                {isSpeed
+                                  ? (g.time_seconds !== undefined && g.time_seconds !== null
+                                      ? `${Number(g.time_seconds).toFixed(1)}s`
+                                      : (g.schnaepse ? `${Number(g.schnaepse).toFixed(1)}s` : '-'))
+                                  : (g.schnaepse ? `🥃 ${g.schnaepse}` : '0')}
+                              </td>
+                              <td className="p-3 text-right font-black">
+                                {g.total ? `${g.total}g` : (isSpeed && g.avg !== undefined ? `${(g.avg + (g.time_seconds || g.schnaepse || 0)).toFixed(1)}` : '-')}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

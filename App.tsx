@@ -4,7 +4,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 import QRScannerModal from './src/components/QRScannerModal';
-import { GameState, Player, Round, Team, Achievement, ParsedRecord } from './types';
+import { GameState, Player, Round, Team, Achievement, ParsedRecord, Friend, PendingFriendRequest, Friendship } from './types';
 import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
 import {
@@ -336,8 +336,8 @@ const App: React.FC = () => {
   } | null>(null);
 
   // Friends & Privacy States
-  const [friends, setFriends] = useState<Array<{ id: string; name: string; imageUrl?: string; friendshipId: string }>>([]);
-  const [pendingRequests, setPendingRequests] = useState<Array<{ id: string; requesterName: string; requesterId: string }>>([]);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingFriendRequest[]>([]);
   const [friendSearchQuery, setFriendSearchQuery] = useState('');
   const [friendRequestError, setFriendRequestError] = useState<string | null>(null);
   const [friendRequestSuccess, setFriendRequestSuccess] = useState<string | null>(null);
@@ -737,8 +737,16 @@ const App: React.FC = () => {
     }
 
     // 1. Dynamic User-ID
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // Fallback
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
 
     // 2. Sichere Abfragelogik
     if (!currentUserId) {
@@ -748,9 +756,10 @@ const App: React.FC = () => {
     }
 
     try {
+      // Beide Richtungen abfragen: requester_id ODER receiver_id = aktueller User
       const { data: rels, error: relsErr } = await supabase
         .from('friendships')
-        .select('*')
+        .select('id, requester_id, receiver_id, status')
         .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
 
       if (relsErr) {
@@ -760,33 +769,42 @@ const App: React.FC = () => {
         return;
       }
 
-      const safeRels = Array.isArray(rels) ? rels : [];
+      const safeRels = Array.isArray(rels) ? (rels as Friendship[]) : [];
       if (safeRels.length === 0) {
         setFriends([]);
         setPendingRequests([]);
         return;
       }
 
+      // 1. Akzeptierte Freundschaften (beide Richtungen auswerten)
       const accepted = safeRels.filter(r => r.status === 'accepted');
-      const pendingIncoming = safeRels.filter(r => r.status === 'pending' && r.receiver_id === currentUserId);
+      const friendUserIds = accepted.map(r =>
+        r.requester_id === currentUserId ? r.receiver_id : r.requester_id
+      );
 
-      const friendUserIds = accepted.map(r => r.requester_id === currentUserId ? r.receiver_id : r.requester_id);
       if (friendUserIds.length > 0) {
-        const { data: friendProfiles } = await supabase
+        const { data: friendProfiles, error: profErr } = await supabase
           .from('profiles')
           .select('id, username, avatar_url')
           .in('id', friendUserIds);
 
-        if (friendProfiles && Array.isArray(friendProfiles) && friendProfiles.length > 0) {
-          const formattedFriends = friendProfiles.map(p => {
-            const rel = accepted.find(r => r.requester_id === p.id || r.receiver_id === p.id);
-            return {
-              id: p.id,
-              name: p.username || 'Benutzer',
-              imageUrl: p.avatar_url,
-              friendshipId: rel?.id
-            };
-          });
+        if (!profErr && Array.isArray(friendProfiles) && friendProfiles.length > 0) {
+          const profileMap = new Map(friendProfiles.map(p => [p.id, p]));
+
+          const formattedFriends: Friend[] = accepted
+            .map(rel => {
+              const friendId = rel.requester_id === currentUserId ? rel.receiver_id : rel.requester_id;
+              const profile = profileMap.get(friendId);
+              return {
+                id: friendId,
+                name: profile?.username || 'Benutzer',
+                imageUrl: profile?.avatar_url || undefined,
+                friendshipId: rel.id
+              };
+            })
+            .filter((f, idx, arr) => arr.findIndex(x => x.id === f.id) === idx)
+            .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
           setFriends(formattedFriends);
         } else {
           setFriends([]);
@@ -795,22 +813,27 @@ const App: React.FC = () => {
         setFriends([]);
       }
 
+      // 2. Offene eingehende Anfragen (receiver_id = aktueller User)
+      const pendingIncoming = safeRels.filter(
+        r => r.status === 'pending' && r.receiver_id === currentUserId
+      );
+
       const requesterIds = pendingIncoming.map(r => r.requester_id);
       if (requesterIds.length > 0) {
-        const { data: requesterProfiles } = await supabase
+        const { data: requesterProfiles, error: reqProfErr } = await supabase
           .from('profiles')
           .select('id, username')
           .in('id', requesterIds);
 
-        if (requesterProfiles && Array.isArray(requesterProfiles) && requesterProfiles.length > 0) {
-          const formattedRequests = pendingIncoming.map(r => {
-            const p = requesterProfiles.find(p => p.id === r.requester_id);
-            return {
-              id: r.id,
-              requesterId: r.requester_id,
-              requesterName: p?.username || 'Unbekannt'
-            };
-          });
+        if (!reqProfErr && Array.isArray(requesterProfiles) && requesterProfiles.length > 0) {
+          const reqProfileMap = new Map(requesterProfiles.map(p => [p.id, p]));
+
+          const formattedRequests: PendingFriendRequest[] = pendingIncoming.map(r => ({
+            id: r.id,
+            requesterId: r.requester_id,
+            requesterName: reqProfileMap.get(r.requester_id)?.username || 'Unbekannt'
+          }));
+
           setPendingRequests(formattedRequests);
         } else {
           setPendingRequests([]);
@@ -881,8 +904,16 @@ const App: React.FC = () => {
   }, [profileTab, showProfileModal]);
 
   const handleSendFriendRequest = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id;
+    let currentUserId: string | undefined;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUserId = user?.id;
+    } catch {
+      // Fallback
+    }
+    if (!currentUserId && supabaseUser?.id) {
+      currentUserId = supabaseUser.id;
+    }
     if (!currentUserId || !friendSearchQuery.trim()) return;
     setFriendRequestError(null);
     setFriendRequestSuccess(null);
@@ -905,14 +936,36 @@ const App: React.FC = () => {
         return;
       }
 
+      // Prüfe beide Richtungen:
       const { data: existing } = await supabase
         .from('friendships')
         .select('id, status')
         .or(`and(requester_id.eq.${currentUserId},receiver_id.eq.${target.id}),and(requester_id.eq.${target.id},receiver_id.eq.${currentUserId})`);
 
       if (existing && existing.length > 0) {
-        setFriendRequestError('Eine Freundschaft oder Anfrage existiert bereits.');
-        return;
+        const currentStatus = existing[0].status;
+        if (currentStatus === 'accepted') {
+          setFriendRequestError('Ihr seid bereits befreundet.');
+          return;
+        } else if (currentStatus === 'pending') {
+          setFriendRequestError('Eine Freundschaftsanfrage ist bereits ausstehend.');
+          return;
+        } else if (currentStatus === 'declined') {
+          const { error: updErr } = await supabase
+            .from('friendships')
+            .update({
+              requester_id: currentUserId,
+              receiver_id: target.id,
+              status: 'pending'
+            })
+            .eq('id', existing[0].id);
+
+          if (updErr) throw updErr;
+          setFriendRequestSuccess(`Freundschaftsanfrage an ${target.username} gesendet!`);
+          setFriendSearchQuery('');
+          loadFriendships();
+          return;
+        }
       }
 
       const { error: insErr } = await supabase
@@ -935,7 +988,11 @@ const App: React.FC = () => {
 
   const handleAcceptFriendRequest = async (friendshipId: string) => {
     try {
-      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
+      const { error } = await supabase
+        .from('friendships')
+        .update({ status: 'accepted' })
+        .eq('id', friendshipId);
+      if (error) throw error;
       loadFriendships();
     } catch (e) {
       console.error('Error accepting friend request:', e);
@@ -944,7 +1001,11 @@ const App: React.FC = () => {
 
   const handleRejectFriendRequest = async (friendshipId: string) => {
     try {
-      await supabase.from('friendships').delete().eq('id', friendshipId);
+      const { error } = await supabase
+        .from('friendships')
+        .update({ status: 'declined' })
+        .eq('id', friendshipId);
+      if (error) throw error;
       loadFriendships();
     } catch (e) {
       console.error('Error rejecting friend request:', e);
@@ -953,7 +1014,11 @@ const App: React.FC = () => {
 
   const handleRemoveFriend = async (friendshipId: string) => {
     try {
-      await supabase.from('friendships').delete().eq('id', friendshipId);
+      const { error } = await supabase
+        .from('friendships')
+        .delete()
+        .eq('id', friendshipId);
+      if (error) throw error;
       loadFriendships();
     } catch (e) {
       console.error('Error removing friend:', e);
@@ -1928,30 +1993,25 @@ const App: React.FC = () => {
   };
 
   const acceptFriendRequest = async (friendshipId: string) => {
-    await supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
-    loadFriends();
-    loadPendingRequests();
+    await handleAcceptFriendRequest(friendshipId);
   };
 
   const rejectFriendRequest = async (friendshipId: string) => {
-    await supabase.from('friendships').update({ status: 'rejected' }).eq('id', friendshipId);
-    loadPendingRequests();
+    await handleRejectFriendRequest(friendshipId);
   };
 
   const removeFriend = async (friendshipId: string) => {
-    await supabase.from('friendships').delete().eq('id', friendshipId);
-    loadFriends();
+    await handleRemoveFriend(friendshipId);
   };
 
   useEffect(() => {
     if (showProfileModal && profileTab === 'freunde') {
-      loadFriends();
-      loadPendingRequests();
+      loadFriendships();
     }
   }, [showProfileModal, profileTab]);
 
   useEffect(() => {
-    if (!supabaseUser) return;
+    if (!supabaseUser?.id) return;
     const channel = supabase
       .channel(`friendships_${supabaseUser.id}`)
       .on('postgres_changes', {
@@ -1960,8 +2020,15 @@ const App: React.FC = () => {
         table: 'friendships',
         filter: `receiver_id=eq.${supabaseUser.id}`
       }, () => {
-        loadPendingRequests();
-        loadFriends();
+        loadFriendships();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'friendships',
+        filter: `requester_id=eq.${supabaseUser.id}`
+      }, () => {
+        loadFriendships();
       })
       .subscribe();
     return () => {

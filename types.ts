@@ -30,6 +30,27 @@ export interface GameResult {
   created_at?: string;
 }
 
+export interface Friendship {
+  id: string;
+  requester_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at?: string;
+}
+
+export interface Friend {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  friendshipId: string;
+}
+
+export interface PendingFriendRequest {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+}
+
 export interface RecordItem {
   id?: string;
   user_id?: string;

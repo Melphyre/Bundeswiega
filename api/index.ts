@@ -111,6 +111,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathName === '/api/users/public-records' && req.method === 'GET') {
       return await handlePublicRecords(req, res);
     }
+    if (pathName === '/api/users/profile-data' && req.method === 'GET') {
+      return await handleGetProfileData(req, res);
+    }
 
     // ── Admin ────────────────────────────────────────
     if (pathName === '/api/admin/rename' && req.method === 'POST') {
@@ -626,6 +629,59 @@ async function handlePublicRecords(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ records: publicRecords });
   } catch (err: any) {
     return res.status(200).json({ records: [] });
+  }
+}
+
+async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
+  try {
+    const query = getRequestQuery(req);
+    const userId = (query.userId || '').trim();
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId ist erforderlich.' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({
+        profile: null,
+        gameResults: [],
+        achievements: []
+      });
+    }
+
+    const [profileRes, resultsRes, achRes] = await Promise.all([
+      supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('game_results')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false }),
+      supabaseAdmin
+        .from('achievements')
+        .select('*')
+        .eq('user_id', userId)
+    ]);
+
+    const profile = profileRes?.data || null;
+    const gameResults = Array.isArray(resultsRes?.data) ? resultsRes.data : [];
+    const achievements = Array.isArray(achRes?.data) ? achRes.data : [];
+
+    return res.status(200).json({
+      profile,
+      gameResults,
+      achievements
+    });
+  } catch (err: any) {
+    console.error('handleGetProfileData error:', err);
+    return res.status(200).json({
+      profile: null,
+      gameResults: [],
+      achievements: []
+    });
   }
 }
 

@@ -680,102 +680,74 @@ const App: React.FC = () => {
 
   const loadFriendships = async (targetUserId?: string) => {
     const currentUserId = targetUserId || supabaseUser?.id;
-    if (!currentUserId || !isSupabaseConfigured()) {
-      setFriends([]);
-      setPendingRequests([]);
-      return;
-    }
+    if (!currentUserId) return;
 
     try {
-      // 1. & 2. Anfragen parallel laden (ohne fehleranfälliges .or())
-      const [
-        { data: sent, error: errSent },
-        { data: received, error: errReceived }
-      ] = await Promise.all([
-        supabase
-          .from('friendships')
-          .select('id, receiver_id, status')
-          .eq('requester_id', currentUserId),
-        supabase
-          .from('friendships')
-          .select('id, requester_id, status')
-          .eq('receiver_id', currentUserId)
-      ]);
+      // 1. Eigene Freundschaften ohne verschachtelte Joins abrufen
+      const { data: sent, error: errSent } = await supabase
+        .from('friendships')
+        .select('id, receiver_id, status')
+        .eq('requester_id', currentUserId);
 
-      if (errSent || errReceived) {
-        console.error('Fehler beim Laden der Freundschaften:', errSent || errReceived);
+      const { data: received, error: errReceived } = await supabase
+        .from('friendships')
+        .select('id, requester_id, status')
+        .eq('receiver_id', currentUserId);
+
+      if (errSent || errReceived) throw errSent || errReceived;
+
+      // 2. IDs filtern
+      const acceptedSent = (sent || []).filter(r => r.status === 'accepted');
+      const acceptedReceived = (received || []).filter(r => r.status === 'accepted');
+      const pendingRaw = (received || []).filter(r => r.status === 'pending');
+
+      const friendUserIds = [
+        ...acceptedSent.map(r => r.receiver_id),
+        ...acceptedReceived.map(r => r.requester_id)
+      ];
+      const pendingUserIds = pendingRaw.map(r => r.requester_id);
+      const allIds = Array.from(new Set([...friendUserIds, ...pendingUserIds]));
+
+      if (allIds.length === 0) {
         setFriends([]);
         setPendingRequests([]);
         return;
       }
 
-      const allRels = [...(sent || []), ...(received || [])];
-
-      // Partner-IDs filtern
-      const friendPartnerIds = allRels
-        .filter(r => r.status === 'accepted')
-        .map(r => 'receiver_id' in r && r.receiver_id ? r.receiver_id : (r as any).requester_id)
-        .filter(Boolean);
-
-      const pendingRequestsRaw = (received || []).filter(r => r.status === 'pending');
-      const pendingUserIds = pendingRequestsRaw.map(r => r.requester_id).filter(Boolean);
-
-      // Profile der Freunde & Anfragenden abrufen
-      const allNeededUserIds = Array.from(new Set([...friendPartnerIds, ...pendingUserIds]));
-
-      if (allNeededUserIds.length === 0) {
-        setFriends([]);
-        setPendingRequests([]);
-        return;
-      }
-
+      // 3. Profile separat laden (verhindert den HTTP2/Fetch-Fehler)
       const { data: profiles, error: profErr } = await supabase
         .from('profiles')
-        .select('*')
-        .in('id', allNeededUserIds);
+        .select('id, username, avatar_url')
+        .in('id', allIds);
 
       if (profErr) throw profErr;
 
-      // Friends State setzen
-      const mappedFriends: Friend[] = (profiles || [])
-        .filter(p => friendPartnerIds.includes(p.id))
-        .map(p => {
-          const rel = allRels.find(r =>
-            ('receiver_id' in r && r.receiver_id === p.id) ||
-            ('requester_id' in r && (r as any).requester_id === p.id)
-          );
-          return {
-            ...p,
-            id: p.id,
-            name: p.username || 'Benutzer',
-            username: p.username || 'Benutzer',
-            imageUrl: p.avatar_url || '',
-            avatar_url: p.avatar_url,
-            friendshipId: rel?.id || '',
-            friendship_id: rel?.id || ''
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+      const profMap = new Map((profiles || []).map(p => [p.id, p]));
 
-      // Pending Requests State setzen
-      const mappedPending: PendingFriendRequest[] = pendingRequestsRaw.map(req => {
-        const profile = profiles?.find(p => p.id === req.requester_id);
-        return {
-          id: req.id,
-          requesterId: req.requester_id,
-          requester_id: req.requester_id,
-          requesterName: profile?.username || 'Unbekannt',
-          username: profile?.username || 'Unbekannt',
-          avatar_url: profile?.avatar_url
-        } as any;
-      });
+      // 4. States befüllen
+      setFriends([
+        ...acceptedSent.map(r => ({
+          id: r.receiver_id,
+          name: profMap.get(r.receiver_id)?.username || 'Unbekannt',
+          imageUrl: profMap.get(r.receiver_id)?.avatar_url || '',
+          friendshipId: r.id
+        })),
+        ...acceptedReceived.map(r => ({
+          id: r.requester_id,
+          name: profMap.get(r.requester_id)?.username || 'Unbekannt',
+          imageUrl: profMap.get(r.requester_id)?.avatar_url || '',
+          friendshipId: r.id
+        }))
+      ]);
 
-      setFriends(mappedFriends);
-      setPendingRequests(mappedPending);
+      setPendingRequests(pendingRaw.map(req => ({
+        id: req.id,
+        requesterId: req.requester_id,
+        requesterName: profMap.get(req.requester_id)?.username || 'Unbekannt'
+      })));
+
     } catch (err) {
-      console.error('Unerwarteter Fehler beim Laden der Freunde:', err);
-      setFriends([]);
-      setPendingRequests([]);
+      console.error('Fehler beim Laden der Freundesdaten:', err);
     }
   };
 
@@ -834,99 +806,61 @@ const App: React.FC = () => {
   }, [profileTab]);
 
   const handleSendFriendRequest = async () => {
-    const currentUserId = supabaseUser?.id;
-    const queryTerm = friendSearchQuery.trim();
-    if (!currentUserId || !queryTerm) return;
+    setFriendRequestError('');
+    setFriendRequestSuccess('');
 
-    setFriendRequestError(null);
-    setFriendRequestSuccess(null);
+    const query = friendSearchQuery.trim();
+    if (!query || !supabaseUser) return;
 
     try {
-      // 1. Suche ausschließlich nach Username
-      const { data: foundProfiles, error: searchErr } = await supabase
+      // 1. Profil exakt per Username ODER Email suchen (ohne komplexe Wildcards)
+      const { data: targetProfile, error: searchErr } = await supabase
         .from('profiles')
         .select('id, username')
-        .ilike('username', `%${queryTerm}%`)
-        .limit(1);
+        .or(`username.eq.${query},email.eq.${query}`)
+        .maybeSingle();
 
       if (searchErr) throw searchErr;
 
-      if (!foundProfiles || foundProfiles.length === 0) {
-        setFriendRequestError('Kein Benutzer mit diesem Namen gefunden.');
+      if (!targetProfile) {
+        setFriendRequestError('Kein Benutzer mit diesem Namen oder E-Mail gefunden.');
         return;
       }
 
-      const target = foundProfiles[0];
-      if (target.id === currentUserId) {
-        setFriendRequestError('Du kannst dir selbst keine Freundschaftsanfrage senden.');
+      if (targetProfile.id === supabaseUser.id) {
+        setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
         return;
       }
 
-      // 2. Sichere Prüfung bestehender Relationen über 2 parallele Abfragen (verhindert net::ERR_CONNECTION_CLOSED)
-      const [
-        { data: relsSent, error: errSent },
-        { data: relsReceived, error: errReceived }
-      ] = await Promise.all([
-        supabase
-          .from('friendships')
-          .select('id, requester_id, receiver_id, status')
-          .eq('requester_id', currentUserId)
-          .eq('receiver_id', target.id),
-        supabase
-          .from('friendships')
-          .select('id, requester_id, receiver_id, status')
-          .eq('requester_id', target.id)
-          .eq('receiver_id', currentUserId)
-      ]);
-
-      if (errSent || errReceived) {
-        throw (errSent || errReceived);
-      }
-
-      const existing = [...(relsSent || []), ...(relsReceived || [])][0];
+      // 2. Prüfen, ob bereits eine Freundschaft/Anfrage existiert
+      const { data: existing } = await supabase
+        .from('friendships')
+        .select('id')
+        .or(`and(requester_id.eq.${supabaseUser.id},receiver_id.eq.${targetProfile.id}),and(requester_id.eq.${targetProfile.id},receiver_id.eq.${supabaseUser.id})`)
+        .maybeSingle();
 
       if (existing) {
-        const currentStatus = existing.status;
-        if (currentStatus === 'accepted') {
-          setFriendRequestError('Ihr seid bereits befreundet.');
-          return;
-        } else if (currentStatus === 'pending') {
-          setFriendRequestError('Eine Freundschaftsanfrage ist bereits ausstehend.');
-          return;
-        } else if (currentStatus === 'declined') {
-          const { error: updErr } = await supabase
-            .from('friendships')
-            .update({
-              requester_id: currentUserId,
-              receiver_id: target.id,
-              status: 'pending'
-            })
-            .eq('id', existing.id);
-
-          if (updErr) throw updErr;
-          setFriendRequestSuccess(`Freundschaftsanfrage an ${target.username} gesendet!`);
-          setFriendSearchQuery('');
-          loadFriendships();
-          return;
-        }
+        setFriendRequestError('Es besteht bereits eine Anfrage oder Freundschaft.');
+        return;
       }
 
-      // 3. Neue Anfrage einfügen
-      const { error: insErr } = await supabase
+      // 3. Anfrage einfügen
+      const { error: insertErr } = await supabase
         .from('friendships')
         .insert({
-          requester_id: currentUserId,
-          receiver_id: target.id,
+          requester_id: supabaseUser.id,
+          receiver_id: targetProfile.id,
           status: 'pending'
         });
 
-      if (insErr) throw insErr;
+      if (insertErr) throw insertErr;
 
-      setFriendRequestSuccess(`Freundschaftsanfrage an ${target.username} gesendet!`);
+      setFriendRequestSuccess(`Anfrage an ${targetProfile.username} gesendet!`);
       setFriendSearchQuery('');
-      loadFriendships();
+      loadFriendships(); // Liste aktualisieren
     } catch (err: any) {
-      setFriendRequestError(err.message || 'Fehler beim Senden der Anfrage.');
+      console.error('Fehler beim Senden:', err);
+      setFriendRequestError('Anfrage konnte nicht gesendet werden.');
     }
   };
 

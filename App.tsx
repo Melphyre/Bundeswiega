@@ -3938,42 +3938,52 @@ const App: React.FC = () => {
     setRecordsLoading(true);
     setRecordsError(null);
     try {
-      // Test 1: CSV
+      // 1. CSV Records laden (mit sicherem try/catch)
       let csvRows: string[][] = [];
       try {
         const csvRes = await fetch('/api/records');
-        const csvJson = await csvRes.json();
-        console.log('CSV Rows:', csvJson.data?.length);
-        csvRows = (csvJson.data || []).filter((row: string[]) =>
-          row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== ''
-        );
+        if (csvRes.ok) {
+          const csvJson = await csvRes.json();
+          csvRows = (csvJson.data || []).filter((row: string[]) =>
+            row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== ''
+          );
+        }
       } catch (e) {
-        console.error('❌ CSV Fehler:', e);
+        console.warn('CSV Fehler beim Laden der Records (offline oder nicht verfügbar):', e);
       }
 
-      // 2. Supabase Ergebnisse nur laden, wenn Supabase konfiguriert ist
+      // 2. Supabase Ergebnisse laden, wenn konfiguriert
       let supabaseRows: string[][] = [];
       const profileMap: Record<string, any> = {};
 
       if (isSupabaseConfigured()) {
         try {
+          // Verwende .select('*'), um überlange Query-Strings und net::ERR_HTTP2_PROTOCOL_ERROR zu vermeiden
           const { data: supabaseResults, error: resultsError } = await supabase
             .from('game_results')
-            .select('id, user_id, game_mode, date, avg, schnaepse, total, levels, time_seconds, team_name');
+            .select('*');
 
           if (resultsError) {
             console.warn('game_results fetch warning:', resultsError.message);
           }
 
-          const { data: allProfiles } = await supabase
+          const { data: allProfiles, error: profilesError } = await supabase
             .from('profiles')
-            .select('id, username, show_records, show_standardspiel, show_speedwiegen, show_teamwiegen, show_achievements');
+            .select('*');
+
+          if (profilesError) {
+            console.warn('profiles fetch warning:', profilesError.message);
+          }
 
           (allProfiles || []).forEach(p => { profileMap[p.id] = p; });
 
-          const { data: supabaseAchievements } = await supabase
+          const { data: supabaseAchievements, error: achError } = await supabase
             .from('achievements')
-            .select('user_id, achievement_id, title, icon, rarity, game_mode, earned_with, earned_together, date');
+            .select('*');
+
+          if (achError) {
+            console.warn('achievements fetch warning:', achError.message);
+          }
 
           const safeResults = Array.isArray(supabaseResults) ? supabaseResults : [];
           const safeAchs = Array.isArray(supabaseAchievements) ? supabaseAchievements : [];
@@ -4023,7 +4033,7 @@ const App: React.FC = () => {
         }
       }
 
-      // 6. Duplikate zwischen CSV und Supabase vermeiden
+      // 3. Duplikate zwischen CSV und Supabase vermeiden
       const supabaseUsernames = new Set(
         Object.values(profileMap).map((p: any) => p.username?.toLowerCase()?.trim()).filter(Boolean)
       );
@@ -4051,7 +4061,7 @@ const App: React.FC = () => {
 
     } catch (err: any) {
       console.error('fetchRecords error:', err);
-      setRecordsError(err.message);
+      setRecordsError(err.message || 'Fehler beim Laden der Bestenliste.');
     } finally {
       setRecordsLoading(false);
     }

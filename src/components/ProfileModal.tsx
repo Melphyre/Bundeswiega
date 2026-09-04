@@ -132,8 +132,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   // Avatar-Update
   const handleUpdateAvatar = async (url: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const currentUserId = user?.id || supabaseUser?.id;
+    const currentUserId = supabaseUser?.id;
     if (!currentUserId) return;
     setAvatarLoading(true);
     setAvatarMessage(null);

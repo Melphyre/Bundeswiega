@@ -936,14 +936,21 @@ const App: React.FC = () => {
         return;
       }
 
-      // Prüfe beide Richtungen:
-      const { data: existing } = await supabase
+      // Prüfe beide Richtungen ohne verschachtelte and()-Ausdrücke in .or()
+      const { data: rels, error: relsErr } = await supabase
         .from('friendships')
-        .select('id, status')
-        .or(`and(requester_id.eq.${currentUserId},receiver_id.eq.${target.id}),and(requester_id.eq.${target.id},receiver_id.eq.${currentUserId})`);
+        .select('id, requester_id, receiver_id, status')
+        .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
 
-      if (existing && existing.length > 0) {
-        const currentStatus = existing[0].status;
+      if (relsErr) throw relsErr;
+
+      const existing = (rels || []).find(
+        r => (r.requester_id === currentUserId && r.receiver_id === target.id) ||
+             (r.requester_id === target.id && r.receiver_id === currentUserId)
+      );
+
+      if (existing) {
+        const currentStatus = existing.status;
         if (currentStatus === 'accepted') {
           setFriendRequestError('Ihr seid bereits befreundet.');
           return;
@@ -958,7 +965,7 @@ const App: React.FC = () => {
               receiver_id: target.id,
               status: 'pending'
             })
-            .eq('id', existing[0].id);
+            .eq('id', existing.id);
 
           if (updErr) throw updErr;
           setFriendRequestSuccess(`Freundschaftsanfrage an ${target.username} gesendet!`);
@@ -1953,18 +1960,24 @@ const App: React.FC = () => {
       return;
     }
 
-    // Prüfen ob bereits eine Freundschaft oder Anfrage existiert
-    const { data: existing } = await supabase
+    // Prüfen ob bereits eine Freundschaft oder Anfrage existiert (beide Richtungen)
+    const { data: rels, error: relsErr } = await supabase
       .from('friendships')
-      .select('id, status')
-      .or(
-        `and(requester_id.eq.${supabaseUser?.id},receiver_id.eq.${targetProfile.id}),` +
-        `and(requester_id.eq.${targetProfile.id},receiver_id.eq.${supabaseUser?.id})`
-      )
-      .limit(1);
+      .select('id, requester_id, receiver_id, status')
+      .or(`requester_id.eq.${supabaseUser?.id},receiver_id.eq.${supabaseUser?.id}`);
 
-    if (existing && existing.length > 0) {
-      const status = existing[0].status;
+    if (relsErr) {
+      setFriendRequestError(`Fehler: ${relsErr.message}`);
+      return;
+    }
+
+    const existing = (rels || []).find(
+      r => (r.requester_id === supabaseUser?.id && r.receiver_id === targetProfile.id) ||
+           (r.requester_id === targetProfile.id && r.receiver_id === supabaseUser?.id)
+    );
+
+    if (existing) {
+      const status = existing.status;
       if (status === 'accepted') {
         setFriendRequestError('Ihr seid bereits befreundet.');
       } else if (status === 'pending') {

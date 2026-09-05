@@ -1,5 +1,6 @@
 import { Player, ParsedRecord } from '../types';
 import { TOGETHER_ACHIEVEMENT_IDS } from '../utils';
+export { MASTER_ACHIEVEMENTS_DEFINITIONS } from './achievementsData';
 
 export const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
 export const INSTAGRAM_URL = "https://www.instagram.com/bundeswiega/";

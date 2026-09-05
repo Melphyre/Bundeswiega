@@ -1,62 +1,36 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { Friend, PendingFriendRequest } from '../../types';
+import {
+  fetchFriendsAndRequests,
+  sendFriendRequest,
+  acceptFriendRequest,
+  rejectFriendRequest,
+  removeFriend
+} from '../services/friendService';
 
 // Exakte URL der Sound-Datei im Vercel Blob Storage
 export const BUTTON_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/click-on-mouse.wav";
 
-let buttonAudio: HTMLAudioElement | null = null;
+const buttonAudio = typeof window !== 'undefined' ? new Audio(BUTTON_SOUND_URL) : null;
+if (buttonAudio) buttonAudio.preload = 'auto';
 
-// Sofortiges Vorladen der Audiodatei im Browser zur Vermeidung von Latenzen
-if (typeof window !== 'undefined') {
-  try {
-    buttonAudio = new Audio(BUTTON_SOUND_URL);
-    buttonAudio.preload = 'auto';
-  } catch {
-    // Bei SSR oder Init ignorieren
-  }
-}
-
-/**
- * Wiederverwendbare Audio-Helper-Funktion für sofortiges Button-Klick-Feedback.
- * Unterstützt schnelle Mehrfach-Klicks ohne Verzögerung durch Zurücksetzen auf currentTime = 0.
- */
-export const playButtonSound = () => {
-  try {
-    if (!buttonAudio || buttonAudio.error) {
-      buttonAudio = new Audio(BUTTON_SOUND_URL);
-      buttonAudio.preload = 'auto';
-    } else if (buttonAudio.src !== BUTTON_SOUND_URL) {
-      buttonAudio.src = BUTTON_SOUND_URL;
-    }
-
-    buttonAudio.currentTime = 0;
-    const playPromise = buttonAudio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        console.warn('Audio-Wiedergabe nicht möglich (z.B. Autoplay-Policy des Browsers):', err);
-      });
-    }
-  } catch (err) {
-    console.warn('Audio playback error:', err);
-  }
+export const playGlobalClickSound = () => {
+  if (!buttonAudio) return;
+  buttonAudio.currentTime = 0;
+  buttonAudio.play().catch(() => {});
 };
 
-export interface Friend {
-  id: string;
-  name: string;
-  imageUrl: string;
-  friendshipId: string;
-}
+// Rückwärtskompatibler Alias
+export const playButtonSound = playGlobalClickSound;
 
-export interface PendingFriendRequest {
-  id: string;
-  requesterName: string;
-}
+export type { Friend, PendingFriendRequest };
 
 export interface FriendsModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserId?: string;
+  supabaseUser?: any;
   darkMode?: boolean;
   brandColor?: string;
 }
@@ -64,10 +38,20 @@ export interface FriendsModalProps {
 export const FriendsModal: React.FC<FriendsModalProps> = ({
   isOpen,
   onClose,
-  currentUserId,
+  currentUserId: propCurrentUserId,
+  supabaseUser,
   darkMode = true,
   brandColor = '#238183'
 }) => {
+  // Robuste Ermittlung der Benutzer-ID: Funktioniert sowohl mit currentUserId={user?.id} als auch mit supabaseUser={user}
+  const currentUserId =
+    (typeof propCurrentUserId === 'string'
+      ? propCurrentUserId
+      : (propCurrentUserId as any)?.id) ||
+    (typeof supabaseUser === 'string'
+      ? supabaseUser
+      : supabaseUser?.id) ||
+    '';
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = useState<PendingFriendRequest[]>([]);
   const [friendSearchQuery, setFriendSearchQuery] = useState('');
@@ -76,7 +60,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 1. Freundesliste und offene Anfragen laden (flach, ohne .or(), ohne Joins)
+  // 1. Freundesliste und offene Anfragen laden (über friendService)
   const loadFriendships = useCallback(async () => {
     if (!currentUserId) {
       setFriends([]);
@@ -86,87 +70,10 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
     try {
       setIsLoading(true);
-
-      // Zwei parallele Abfragen für gesendete und empfangene Anfragen
-      const [
-        { data: sent, error: errSent },
-        { data: received, error: errReceived }
-      ] = await Promise.all([
-        supabase
-          .from('friendships')
-          .select('id, receiver_id, status')
-          .eq('requester_id', currentUserId),
-        supabase
-          .from('friendships')
-          .select('id, requester_id, status')
-          .eq('receiver_id', currentUserId)
-      ]);
-
-      if (errSent || errReceived) {
-        throw (errSent || errReceived);
-      }
-
-      // Status filtern
-      const acceptedSent = (sent || []).filter(r => r.status === 'accepted');
-      const acceptedReceived = (received || []).filter(r => r.status === 'accepted');
-      const pendingRaw = (received || []).filter(r => r.status === 'pending');
-
-      const friendUserIds = [
-        ...acceptedSent.map(r => r.receiver_id),
-        ...acceptedReceived.map(r => r.requester_id)
-      ];
-      const pendingUserIds = pendingRaw.map(r => r.requester_id);
-      const allNeededIds = Array.from(new Set([...friendUserIds, ...pendingUserIds]));
-
-      if (allNeededIds.length === 0) {
-        setFriends([]);
-        setPendingRequests([]);
-        return;
-      }
-
-      // Profile in einer einzigen .in()-Query nachladen
-      const { data: profiles, error: profErr } = await supabase
-        .from('profiles')
-        .select('id, username, avatar_url')
-        .in('id', allNeededIds);
-
-      if (profErr) throw profErr;
-
-      const profMap = new Map((profiles || []).map(p => [p.id, p]));
-
-      // Friends State befüllen
-      const mappedFriends: Friend[] = [
-        ...acceptedSent.map(r => {
-          const prof = profMap.get(r.receiver_id);
-          return {
-            id: r.receiver_id,
-            name: prof?.username || 'Unbekannt',
-            imageUrl: prof?.avatar_url || '',
-            friendshipId: r.id
-          };
-        }),
-        ...acceptedReceived.map(r => {
-          const prof = profMap.get(r.requester_id);
-          return {
-            id: r.requester_id,
-            name: prof?.username || 'Unbekannt',
-            imageUrl: prof?.avatar_url || '',
-            friendshipId: r.id
-          };
-        })
-      ].sort((a, b) => a.name.localeCompare(b.name, 'de'));
-
-      // Pending Requests State befüllen
-      const mappedPending: PendingFriendRequest[] = pendingRaw.map(req => {
-        const prof = profMap.get(req.requester_id);
-        return {
-          id: req.id,
-          requesterName: prof?.username || 'Unbekannt'
-        };
-      });
-
-      setFriends(mappedFriends);
-      setPendingRequests(mappedPending);
+      const { friends: loadedFriends, pendingRequests: loadedPending } =
+        await fetchFriendsAndRequests(currentUserId);
+      setFriends(loadedFriends);
+      setPendingRequests(loadedPending);
     } catch (err) {
       console.error('Fehler beim Laden der Freundschaften:', err);
       setFriends([]);
@@ -220,7 +127,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
     };
   }, [currentUserId, loadFriendships]);
 
-  // 2. Freundschaftsanfrage senden
+  // 2. Freundschaftsanfrage senden (über friendService)
   const handleSendFriendRequest = async () => {
     setFriendRequestError(null);
     setFriendRequestSuccess(null);
@@ -230,78 +137,14 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
     try {
       setIsSearching(true);
-
-      // Profilsuche: 1. Per Username (case-insensitive)
-      let { data: profiles, error: searchErr } = await supabase
-        .from('profiles')
-        .select('id, username')
-        .ilike('username', query);
-
-      if (searchErr) throw searchErr;
-
-      // Profilsuche: 2. Fallback per E-Mail
-      if (!profiles || profiles.length === 0) {
-        const { data: emailProfiles, error: emailErr } = await supabase
-          .from('profiles')
-          .select('id, username')
-          .eq('email', query);
-
-        if (emailErr) throw emailErr;
-        profiles = emailProfiles;
+      const res = await sendFriendRequest(currentUserId, query);
+      if (res.success) {
+        setFriendRequestSuccess(res.message || 'Anfrage gesendet!');
+        setFriendSearchQuery('');
+        await loadFriendships();
+      } else {
+        setFriendRequestError(res.error || 'Anfrage konnte nicht gesendet werden.');
       }
-
-      const targetProfile = profiles && profiles[0];
-
-      if (!targetProfile) {
-        setFriendRequestError('Kein Benutzer mit diesem Namen oder E-Mail gefunden.');
-        return;
-      }
-
-      if (targetProfile.id === currentUserId) {
-        setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
-        return;
-      }
-
-      // Bestehende Relationen prüfen (2 flache Abfragen statt .or())
-      const [
-        { data: relSent, error: relSentErr },
-        { data: relRec, error: relRecErr }
-      ] = await Promise.all([
-        supabase
-          .from('friendships')
-          .select('id, status')
-          .eq('requester_id', currentUserId)
-          .eq('receiver_id', targetProfile.id),
-        supabase
-          .from('friendships')
-          .select('id, status')
-          .eq('requester_id', targetProfile.id)
-          .eq('receiver_id', currentUserId)
-      ]);
-
-      if (relSentErr || relRecErr) {
-        throw (relSentErr || relRecErr);
-      }
-
-      if ((relSent && relSent.length > 0) || (relRec && relRec.length > 0)) {
-        setFriendRequestError(`${targetProfile.username} ist bereits dein Freund oder hat eine offene Anfrage.`);
-        return;
-      }
-
-      // Neue Freundschaftsanfrage einfügen
-      const { error: insertErr } = await supabase
-        .from('friendships')
-        .insert({
-          requester_id: currentUserId,
-          receiver_id: targetProfile.id,
-          status: 'pending'
-        });
-
-      if (insertErr) throw insertErr;
-
-      setFriendRequestSuccess(`Anfrage an ${targetProfile.username} gesendet!`);
-      setFriendSearchQuery('');
-      loadFriendships();
     } catch (err: any) {
       console.error('Fehler beim Senden der Freundschaftsanfrage:', err);
       setFriendRequestError(err.message || 'Anfrage konnte nicht gesendet werden.');
@@ -310,46 +153,43 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
     }
   };
 
-  // 3. Freundschaftsanfrage annehmen
+  // 3. Freundschaftsanfrage annehmen (über friendService)
   const handleAcceptFriendRequest = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({ status: 'accepted' })
-        .eq('id', friendshipId);
-
-      if (error) throw error;
-      loadFriendships();
+      const res = await acceptFriendRequest(friendshipId);
+      if (res.success) {
+        await loadFriendships();
+      } else if (res.error) {
+        console.error('Fehler beim Annehmen der Anfrage:', res.error);
+      }
     } catch (e) {
       console.error('Error accepting friend request:', e);
     }
   };
 
-  // 4. Freundschaftsanfrage ablehnen
+  // 4. Freundschaftsanfrage ablehnen (über friendService)
   const handleRejectFriendRequest = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({ status: 'declined' })
-        .eq('id', friendshipId);
-
-      if (error) throw error;
-      loadFriendships();
+      const res = await rejectFriendRequest(friendshipId);
+      if (res.success) {
+        await loadFriendships();
+      } else if (res.error) {
+        console.error('Fehler beim Ablehnen der Anfrage:', res.error);
+      }
     } catch (e) {
       console.error('Error rejecting friend request:', e);
     }
   };
 
-  // 5. Freund entfernen
+  // 5. Freund entfernen (über friendService)
   const handleRemoveFriend = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .delete()
-        .eq('id', friendshipId);
-
-      if (error) throw error;
-      loadFriendships();
+      const res = await removeFriend(friendshipId);
+      if (res.success) {
+        await loadFriendships();
+      } else if (res.error) {
+        console.error('Fehler beim Entfernen des Freundes:', res.error);
+      }
     } catch (e) {
       console.error('Error removing friend:', e);
     }

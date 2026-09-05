@@ -1,14 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { BRAND_COLOR, normalizeGameMode, matchesGameMode, calculateUserModeStats } from '../constants';
 import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
+import {
+  fetchFriendsAndRequests,
+  sendFriendRequest as apiSendFriendRequest,
+  acceptFriendRequest as apiAcceptFriendRequest,
+  rejectFriendRequest as apiRejectFriendRequest,
+  removeFriend as apiRemoveFriend
+} from '../services/friendService';
 
 interface ProfileModalProps {
   showProfileModal: boolean;
   setShowProfileModal: (show: boolean) => void;
-  supabaseUser: any;
+  supabaseUser?: any;
+  currentUserId?: string;
   darkMode: boolean;
   isAdmin: boolean;
   profileTab: 'profil' | 'rekorde' | 'freunde';
@@ -45,16 +53,16 @@ interface ProfileModalProps {
   setRecordsSortBy: (s: 'datum' | 'avg' | 'schnaepse' | 'total') => void;
   recordsSortDir: 'asc' | 'desc';
   setRecordsSortDir: (d: 'asc' | 'desc') => void;
-  friends: Friend[];
-  pendingRequests: PendingFriendRequest[];
-  friendSearchQuery: string;
-  setFriendSearchQuery: (q: string) => void;
-  friendRequestError: string | null;
-  friendRequestSuccess: string | null;
-  handleSendFriendRequest: () => Promise<void>;
-  handleAcceptFriendRequest: (id: string) => Promise<void>;
-  handleRejectFriendRequest: (id: string) => Promise<void>;
-  handleRemoveFriend: (id: string) => Promise<void>;
+  friends?: Friend[];
+  pendingRequests?: PendingFriendRequest[];
+  friendSearchQuery?: string;
+  setFriendSearchQuery?: (q: string) => void;
+  friendRequestError?: string | null;
+  friendRequestSuccess?: string | null;
+  handleSendFriendRequest?: () => Promise<void>;
+  handleAcceptFriendRequest?: (id: string) => Promise<void>;
+  handleRejectFriendRequest?: (id: string) => Promise<void>;
+  handleRemoveFriend?: (id: string) => Promise<void>;
   showDeleteProfileModal: boolean;
   setShowDeleteProfileModal: (show: boolean) => void;
   deleteProfileInput: string;
@@ -68,6 +76,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   showProfileModal,
   setShowProfileModal,
   supabaseUser,
+  currentUserId: propCurrentUserId,
   darkMode,
   isAdmin,
   profileTab,
@@ -99,24 +108,124 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   setRecordsSortBy,
   recordsSortDir,
   setRecordsSortDir,
-  friends,
-  pendingRequests,
-  friendSearchQuery,
-  setFriendSearchQuery,
-  friendRequestError,
-  friendRequestSuccess,
-  handleSendFriendRequest,
-  handleAcceptFriendRequest,
-  handleRejectFriendRequest,
-  handleRemoveFriend,
+  friends: propFriends,
+  pendingRequests: propPendingRequests,
+  friendSearchQuery: propFriendSearchQuery,
+  setFriendSearchQuery: propSetFriendSearchQuery,
+  friendRequestError: propFriendRequestError,
+  friendRequestSuccess: propFriendRequestSuccess,
+  handleSendFriendRequest: propHandleSendFriendRequest,
+  handleAcceptFriendRequest: propHandleAcceptFriendRequest,
+  handleRejectFriendRequest: propHandleRejectFriendRequest,
+  handleRemoveFriend: propHandleRemoveFriend,
   showDeleteProfileModal,
   setShowDeleteProfileModal,
   deleteProfileInput,
   setDeleteProfileInput,
   deletingProfile,
   handleDeleteProfile,
-  refreshUserData
+  refreshUserData,
 }) => {
+  // Robuste Ermittlung der User-ID (egal ob currentUserId als String oder supabaseUser als Objekt übergeben wurde)
+  const effectiveUserId =
+    (typeof propCurrentUserId === 'string'
+      ? propCurrentUserId
+      : (propCurrentUserId as any)?.id) ||
+    (typeof supabaseUser === 'string'
+      ? supabaseUser
+      : supabaseUser?.id) ||
+    '';
+
+  // Lokale States für Freunde als Fallback / Direktanbindung an friendService
+  const [localFriends, setLocalFriends] = useState<Friend[]>([]);
+  const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>([]);
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+  const [isFriendSearching, setIsFriendSearching] = useState(false);
+
+  const friends = propFriends !== undefined ? propFriends : localFriends;
+  const pendingRequests = propPendingRequests !== undefined ? propPendingRequests : localPendingRequests;
+  const friendSearchQuery = propFriendSearchQuery !== undefined ? propFriendSearchQuery : localSearchQuery;
+  const setFriendSearchQuery = propSetFriendSearchQuery || setLocalSearchQuery;
+  const friendRequestError = propFriendRequestError !== undefined ? propFriendRequestError : localError;
+  const friendRequestSuccess = propFriendRequestSuccess !== undefined ? propFriendRequestSuccess : localSuccess;
+
+  // Freunde direkt über friendService laden
+  const reloadFriends = useCallback(async () => {
+    if (!effectiveUserId) return;
+    try {
+      const { friends: f, pendingRequests: p } = await fetchFriendsAndRequests(effectiveUserId);
+      setLocalFriends(f);
+      setLocalPendingRequests(p);
+    } catch (err) {
+      console.error('Fehler beim Laden der Freunde in ProfileModal:', err);
+    }
+  }, [effectiveUserId]);
+
+  useEffect(() => {
+    if (showProfileModal && profileTab === 'freunde' && effectiveUserId) {
+      reloadFriends();
+    }
+  }, [showProfileModal, profileTab, effectiveUserId, reloadFriends]);
+
+  const onSendFriendRequest = async () => {
+    if (propHandleSendFriendRequest) {
+      await propHandleSendFriendRequest();
+      return;
+    }
+    if (!effectiveUserId || !friendSearchQuery.trim()) return;
+    setLocalError(null);
+    setLocalSuccess(null);
+    setIsFriendSearching(true);
+    try {
+      const res = await apiSendFriendRequest(effectiveUserId, friendSearchQuery);
+      if (res.success) {
+        setLocalSuccess(res.message || 'Anfrage gesendet!');
+        setFriendSearchQuery('');
+        await reloadFriends();
+      } else {
+        setLocalError(res.error || 'Anfrage konnte nicht gesendet werden.');
+      }
+    } catch (err: any) {
+      setLocalError(err.message || 'Fehler beim Senden');
+    } finally {
+      setIsFriendSearching(false);
+    }
+  };
+
+  const onAcceptFriendRequest = async (id: string) => {
+    if (propHandleAcceptFriendRequest) {
+      await propHandleAcceptFriendRequest(id);
+      return;
+    }
+    const res = await apiAcceptFriendRequest(id);
+    if (res.success) {
+      await reloadFriends();
+    }
+  };
+
+  const onRejectFriendRequest = async (id: string) => {
+    if (propHandleRejectFriendRequest) {
+      await propHandleRejectFriendRequest(id);
+      return;
+    }
+    const res = await apiRejectFriendRequest(id);
+    if (res.success) {
+      await reloadFriends();
+    }
+  };
+
+  const onRemoveFriend = async (id: string) => {
+    if (propHandleRemoveFriend) {
+      await propHandleRemoveFriend(id);
+      return;
+    }
+    const res = await apiRemoveFriend(id);
+    if (res.success) {
+      await reloadFriends();
+    }
+  };
   const [avatarUrlInput, setAvatarUrlInput] = useState('');
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
@@ -789,7 +898,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
                           playButtonSound();
-                          handleSendFriendRequest();
+                          onSendFriendRequest();
                         }
                       }}
                       placeholder="Benutzername oder E-Mail suchen..."
@@ -801,13 +910,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       type="button"
                       onClick={() => {
                         playButtonSound();
-                        handleSendFriendRequest();
+                        onSendFriendRequest();
                       }}
-                      disabled={!friendSearchQuery.trim()}
+                      disabled={!friendSearchQuery.trim() || isFriendSearching}
                       className="px-5 py-3 rounded-xl text-white font-black text-xs md:text-sm cursor-pointer shadow hover:opacity-90 disabled:opacity-40"
                       style={{ backgroundColor: BRAND_COLOR }}
                     >
-                      Anfrage senden
+                      {isFriendSearching ? 'Senden...' : 'Anfrage senden'}
                     </button>
                   </div>
                   {friendRequestSuccess && (
@@ -837,7 +946,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                               type="button"
                               onClick={() => {
                                 playButtonSound();
-                                handleAcceptFriendRequest(req.id);
+                                onAcceptFriendRequest(req.id);
                               }}
                               className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 cursor-pointer"
                             >
@@ -847,7 +956,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                               type="button"
                               onClick={() => {
                                 playButtonSound();
-                                handleRejectFriendRequest(req.id);
+                                onRejectFriendRequest(req.id);
                               }}
                               className="px-3 py-1.5 rounded-lg border border-red-500/40 text-red-500 font-bold text-xs hover:bg-red-500/10 cursor-pointer"
                             >
@@ -909,7 +1018,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             type="button"
                             onClick={() => {
                               playButtonSound();
-                              handleRemoveFriend(f.friendshipId);
+                              onRemoveFriend(f.friendshipId);
                             }}
                             className="p-2 rounded-xl text-red-500 hover:bg-red-500/10 cursor-pointer text-xs"
                             title="Freund entfernen"

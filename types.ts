@@ -62,7 +62,7 @@ export interface Friend {
 
 export interface PendingFriendRequest {
   id: string;
-  requesterId: string;
+  requesterId?: string;
   requesterName: string;
 }
 

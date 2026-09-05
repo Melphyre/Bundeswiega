@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { BRAND_COLOR, normalizeGameMode, matchesGameMode, calculateUserModeStats } from '../constants';
 import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
 import { Friend, PendingFriendRequest } from '../../types';
+import { playButtonSound } from './FriendsModal';
 
 interface ProfileModalProps {
   showProfileModal: boolean;
@@ -301,7 +302,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
             </div>
             <button
-              onClick={() => setShowProfileModal(false)}
+              onClick={() => {
+                playButtonSound();
+                setShowProfileModal(false);
+              }}
               className="w-8 h-8 rounded-full flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer text-lg"
             >
               ✕
@@ -317,7 +321,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             ].map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setProfileTab(tab.key)}
+                onClick={() => {
+                  playButtonSound();
+                  setProfileTab(tab.key);
+                }}
                 className={`py-3 px-4 font-black text-xs md:text-sm border-b-2 transition-all cursor-pointer flex-shrink-0 flex items-center space-x-1.5 ${
                   profileTab === tab.key
                     ? 'border-[#238183] text-[#238183]'
@@ -779,7 +786,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       type="text"
                       value={friendSearchQuery}
                       onChange={e => setFriendSearchQuery(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSendFriendRequest(); }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          playButtonSound();
+                          handleSendFriendRequest();
+                        }
+                      }}
                       placeholder="Benutzername oder E-Mail suchen..."
                       className={`flex-1 p-3 rounded-xl border-2 font-bold text-xs md:text-sm ${
                         darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
@@ -787,7 +799,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={handleSendFriendRequest}
+                      onClick={() => {
+                        playButtonSound();
+                        handleSendFriendRequest();
+                      }}
                       disabled={!friendSearchQuery.trim()}
                       className="px-5 py-3 rounded-xl text-white font-black text-xs md:text-sm cursor-pointer shadow hover:opacity-90 disabled:opacity-40"
                       style={{ backgroundColor: BRAND_COLOR }}
@@ -820,14 +835,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           <div className="flex space-x-2">
                             <button
                               type="button"
-                              onClick={() => handleAcceptFriendRequest(req.id)}
+                              onClick={() => {
+                                playButtonSound();
+                                handleAcceptFriendRequest(req.id);
+                              }}
                               className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 cursor-pointer"
                             >
                               Annehmen
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleRejectFriendRequest(req.id)}
+                              onClick={() => {
+                                playButtonSound();
+                                handleRejectFriendRequest(req.id);
+                              }}
                               className="px-3 py-1.5 rounded-lg border border-red-500/40 text-red-500 font-bold text-xs hover:bg-red-500/10 cursor-pointer"
                             >
                               Ablehnen
@@ -886,7 +907,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           </div>
                           <button
                             type="button"
-                            onClick={() => handleRemoveFriend(f.friendshipId)}
+                            onClick={() => {
+                              playButtonSound();
+                              handleRemoveFriend(f.friendshipId);
+                            }}
                             className="p-2 rounded-xl text-red-500 hover:bg-red-500/10 cursor-pointer text-xs"
                             title="Freund entfernen"
                           >
@@ -905,7 +929,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <div className="p-4 border-t border-gray-500/20 flex justify-end flex-shrink-0">
             <button
               type="button"
-              onClick={() => setShowProfileModal(false)}
+              onClick={() => {
+                playButtonSound();
+                setShowProfileModal(false);
+              }}
               className="px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm border opacity-80 hover:opacity-100 cursor-pointer"
             >
               Schließen

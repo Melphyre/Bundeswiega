@@ -46,11 +46,42 @@ import TournamentMigrationModal from './src/components/TournamentMigrationModal'
 import CsvEditModal from './src/components/CsvEditModal';
 import DbRepairModal from './src/components/DbRepairModal';
 import ProfileModal from './src/components/ProfileModal';
+import FriendsModal from './src/components/FriendsModal';
 import AuthModal from './src/components/AuthModal';
+import {
+  fetchFriendsAndRequests,
+  sendFriendRequest as apiSendFriendRequest,
+  acceptFriendRequest as apiAcceptFriendRequest,
+  rejectFriendRequest as apiRejectFriendRequest,
+  removeFriend as apiRemoveFriend
+} from './src/services/friendService';
+
+export const BUTTON_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/click-on-mouse.wav";
+
+const buttonAudio = typeof window !== 'undefined' ? new Audio(BUTTON_SOUND_URL) : null;
+if (buttonAudio) buttonAudio.preload = 'auto';
+
+export const playGlobalClickSound = () => {
+  if (!buttonAudio) return;
+  buttonAudio.currentTime = 0;
+  buttonAudio.play().catch(() => {});
+};
 
 declare const html2canvas: any;
 
 const App: React.FC = () => {
+  // Globaler Click-Listener für alle Buttons in der gesamten App
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('button, [role="button"]')) {
+        playGlobalClickSound();
+      }
+    };
+    window.addEventListener('click', handleGlobalClick, true);
+    return () => window.removeEventListener('click', handleGlobalClick, true);
+  }, []);
+
   const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
   const [supabaseSession, setSupabaseSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -351,6 +382,7 @@ const App: React.FC = () => {
 
   // Profile Modal State
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'freunde'>('profil');
   const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
   const [deleteProfileInput, setDeleteProfileInput] = useState('');
@@ -683,69 +715,10 @@ const App: React.FC = () => {
     if (!currentUserId) return;
 
     try {
-      // 1. Eigene Freundschaften ohne verschachtelte Joins abrufen
-      const { data: sent, error: errSent } = await supabase
-        .from('friendships')
-        .select('id, receiver_id, status')
-        .eq('requester_id', currentUserId);
-
-      const { data: received, error: errReceived } = await supabase
-        .from('friendships')
-        .select('id, requester_id, status')
-        .eq('receiver_id', currentUserId);
-
-      if (errSent || errReceived) throw errSent || errReceived;
-
-      // 2. IDs filtern
-      const acceptedSent = (sent || []).filter(r => r.status === 'accepted');
-      const acceptedReceived = (received || []).filter(r => r.status === 'accepted');
-      const pendingRaw = (received || []).filter(r => r.status === 'pending');
-
-      const friendUserIds = [
-        ...acceptedSent.map(r => r.receiver_id),
-        ...acceptedReceived.map(r => r.requester_id)
-      ];
-      const pendingUserIds = pendingRaw.map(r => r.requester_id);
-      const allIds = Array.from(new Set([...friendUserIds, ...pendingUserIds]));
-
-      if (allIds.length === 0) {
-        setFriends([]);
-        setPendingRequests([]);
-        return;
-      }
-
-      // 3. Profile separat laden (verhindert den HTTP2/Fetch-Fehler)
-      const { data: profiles, error: profErr } = await supabase
-        .from('profiles')
-        .select('id, username, avatar_url')
-        .in('id', allIds);
-
-      if (profErr) throw profErr;
-
-      const profMap = new Map((profiles || []).map(p => [p.id, p]));
-
-      // 4. States befüllen
-      setFriends([
-        ...acceptedSent.map(r => ({
-          id: r.receiver_id,
-          name: profMap.get(r.receiver_id)?.username || 'Unbekannt',
-          imageUrl: profMap.get(r.receiver_id)?.avatar_url || '',
-          friendshipId: r.id
-        })),
-        ...acceptedReceived.map(r => ({
-          id: r.requester_id,
-          name: profMap.get(r.requester_id)?.username || 'Unbekannt',
-          imageUrl: profMap.get(r.requester_id)?.avatar_url || '',
-          friendshipId: r.id
-        }))
-      ]);
-
-      setPendingRequests(pendingRaw.map(req => ({
-        id: req.id,
-        requesterId: req.requester_id,
-        requesterName: profMap.get(req.requester_id)?.username || 'Unbekannt'
-      })));
-
+      const { friends: loadedFriends, pendingRequests: loadedPending } =
+        await fetchFriendsAndRequests(currentUserId);
+      setFriends(loadedFriends);
+      setPendingRequests(loadedPending);
     } catch (err) {
       console.error('Fehler beim Laden der Freundesdaten:', err);
     }
@@ -813,69 +786,14 @@ const App: React.FC = () => {
     if (!query || !supabaseUser) return;
 
     try {
-      // 1. Profil per Username suchen (case-insensitive)
-      let { data: profiles, error: searchErr } = await supabase
-        .from('profiles')
-        .select('id, username')
-        .ilike('username', query);
-
-      if (searchErr) throw searchErr;
-
-      // Falls nicht gefunden, versuche E-Mail Suche
-      if (!profiles || profiles.length === 0) {
-        const { data: emailProfiles, error: emailErr } = await supabase
-          .from('profiles')
-          .select('id, username')
-          .eq('email', query);
-
-        if (emailErr) throw emailErr;
-        profiles = emailProfiles;
+      const res = await apiSendFriendRequest(supabaseUser.id, query);
+      if (res.success) {
+        setFriendRequestSuccess(res.message || 'Anfrage gesendet!');
+        setFriendSearchQuery('');
+        loadFriendships();
+      } else {
+        setFriendRequestError(res.error || 'Anfrage konnte nicht gesendet werden.');
       }
-
-      const targetProfile = profiles && profiles[0];
-
-      if (!targetProfile) {
-        setFriendRequestError('Kein Benutzer mit diesem Namen gefunden.');
-        return;
-      }
-
-      if (targetProfile.id === supabaseUser.id) {
-        setFriendRequestError('Du kannst dir nicht selbst eine Anfrage senden.');
-        return;
-      }
-
-      // 2. Existierende Freundschaft prüfen (2 einfache Abfragen statt .or)
-      const { data: relSent } = await supabase
-        .from('friendships')
-        .select('id, status')
-        .eq('requester_id', supabaseUser.id)
-        .eq('receiver_id', targetProfile.id);
-
-      const { data: relRec } = await supabase
-        .from('friendships')
-        .select('id, status')
-        .eq('requester_id', targetProfile.id)
-        .eq('receiver_id', supabaseUser.id);
-
-      if ((relSent && relSent.length > 0) || (relRec && relRec.length > 0)) {
-        setFriendRequestError(`${targetProfile.username} ist bereits dein Freund oder hat eine offene Anfrage.`);
-        return;
-      }
-
-      // 3. Anfrage absenden
-      const { error: insertErr } = await supabase
-        .from('friendships')
-        .insert({
-          requester_id: supabaseUser.id,
-          receiver_id: targetProfile.id,
-          status: 'pending'
-        });
-
-      if (insertErr) throw insertErr;
-
-      setFriendRequestSuccess(`Anfrage an ${targetProfile.username} gesendet!`);
-      setFriendSearchQuery('');
-      loadFriendships();
     } catch (err: any) {
       console.error('Fehler beim Senden:', err);
       setFriendRequestError('Anfrage konnte nicht gesendet werden.');
@@ -884,12 +802,12 @@ const App: React.FC = () => {
 
   const handleAcceptFriendRequest = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({ status: 'accepted' })
-        .eq('id', friendshipId);
-      if (error) throw error;
-      loadFriendships();
+      const res = await apiAcceptFriendRequest(friendshipId);
+      if (res.success) {
+        loadFriendships();
+      } else if (res.error) {
+        console.error('Error accepting friend request:', res.error);
+      }
     } catch (e) {
       console.error('Error accepting friend request:', e);
     }
@@ -897,12 +815,12 @@ const App: React.FC = () => {
 
   const handleRejectFriendRequest = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({ status: 'declined' })
-        .eq('id', friendshipId);
-      if (error) throw error;
-      loadFriendships();
+      const res = await apiRejectFriendRequest(friendshipId);
+      if (res.success) {
+        loadFriendships();
+      } else if (res.error) {
+        console.error('Error rejecting friend request:', res.error);
+      }
     } catch (e) {
       console.error('Error rejecting friend request:', e);
     }
@@ -910,12 +828,12 @@ const App: React.FC = () => {
 
   const handleRemoveFriend = async (friendshipId: string) => {
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .delete()
-        .eq('id', friendshipId);
-      if (error) throw error;
-      loadFriendships();
+      const res = await apiRemoveFriend(friendshipId);
+      if (res.success) {
+        loadFriendships();
+      } else if (res.error) {
+        console.error('Error removing friend:', res.error);
+      }
     } catch (e) {
       console.error('Error removing friend:', e);
     }
@@ -3987,6 +3905,22 @@ const App: React.FC = () => {
               </>
             ) : (
               <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFriendsModal(true);
+                  }}
+                  className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-1.5 cursor-pointer hover:opacity-90 shadow transition-all bg-emerald-600 hover:bg-emerald-700"
+                  title="Freunde verwalten"
+                >
+                  <i className="fas fa-users"></i>
+                  <span>Freunde</span>
+                  {pendingRequests.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black animate-pulse">
+                      {pendingRequests.length}
+                    </span>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -9123,6 +9057,7 @@ const App: React.FC = () => {
         showProfileModal={showProfileModal}
         setShowProfileModal={setShowProfileModal}
         supabaseUser={supabaseUser}
+        currentUserId={supabaseUser?.id}
         darkMode={darkMode}
         isAdmin={isAdmin}
         profileTab={profileTab}
@@ -9171,6 +9106,16 @@ const App: React.FC = () => {
         deletingProfile={deletingProfile}
         handleDeleteProfile={handleDeleteProfile}
         refreshUserData={refreshUserData}
+      />
+
+      {/* 👥 FREUNDE MODAL */}
+      <FriendsModal
+        isOpen={showFriendsModal}
+        onClose={() => setShowFriendsModal(false)}
+        currentUserId={supabaseUser?.id}
+        supabaseUser={supabaseUser}
+        darkMode={darkMode}
+        brandColor={BRAND_COLOR}
       />
 
       {/* 🗄️ SQL MIGRATION MODAL */}

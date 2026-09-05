@@ -56,13 +56,13 @@ export interface FriendshipJoined {
 export interface Friend {
   id: string;
   name: string;
-  imageUrl?: string;
+  imageUrl: string;
   friendshipId: string;
 }
 
 export interface PendingFriendRequest {
   id: string;
-  requesterId?: string;
+  requesterId: string;
   requesterName: string;
 }
 

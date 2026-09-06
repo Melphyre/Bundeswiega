@@ -711,7 +711,11 @@ const App: React.FC = () => {
   };
 
   const loadFriendships = async (targetUserId?: string) => {
-    const currentUserId = targetUserId || supabaseUser?.id;
+    let currentUserId = targetUserId || supabaseUser?.id;
+    if (!currentUserId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      currentUserId = session?.user?.id;
+    }
     if (!currentUserId) return;
 
     try {
@@ -783,14 +787,21 @@ const App: React.FC = () => {
     setFriendRequestSuccess('');
 
     const query = friendSearchQuery.trim();
-    if (!query || !supabaseUser) return;
+    if (!query) return;
 
     try {
-      const res = await apiSendFriendRequest(supabaseUser.id, query);
+      const { data: { user } } = await supabase.auth.getUser();
+      const currentUserId = user?.id || supabaseUser?.id;
+      if (!currentUserId) {
+        setFriendRequestError('Sitzung fehlerhaft. Bitte melde dich erneut an.');
+        return;
+      }
+
+      const res = await apiSendFriendRequest(currentUserId, query);
       if (res.success) {
         setFriendRequestSuccess(res.message || 'Anfrage gesendet!');
         setFriendSearchQuery('');
-        loadFriendships();
+        loadFriendships(currentUserId);
       } else {
         setFriendRequestError(res.error || 'Anfrage konnte nicht gesendet werden.');
       }
@@ -1676,12 +1687,6 @@ const App: React.FC = () => {
   const removeFriend = async (friendshipId: string) => {
     await handleRemoveFriend(friendshipId);
   };
-
-  useEffect(() => {
-    if (showProfileModal && profileTab === 'freunde') {
-      loadFriendships();
-    }
-  }, [showProfileModal, profileTab]);
 
   useEffect(() => {
     if (!supabaseUser?.id) return;

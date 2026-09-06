@@ -12,105 +12,120 @@ export interface FriendActionResult {
   error?: string;
 }
 
-/**
- * Lädt alle bestätigten Freunde und offenen eingehenden Anfragen
- * ausschließlich über flache Queries (.eq, .in) ohne Joins und ohne .or().
- */
-export async function fetchFriendsAndRequests(userId: string): Promise<FetchFriendsResult> {
-  if (!userId) {
-    return { friends: [], pendingRequests: [] };
-  }
+// Regex zur Validierung einer korrekten 36-Zeichen-UUID
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  // 1. Eigene Freundschaften ohne verschachtelte Joins abrufen (gesendet und empfangen separat)
-  const [
-    { data: sent, error: errSent },
-    { data: received, error: errReceived }
-  ] = await Promise.all([
-    supabase
-      .from('friendships')
-      .select('id, receiver_id, status')
-      .eq('requester_id', userId),
-    supabase
-      .from('friendships')
-      .select('id, requester_id, status')
-      .eq('receiver_id', userId)
-  ]);
-
-  if (errSent) throw errSent;
-  if (errReceived) throw errReceived;
-
-  // 2. Filtern nach Status: akzeptiert vs. ausstehend
-  const acceptedSent = (sent || []).filter(r => r.status === 'accepted');
-  const acceptedReceived = (received || []).filter(r => r.status === 'accepted');
-  const pendingRaw = (received || []).filter(r => r.status === 'pending');
-
-  const friendUserIds = [
-    ...acceptedSent.map(r => r.receiver_id),
-    ...acceptedReceived.map(r => r.requester_id)
-  ];
-  const pendingRequesterIds = pendingRaw.map(r => r.requester_id);
-  const allNeededUserIds = Array.from(new Set([...friendUserIds, ...pendingRequesterIds]));
-
-  if (allNeededUserIds.length === 0) {
-    return { friends: [], pendingRequests: [] };
-  }
-
-  // 3. Profile flach und performant über .in('id', ...) laden
-  const { data: profiles, error: profErr } = await supabase
-    .from('profiles')
-    .select('id, username, email, avatar_url')
-    .in('id', allNeededUserIds);
-
-  if (profErr) throw profErr;
-
-  const profMap = new Map((profiles || []).map(p => [p.id, p]));
-
-  // 4. Gemappte Freunde
-  const friends: Friend[] = [
-    ...acceptedSent.map(r => {
-      const p = profMap.get(r.receiver_id);
-      return {
-        id: r.receiver_id,
-        name: p?.username || p?.email || 'Unbekannt',
-        imageUrl: p?.avatar_url || '',
-        friendshipId: r.id
-      };
-    }),
-    ...acceptedReceived.map(r => {
-      const p = profMap.get(r.requester_id);
-      return {
-        id: r.requester_id,
-        name: p?.username || p?.email || 'Unbekannt',
-        imageUrl: p?.avatar_url || '',
-        friendshipId: r.id
-      };
-    })
-  ];
-
-  // 5. Gemappte ausstehende Anfragen
-  const pendingRequests: PendingFriendRequest[] = pendingRaw.map(req => {
-    const p = profMap.get(req.requester_id);
-    return {
-      id: req.id,
-      requesterId: req.requester_id,
-      requesterName: p?.username || p?.email || 'Unbekannter Spieler'
-    };
-  });
-
-  return { friends, pendingRequests };
+function isValidUuid(uuid: string): boolean {
+  return typeof uuid === 'string' && UUID_REGEX.test(uuid.trim());
 }
 
 /**
- * Sendet eine Freundschaftsanfrage an einen Benutzer anhand des Benutzernamens oder der E-Mail.
- * Verwendet ausschließlich flache Queries ohne Joins und ohne .or().
+ * Lädt alle bestätigten Freunde und offenen eingehenden Anfragen
+ */
+export async function fetchFriendsAndRequests(userId: string): Promise<FetchFriendsResult> {
+  const cleanUserId = userId?.trim();
+  if (!cleanUserId || !isValidUuid(cleanUserId)) {
+    console.warn('fetchFriendsAndRequests abgebrochen: Ungültige User-ID Format:', cleanUserId);
+    return { friends: [], pendingRequests: [] };
+  }
+
+  try {
+    // 1. Gesendete und empfangene Freundschaften abrufen
+    const { data: sent, error: errSent } = await supabase
+      .from('friendships')
+      .select('id, receiver_id, status')
+      .eq('requester_id', cleanUserId);
+
+    if (errSent) throw errSent;
+
+    const { data: received, error: errReceived } = await supabase
+      .from('friendships')
+      .select('id, requester_id, status')
+      .eq('receiver_id', cleanUserId);
+
+    if (errReceived) throw errReceived;
+
+    // 2. Filtern nach Status
+    const acceptedSent = (sent || []).filter(r => r.status === 'accepted');
+    const acceptedReceived = (received || []).filter(r => r.status === 'accepted');
+    const pendingRaw = (received || []).filter(r => r.status === 'pending');
+
+    const friendUserIds = [
+      ...acceptedSent.map(r => r.receiver_id),
+      ...acceptedReceived.map(r => r.requester_id)
+    ];
+    const pendingRequesterIds = pendingRaw.map(r => r.requester_id);
+    const allNeededUserIds = Array.from(new Set([...friendUserIds, ...pendingRequesterIds])).filter(isValidUuid);
+
+    if (allNeededUserIds.length === 0) {
+      return { friends: [], pendingRequests: [] };
+    }
+
+    // 3. Profile laden
+    const { data: profiles, error: profErr } = await supabase
+      .from('profiles')
+      .select('id, username, email, avatar_url')
+      .in('id', allNeededUserIds);
+
+    if (profErr) throw profErr;
+
+    const profMap = new Map((profiles || []).map(p => [p.id, p]));
+
+    // 4. Gemappte Freunde
+    const friends: Friend[] = [
+      ...acceptedSent.map(r => {
+        const p = profMap.get(r.receiver_id);
+        return {
+          id: r.receiver_id,
+          name: p?.username || p?.email || 'Unbekannt',
+          imageUrl: p?.avatar_url || '',
+          friendshipId: r.id
+        };
+      }),
+      ...acceptedReceived.map(r => {
+        const p = profMap.get(r.requester_id);
+        return {
+          id: r.requester_id,
+          name: p?.username || p?.email || 'Unbekannt',
+          imageUrl: p?.avatar_url || '',
+          friendshipId: r.id
+        };
+      })
+    ];
+
+    // 5. Gemappte ausstehende Anfragen
+    const pendingRequests: PendingFriendRequest[] = pendingRaw.map(req => {
+      const p = profMap.get(req.requester_id);
+      return {
+        id: req.id,
+        requesterId: req.requester_id,
+        requesterName: p?.username || p?.email || 'Unbekannter Spieler'
+      };
+    });
+
+    return { friends, pendingRequests };
+  } catch (err) {
+    console.error('Fehler in fetchFriendsAndRequests:', err);
+    return { friends: [], pendingRequests: [] };
+  }
+}
+
+/**
+ * Sendet eine Freundschaftsanfrage
  */
 export async function sendFriendRequest(
   currentUserId: string,
   searchQuery: string
 ): Promise<FriendActionResult> {
   const query = searchQuery.trim();
-  if (!currentUserId || !query) {
-    return { success: false, error: 'Ungültige Eingabe oder keine aktive Sitzung.' };
+  const cleanUserId = currentUserId?.trim();
+
+  if (!cleanUserId || !isValidUuid(cleanUserId)) {
+    return { success: false, error: 'Sitzung fehlerhaft. Bitte melde dich erneut an.' };
+  }
+
+  if (!query) {
+    return { success: false, error: 'Bitte gib einen Benutzernamen oder eine E-Mail ein.' };
   }
 
   try {
@@ -129,38 +144,35 @@ export async function sendFriendRequest(
       const { data: byEmail, error: errEmail } = await supabase
         .from('profiles')
         .select('id, username, email')
-        .eq('email', query);
+        .ilike('email', query);
 
       if (errEmail) throw errEmail;
       targetProfile = byEmail && byEmail.length > 0 ? byEmail[0] : null;
     }
 
-    if (!targetProfile) {
+    if (!targetProfile || !isValidUuid(targetProfile.id)) {
       return { success: false, error: 'Kein Benutzer mit diesem Namen oder dieser E-Mail gefunden.' };
     }
 
-    if (targetProfile.id === currentUserId) {
+    if (targetProfile.id === cleanUserId) {
       return { success: false, error: 'Du kannst dir nicht selbst eine Freundschaftsanfrage senden.' };
     }
 
-    // 2. Prüfen, ob bereits eine Beziehung existiert (zwei flache Abfragen statt .or())
-    const [
-      { data: relSent, error: errRelSent },
-      { data: relRec, error: errRelRec }
-    ] = await Promise.all([
-      supabase
-        .from('friendships')
-        .select('id, status')
-        .eq('requester_id', currentUserId)
-        .eq('receiver_id', targetProfile.id),
-      supabase
-        .from('friendships')
-        .select('id, status')
-        .eq('requester_id', targetProfile.id)
-        .eq('receiver_id', currentUserId)
-    ]);
+    // 2. Bestehende Beziehung prüfen (Sequentiell um Stream-Abbrüche zu vermeiden)
+    const { data: relSent, error: errRelSent } = await supabase
+      .from('friendships')
+      .select('id, status')
+      .eq('requester_id', cleanUserId)
+      .eq('receiver_id', targetProfile.id);
 
     if (errRelSent) throw errRelSent;
+
+    const { data: relRec, error: errRelRec } = await supabase
+      .from('friendships')
+      .select('id, status')
+      .eq('requester_id', targetProfile.id)
+      .eq('receiver_id', cleanUserId);
+
     if (errRelRec) throw errRelRec;
 
     const sentRecord = relSent?.[0];
@@ -177,7 +189,7 @@ export async function sendFriendRequest(
           return { success: false, error: 'Dieser Spieler hat dir bereits eine Anfrage gesendet. Schau unter "Ausstehende Anfragen".' };
         }
       } else {
-        return { success: false, error: 'Eine vorherige Anfrage existiert bereits.' };
+        return { success: false, error: 'Eine Anfrage existiert bereits.' };
       }
     }
 
@@ -185,7 +197,7 @@ export async function sendFriendRequest(
     const { error: insertErr } = await supabase
       .from('friendships')
       .insert({
-        requester_id: currentUserId,
+        requester_id: cleanUserId,
         receiver_id: targetProfile.id,
         status: 'pending'
       });
@@ -205,13 +217,8 @@ export async function sendFriendRequest(
   }
 }
 
-/**
- * Akzeptiert eine offene Freundschaftsanfrage.
- */
 export async function acceptFriendRequest(friendshipId: string): Promise<FriendActionResult> {
-  if (!friendshipId) {
-    return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
-  }
+  if (!friendshipId) return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
 
   try {
     const { error } = await supabase
@@ -222,18 +229,12 @@ export async function acceptFriendRequest(friendshipId: string): Promise<FriendA
     if (error) throw error;
     return { success: true, message: 'Freundschaftsanfrage angenommen!' };
   } catch (err: any) {
-    console.error('Fehler beim Annehmen der Anfrage:', err);
     return { success: false, error: err.message || 'Fehler beim Annehmen.' };
   }
 }
 
-/**
- * Lehnt eine offene Freundschaftsanfrage ab (löscht den Eintrag).
- */
 export async function rejectFriendRequest(friendshipId: string): Promise<FriendActionResult> {
-  if (!friendshipId) {
-    return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
-  }
+  if (!friendshipId) return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
 
   try {
     const { error } = await supabase
@@ -244,18 +245,12 @@ export async function rejectFriendRequest(friendshipId: string): Promise<FriendA
     if (error) throw error;
     return { success: true, message: 'Freundschaftsanfrage abgelehnt.' };
   } catch (err: any) {
-    console.error('Fehler beim Ablehnen der Anfrage:', err);
     return { success: false, error: err.message || 'Fehler beim Ablehnen.' };
   }
 }
 
-/**
- * Entfernt einen Freund (beendet die Freundschaft in der Tabelle).
- */
 export async function removeFriend(friendshipId: string): Promise<FriendActionResult> {
-  if (!friendshipId) {
-    return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
-  }
+  if (!friendshipId) return { success: false, error: 'Keine Freundschafts-ID angegeben.' };
 
   try {
     const { error } = await supabase
@@ -266,7 +261,6 @@ export async function removeFriend(friendshipId: string): Promise<FriendActionRe
     if (error) throw error;
     return { success: true, message: 'Freund entfernt.' };
   } catch (err: any) {
-    console.error('Fehler beim Entfernen des Freundes:', err);
     return { success: false, error: err.message || 'Fehler beim Entfernen.' };
   }
 }

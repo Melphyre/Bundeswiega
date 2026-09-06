@@ -131,52 +131,91 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       : supabaseUser?.id) ||
     '';
 
-  const [localFriends, setLocalFriends] = useState<Friend[]>([]);
-  const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>([]);
+  const [localFriends, setLocalFriends] = useState<Friend[]>(propFriends || []);
+  const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>(propPendingRequests || []);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [isFriendSearching, setIsFriendSearching] = useState(false);
+  const [friendsLoading, setFriendsLoading] = useState(false);
 
-  const friends = propFriends !== undefined ? propFriends : localFriends;
-  const pendingRequests = propPendingRequests !== undefined ? propPendingRequests : localPendingRequests;
+  useEffect(() => {
+    if (propFriends && propFriends.length > 0) setLocalFriends(propFriends);
+  }, [propFriends]);
+
+  useEffect(() => {
+    if (propPendingRequests && propPendingRequests.length > 0) setLocalPendingRequests(propPendingRequests);
+  }, [propPendingRequests]);
+
+  const friends = localFriends;
+  const pendingRequests = localPendingRequests;
   const friendSearchQuery = propFriendSearchQuery !== undefined ? propFriendSearchQuery : localSearchQuery;
   const setFriendSearchQuery = propSetFriendSearchQuery || setLocalSearchQuery;
   const friendRequestError = propFriendRequestError !== undefined ? propFriendRequestError : localError;
   const friendRequestSuccess = propFriendRequestSuccess !== undefined ? propFriendRequestSuccess : localSuccess;
 
+  // 1. Daten sicher laden (direkt über die aktive Supabase-Session)
   const reloadFriends = useCallback(async () => {
-    if (!effectiveUserId) return;
+    setFriendsLoading(true);
     try {
-      const { friends: f, pendingRequests: p } = await fetchFriendsAndRequests(effectiveUserId);
-      setLocalFriends(f);
-      setLocalPendingRequests(p);
+      // Session direkt abfragen – garantiert die vollständige 36-Zeichen-UUID!
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      if (!currentUserId) {
+        console.warn('Keine aktive Session gefunden.');
+        return;
+      }
+
+      const result = await fetchFriendsAndRequests(currentUserId);
+      setLocalFriends(result.friends);
+      setLocalPendingRequests(result.pendingRequests);
     } catch (err) {
       console.error('Fehler beim Laden der Freunde in ProfileModal:', err);
+    } finally {
+      setFriendsLoading(false);
     }
-  }, [effectiveUserId]);
+  }, []);
 
+  // 2. useEffect sauber steuern (verhindert Request-Spam & Infinite Loop)
   useEffect(() => {
-    if (showProfileModal && profileTab === 'freunde' && effectiveUserId) {
+    if (showProfileModal && profileTab === 'freunde') {
       reloadFriends();
     }
-  }, [showProfileModal, profileTab, effectiveUserId, reloadFriends]);
+  }, [showProfileModal, profileTab, reloadFriends]);
 
+  // 3. Freundschaftsanfrage senden
   const onSendFriendRequest = async () => {
     if (propHandleSendFriendRequest) {
       await propHandleSendFriendRequest();
       return;
     }
-    if (!effectiveUserId || !friendSearchQuery.trim()) return;
+    const searchQuery = (friendSearchQuery || localSearchQuery).trim();
+    if (!searchQuery) {
+      setLocalError('Bitte gib einen Benutzernamen oder eine E-Mail ein.');
+      return;
+    }
+
     setLocalError(null);
     setLocalSuccess(null);
     setIsFriendSearching(true);
+
     try {
-      const res = await apiSendFriendRequest(effectiveUserId, friendSearchQuery);
+      // Session direkt abfragen – garantiert die vollständige 36-Zeichen-UUID!
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      if (!currentUserId) {
+        setLocalError('Nicht angemeldet. Bitte melde dich erneut an.');
+        return;
+      }
+
+      const res = await apiSendFriendRequest(currentUserId, searchQuery);
       if (res.success) {
         setLocalSuccess(res.message || 'Anfrage gesendet!');
         setFriendSearchQuery('');
-        await reloadFriends();
+        setLocalSearchQuery('');
+        await reloadFriends(); // Liste direkt aktualisieren
       } else {
         setLocalError(res.error || 'Anfrage konnte nicht gesendet werden.');
       }
@@ -190,6 +229,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const onAcceptFriendRequest = async (id: string) => {
     if (propHandleAcceptFriendRequest) {
       await propHandleAcceptFriendRequest(id);
+      await reloadFriends();
       return;
     }
     const res = await apiAcceptFriendRequest(id);
@@ -199,6 +239,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const onRejectFriendRequest = async (id: string) => {
     if (propHandleRejectFriendRequest) {
       await propHandleRejectFriendRequest(id);
+      await reloadFriends();
       return;
     }
     const res = await apiRejectFriendRequest(id);
@@ -208,6 +249,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const onRemoveFriend = async (id: string) => {
     if (propHandleRemoveFriend) {
       await propHandleRemoveFriend(id);
+      await reloadFriends();
       return;
     }
     const res = await apiRemoveFriend(id);

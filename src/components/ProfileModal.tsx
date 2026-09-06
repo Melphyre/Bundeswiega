@@ -295,21 +295,49 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     }
   };
 
-  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Datei-Upload direkt in den Supabase Storage (Bucket 'avatars')
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    const userId = supabaseUser?.id;
+    if (!file || !userId) return;
 
     if (file.size > 2 * 1024 * 1024) {
       setAvatarMessage('❌ Bild ist zu groß (max. 2 MB erlaubt)');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      await handleUpdateAvatar(base64);
-    };
-    reader.readAsDataURL(file);
+    setAvatarLoading(true);
+    setAvatarMessage('⏳ Bild wird hochgeladen...');
+
+    try {
+      const fileExt = file.name.split('.').pop() || 'jpg';
+      const filePath = `${userId}/avatar_${Date.now()}.${fileExt}`;
+
+      // 1. Datei in den Storage-Bucket 'avatars' hochladen
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // 2. Öffentliche HTTPS-URL des Bildes abrufen
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      // 3. Echte URL in auth.users und profiles speichern
+      await handleUpdateAvatar(publicUrl);
+    } catch (err: any) {
+      console.error('Storage Upload Fehler:', err);
+      setAvatarMessage(`❌ Upload fehlgeschlagen: ${err.message || 'Speicher-Fehler'}`);
+      setAvatarLoading(false);
+    } finally {
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
   };
 
   const handleEmailChange = async () => {

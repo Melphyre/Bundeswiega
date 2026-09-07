@@ -58,12 +58,14 @@ export interface Friend {
   name: string;
   imageUrl: string;
   friendshipId: string;
+  title?: string;
 }
 
 export interface PendingFriendRequest {
   id: string;
   requesterId: string;
   requesterName: string;
+  title?: string;
 }
 
 export interface RecordItem {

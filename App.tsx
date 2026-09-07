@@ -44,10 +44,13 @@ import GameTable from './src/components/GameTable';
 import SqlMigrationModal from './src/components/SqlMigrationModal';
 import TournamentMigrationModal from './src/components/TournamentMigrationModal';
 import CsvEditModal from './src/components/CsvEditModal';
-import DbRepairModal from './src/components/DbRepairModal';
+import AdminAchievementsModal from './src/components/AdminAchievementsModal';
 import ProfileModal from './src/components/ProfileModal';
 import FriendsModal from './src/components/FriendsModal';
 import AuthModal from './src/components/AuthModal';
+import PlayerTitleBadge from './src/components/PlayerTitleBadge';
+import TitleUnlockToast from './src/components/TitleUnlockToast';
+import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest as apiSendFriendRequest,
@@ -317,10 +320,99 @@ const App: React.FC = () => {
   const [qrError, setQrError] = useState<string | null>(null);
   const [playerAccountLinks, setPlayerAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string | null }>>({});
   const [teamMemberAccountLinks, setTeamMemberAccountLinks] = useState<Record<string, { userId: string; userName: string; imageUrl?: string | null }>>({});
-  const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; name: string; email?: string; imageUrl?: string }>>([]);
+  const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; name: string; email?: string; imageUrl?: string; title?: string }>>([]);
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
+  const [userTitle, setUserTitle] = useState<string>('Neuling');
+  const [unlockedTitleToast, setUnlockedTitleToast] = useState<PlayerTitle | null>(null);
+
+  // Titel-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerTitle = (playerNameOrId?: string): string | undefined => {
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    if (currentName && currentName === target) {
+      return userTitle || supabaseUser?.user_metadata?.title || 'Neuling';
+    }
+
+    // 2. Verknüpfte Spieler-Accounts
+    const linked = Object.values(playerAccountLinks).find(
+      l => l.userName?.trim().toLowerCase() === target
+    );
+    if (linked) {
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if (match?.title) return match.title;
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if (matchUser?.title) return matchUser.title;
+
+    return undefined;
+  };
+
+  // Prüfung auf neu freigeschaltete Titel
+  const checkForNewTitles = (stats: any, targetUserId?: string) => {
+    const uid = targetUserId || supabaseUser?.id;
+    if (!uid) return;
+    const storageKey = `bundeswiega_unlocked_titles_${uid}`;
+    let known: string[] = [];
+    const hasStorage = localStorage.getItem(storageKey) !== null;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) known = JSON.parse(raw);
+    } catch {
+      known = [];
+    }
+
+    const unlocked = getUnlockedTitles(stats);
+    const unlockedIds = unlocked.map(t => t.id);
+
+    if (!hasStorage) {
+      // Beim ersten Laden bestehende freigeschaltete Titel vormerken
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(unlockedIds));
+      } catch {}
+      return;
+    }
+
+    // Neu freigeschaltete Titel ermitteln
+    const newlyUnlocked = unlocked.filter(t => !known.includes(t.id));
+    if (newlyUnlocked.length > 0) {
+      const newest = newlyUnlocked[0];
+      setUnlockedTitleToast(newest);
+      try {
+        const updatedKnown = Array.from(new Set([...known, ...unlockedIds]));
+        localStorage.setItem(storageKey, JSON.stringify(updatedKnown));
+      } catch {}
+    }
+  };
+
+  // Titel direkt aus dem Toast ausrüsten
+  const handleEquipTitleFromToast = async (titleName: string) => {
+    setUserTitle(titleName);
+    const uid = supabaseUser?.id;
+    if (uid) {
+      try {
+        await supabase.auth.updateUser({ data: { title: titleName } });
+        await supabase.from('profiles').update({ title: titleName }).eq('id', uid);
+        localStorage.setItem(`bundeswiega_user_title_${uid}`, titleName);
+        await fetch('/api/users/update-title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: uid, title: titleName })
+        });
+        await refreshUserData();
+      } catch (e) {
+        console.warn('Equip title warning:', e);
+      }
+    }
+  };
 
   // Admin Migration States
   const [showMigrateModal, setShowMigrateModal] = useState(false);
@@ -356,15 +448,8 @@ const App: React.FC = () => {
   const [csvEditSaving, setCsvEditSaving] = useState(false);
   const [csvEditSuccess, setCsvEditSuccess] = useState<string | null>(null);
 
-  // DB Repair States
-  const [showDbRepairModal, setShowDbRepairModal] = useState(false);
-  const [dbRepairLoading, setDbRepairLoading] = useState(false);
-  const [dbRepairResult, setDbRepairResult] = useState<{
-    success: boolean;
-    report: string[];
-    fixes: string[];
-    errors: string[];
-  } | null>(null);
+  // Achievements Admin Modal State
+  const [showAdminAchievementsModal, setShowAdminAchievementsModal] = useState(false);
 
   // Friends & Privacy States
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -467,6 +552,11 @@ const App: React.FC = () => {
         if (prof.username) {
           setProfileUsername(prof.username);
         }
+        if (prof.title) {
+          setUserTitle(prof.title);
+        } else if (supabaseUser?.user_metadata?.title) {
+          setUserTitle(supabaseUser.user_metadata.title);
+        }
         setPrivacyState({
           showRecords: prof.show_records ?? true,
           showStandardspiel: prof.show_standardspiel ?? true,
@@ -520,6 +610,7 @@ const App: React.FC = () => {
           bestAvg: stats.bestAvg,
           achievementsCount: stats.achievementsCount
         });
+        checkForNewTitles(stats, currentUserId);
         return;
       }
     } catch (apiErr) {
@@ -558,6 +649,7 @@ const App: React.FC = () => {
         bestAvg: stats.bestAvg,
         achievementsCount: achCount || stats.achievementsCount
       });
+      checkForNewTitles(stats, currentUserId);
     } catch (err) {
       console.error('Error loading profile stats:', err);
       setProfileStats({
@@ -807,7 +899,7 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Fehler beim Senden:', err);
-      setFriendRequestError('Anfrage konnte nicht gesendet werden.');
+      setFriendRequestError(err?.message || 'Anfrage konnte nicht gesendet werden.');
     }
   };
 
@@ -1348,34 +1440,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDbRepair = async () => {
-    setDbRepairLoading(true);
-    setDbRepairResult(null);
-    try {
-      const res = await fetch('/api/admin/repair-database', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      const contentType = res.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        throw new Error('Server returned non-JSON response');
-      }
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Fehler bei der Datenbankbereinigung');
-      setDbRepairResult(json);
-    } catch (err: any) {
-      setDbRepairResult({
-        success: false,
-        report: [],
-        fixes: [],
-        errors: [`Verbindungsfehler: ${err.message}`]
-      });
-    } finally {
-      setDbRepairLoading(false);
-    }
-  };
-
   const openTournamentMigrateModal = async () => {
     setShowTournamentMigrateModal(true);
     setTournamentMigrateStep('select');
@@ -1501,7 +1565,14 @@ const App: React.FC = () => {
   // Sync profile data when Profile Modal updates
   const refreshUserData = async () => {
     if (supabaseUser?.id) {
-      await loadUserProfile(supabaseUser.id);
+      await Promise.allSettled([
+        loadUserProfile(supabaseUser.id),
+        loadProfileStats(supabaseUser.id),
+        fetch('/api/users/list')
+          .then(r => r.json())
+          .then(data => setClerkUsers(data.users || []))
+          .catch(() => {})
+      ]);
     }
   };
 
@@ -3913,22 +3984,6 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowFriendsModal(true);
-                  }}
-                  className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-1.5 cursor-pointer hover:opacity-90 shadow transition-all bg-emerald-600 hover:bg-emerald-700"
-                  title="Freunde verwalten"
-                >
-                  <i className="fas fa-users"></i>
-                  <span>Freunde</span>
-                  {pendingRequests.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black animate-pulse">
-                      {pendingRequests.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
                     setShowProfileModal(true);
                   }}
                   className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
@@ -3939,8 +3994,14 @@ const App: React.FC = () => {
                   ) : (
                     <i className="fas fa-user"></i>
                   )}
-                  <span>Profil verwalten</span>
+                  <span>{supabaseUser?.user_metadata?.username || 'Profil verwalten'}</span>
+                  {userTitle && <PlayerTitleBadge title={userTitle} size="sm" />}
                   {isAdmin && <span className="text-yellow-300">👑</span>}
+                  {pendingRequests.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black animate-pulse">
+                      {pendingRequests.length}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -5008,7 +5069,14 @@ const App: React.FC = () => {
                           .map((p, idx) => (
                             <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
                               <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
-                              <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>{p.name}</td>
+                              <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>
+                                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                  <span>{p.name}</span>
+                                  {getPlayerTitle(p.name) && (
+                                    <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                                  )}
+                                </div>
+                              </td>
                               <td className="text-center">{p.isDisqualified ? '-' : p.avg.toFixed(2)}g</td>
                               <td className="text-center font-bold">{p.schnaepse}</td>
                               <td className="text-center font-black" style={{ color: BRAND_COLOR }}>{p.isDisqualified ? '-' : p.tot.toFixed(2)}</td>
@@ -6331,7 +6399,12 @@ const App: React.FC = () => {
                                     </div>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Ø pro Spiel)</span>
-                                      <h5 className="font-black text-base">{topAvgSchnaepse.name}</h5>
+                                      <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                        <span>{topAvgSchnaepse.name}</span>
+                                        {getPlayerTitle(topAvgSchnaepse.name) && (
+                                          <PlayerTitleBadge title={getPlayerTitle(topAvgSchnaepse.name)} size="sm" />
+                                        )}
+                                      </h5>
                                       <p className="text-xs font-semibold text-yellow-500">{topAvgSchnaepse.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel ({topAvgSchnaepse.gamesPlayed} Spiele)</p>
                                     </div>
                                   </div>
@@ -6343,7 +6416,12 @@ const App: React.FC = () => {
                                     </div>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Rekord-Einzelspiel (Schnäpse)</span>
-                                      <h5 className="font-black text-base">{topSingle.playerName}</h5>
+                                      <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                        <span>{topSingle.playerName}</span>
+                                        {getPlayerTitle(topSingle.playerName) && (
+                                          <PlayerTitleBadge title={getPlayerTitle(topSingle.playerName)} size="sm" />
+                                        )}
+                                      </h5>
                                       <p className="text-xs font-semibold text-indigo-400">{topSingle.schnaepse} Schnäpse <span className="opacity-50 text-[10px]">({topSingle.date})</span></p>
                                     </div>
                                   </div>
@@ -6390,10 +6468,13 @@ const App: React.FC = () => {
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                           <button 
                                             onClick={() => setSelectedPlayerForDetails(p.name)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.name}</span>
-                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            {getPlayerTitle(p.name) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                                            )}
+                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
                                         <div className="text-right">
@@ -6409,10 +6490,13 @@ const App: React.FC = () => {
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                           <button 
                                             onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.playerName}</span>
-                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            {getPlayerTitle(p.playerName) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
+                                            )}
+                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
                                         <div className="text-right">
@@ -6445,7 +6529,12 @@ const App: React.FC = () => {
                                     </div>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Präzisions-Meister (Ø Gesamt)</span>
-                                      <h5 className="font-black text-base">{topCareerAvg.name}</h5>
+                                      <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                        <span>{topCareerAvg.name}</span>
+                                        {getPlayerTitle(topCareerAvg.name) && (
+                                          <PlayerTitleBadge title={getPlayerTitle(topCareerAvg.name)} size="sm" />
+                                        )}
+                                      </h5>
                                       <p className="text-xs font-semibold text-emerald-500">{topCareerAvg.careerAverage.toFixed(2)}g Ø-Abweichung</p>
                                     </div>
                                   </div>
@@ -6457,7 +6546,12 @@ const App: React.FC = () => {
                                     </div>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
-                                      <h5 className="font-black text-base">{topSingleAvg.playerName}</h5>
+                                      <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                        <span>{topSingleAvg.playerName}</span>
+                                        {getPlayerTitle(topSingleAvg.playerName) && (
+                                          <PlayerTitleBadge title={getPlayerTitle(topSingleAvg.playerName)} size="sm" />
+                                        )}
+                                      </h5>
                                       <p className="text-xs font-semibold text-amber-500">{topSingleAvg.avg.toFixed(2)}g Abweichung <span className="opacity-50 text-[10px]">({topSingleAvg.date})</span></p>
                                     </div>
                                   </div>
@@ -6504,10 +6598,13 @@ const App: React.FC = () => {
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                           <button 
                                             onClick={() => setSelectedPlayerForDetails(p.name)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.name}</span>
-                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            {getPlayerTitle(p.name) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                                            )}
+                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
                                         <div className="text-right">
@@ -6523,10 +6620,13 @@ const App: React.FC = () => {
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                           <button 
                                             onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.playerName}</span>
-                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            {getPlayerTitle(p.playerName) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
+                                            )}
+                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
                                         <div className="text-right">
@@ -6563,7 +6663,12 @@ const App: React.FC = () => {
                                     </div>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
-                                      <h5 className="font-black text-base">{topSingleTotal.playerName}</h5>
+                                      <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                        <span>{topSingleTotal.playerName}</span>
+                                        {getPlayerTitle(topSingleTotal.playerName) && (
+                                          <PlayerTitleBadge title={getPlayerTitle(topSingleTotal.playerName)} size="sm" />
+                                        )}
+                                      </h5>
                                       <p className="text-xs font-semibold text-purple-400">Total: {(topSingleTotal.avg + topSingleTotal.schnaepse).toFixed(2)} <span className="opacity-75 text-[10px]">({topSingleTotal.avg.toFixed(2)}g Avg + {topSingleTotal.schnaepse} Schnäpse)</span></p>
                                     </div>
                                   </div>
@@ -6577,7 +6682,12 @@ const App: React.FC = () => {
                                       </div>
                                       <div>
                                         <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
-                                        <h5 className="font-black text-base">{topCareerAverageTotal.name}</h5>
+                                        <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
+                                          <span>{topCareerAverageTotal.name}</span>
+                                          {getPlayerTitle(topCareerAverageTotal.name) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topCareerAverageTotal.name)} size="sm" />
+                                          )}
+                                        </h5>
                                         <p className="text-xs font-semibold text-blue-400">Ø Total: {avgTotal.toFixed(2)} <span className="opacity-50 text-[10px]">({topCareerAverageTotal.gamesPlayed} Spiele)</span></p>
                                       </div>
                                     </div>
@@ -6627,10 +6737,13 @@ const App: React.FC = () => {
                                             <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                             <button 
                                               onClick={() => setSelectedPlayerForDetails(p.name)}
-                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                             >
                                               <span>{p.name}</span>
-                                              <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                              {getPlayerTitle(p.name) && (
+                                                <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                                              )}
+                                              <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                             </button>
                                           </div>
                                           <div className="text-right">
@@ -6647,10 +6760,13 @@ const App: React.FC = () => {
                                           <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                           <button 
                                             onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.playerName}</span>
-                                            <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                            {getPlayerTitle(p.playerName) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
+                                            )}
+                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
                                         <div className="text-right">
@@ -6731,7 +6847,12 @@ const App: React.FC = () => {
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
                                   <div className="flex items-center space-x-3">
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black text-sm">{p.playerName}</span>
+                                    <span className="font-black text-sm flex items-center space-x-1.5 flex-wrap">
+                                      <span>{p.playerName}</span>
+                                      {getPlayerTitle(p.playerName) && (
+                                        <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
+                                      )}
+                                    </span>
                                   </div>
                                   <div className="text-right">
                                     <span className="font-black text-sm text-amber-400">Score: {score}</span>
@@ -6757,7 +6878,12 @@ const App: React.FC = () => {
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
                                   <div className="flex items-center space-x-3">
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black">{p.name}</span>
+                                    <span className="font-black flex items-center space-x-1.5 flex-wrap">
+                                      <span>{p.name}</span>
+                                      {getPlayerTitle(p.name) && (
+                                        <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                                      )}
+                                    </span>
                                   </div>
                                   <div className="text-right">
                                     <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
@@ -6784,7 +6910,12 @@ const App: React.FC = () => {
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
                                   <div className="flex items-center space-x-3">
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black">{p.playerName}</span>
+                                    <span className="font-black flex items-center space-x-1.5 flex-wrap">
+                                      <span>{p.playerName}</span>
+                                      {getPlayerTitle(p.playerName) && (
+                                        <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
+                                      )}
+                                    </span>
                                   </div>
                                   <div className="text-right">
                                     <span className="font-black text-sm text-indigo-400">
@@ -6831,13 +6962,21 @@ const App: React.FC = () => {
                                       {activeRecordsTab === 'Standardspiel' ? (
                                         <button 
                                           onClick={() => setSelectedPlayerForDetails(item.playerName)}
-                                          className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center group"
+                                          className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                         >
                                           <span>{item.playerName}</span>
-                                          <i className="fas fa-search-plus ml-1.5 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                          {getPlayerTitle(item.playerName) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
+                                          )}
+                                          <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                         </button>
                                       ) : (
-                                        item.playerName
+                                        <span className="inline-flex items-center space-x-1.5 flex-wrap">
+                                          <span>{item.playerName}</span>
+                                          {getPlayerTitle(item.playerName) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
+                                          )}
+                                        </span>
                                       )}
                                     </td>
                                     <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(2)}g</td>
@@ -6881,8 +7020,11 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
           <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black uppercase tracking-tight" style={{ color: BRAND_COLOR }}>
-                Historie: {selectedPlayerForDetails}
+              <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 flex-wrap gap-y-1" style={{ color: BRAND_COLOR }}>
+                <span>Historie: {selectedPlayerForDetails}</span>
+                {getPlayerTitle(selectedPlayerForDetails) && (
+                  <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
+                )}
               </h3>
               <button 
                 onClick={() => setSelectedPlayerForDetails(null)} 
@@ -8823,12 +8965,21 @@ const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setShowDbRepairModal(true)}
-                className="w-full py-4 rounded-2xl text-white font-black flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all"
-                style={{ backgroundColor: '#DC2626' }}
+                onClick={() => {
+                  if (buttonAudio) {
+                    buttonAudio.currentTime = 0;
+                    buttonAudio.play().catch(() => {});
+                  }
+                  setShowAdminAchievementsModal(true);
+                }}
+                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                style={{ backgroundColor: '#D97706' }}
               >
-                <i className="fas fa-wrench"></i>
-                <span>🔧 Datenbank bereinigen & reparieren</span>
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">🏆</span>
+                  <span>🏆 Achievements verwalten</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
               <button
@@ -9169,15 +9320,19 @@ const App: React.FC = () => {
         saveCsvChanges={saveCsvChanges}
       />
 
-      {/* 🔧 DB REPAIR MODAL */}
-      <DbRepairModal
-        showDbRepairModal={showDbRepairModal}
-        setShowDbRepairModal={setShowDbRepairModal}
+      {/* 🏆 ACHIEVEMENTS ADMIN MODAL */}
+      <AdminAchievementsModal
+        isOpen={showAdminAchievementsModal}
+        onClose={() => setShowAdminAchievementsModal(false)}
         darkMode={darkMode}
-        dbRepairLoading={dbRepairLoading}
-        dbRepairResult={dbRepairResult}
-        setDbRepairResult={setDbRepairResult}
-        handleDbRepair={handleDbRepair}
+      />
+
+      {/* 🎖️ TITEL-FREISCHALTUNG TOAST */}
+      <TitleUnlockToast
+        unlockedTitle={unlockedTitleToast}
+        onClose={() => setUnlockedTitleToast(null)}
+        onEquip={handleEquipTitleFromToast}
+        darkMode={darkMode}
       />
 
     </div>

@@ -15,7 +15,7 @@ if (rawSupabaseUrl.includes('.supabase.com')) {
 }
 
 const supabaseUrl = rawSupabaseUrl;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
 
 const isSupabaseConfigured = () => {
   return (
@@ -92,6 +92,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (pathName === '/api/users/save-game-result' && req.method === 'POST') {
       return await handleSaveGameResult(req, res);
+    }
+    if (pathName === '/api/users/update-title' && req.method === 'POST') {
+      return await handleUpdateTitle(req, res);
     }
     if (pathName === '/api/users/save-result' && req.method === 'POST') {
       return await handleSaveResult(req, res);
@@ -310,10 +313,10 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ users: [] });
     }
 
-    // Aus profiles Tabelle laden (hat username korrekt gespeichert)
+    // Aus profiles Tabelle laden (hat username und title korrekt gespeichert)
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, avatar_url, role')
+      .select('id, username, email, avatar_url, role, title')
       .order('username');
 
     if (!error && profiles && profiles.length > 0) {
@@ -323,7 +326,8 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
         username: p.username || '',
         email: p.email || '',
         role: p.role || 'user',
-        imageUrl: p.avatar_url || ''
+        imageUrl: p.avatar_url || '',
+        title: p.title || ''
       }));
       return res.status(200).json({ users: userList });
     }
@@ -340,12 +344,50 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       username: u.user_metadata?.username || '',
       email: u.email || '',
       role: u.user_metadata?.role || 'user',
-      imageUrl: u.user_metadata?.avatar_url || ''
+      imageUrl: u.user_metadata?.avatar_url || '',
+      title: u.user_metadata?.title || ''
     }));
 
     return res.status(200).json({ users: userList });
   } catch (err: any) {
     return res.status(500).json({ error: err.message, users: [] });
+  }
+}
+
+async function handleUpdateTitle(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const body = getRequestBody(req) || req.body || {};
+    const { userId, title } = body;
+    if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ success: true, message: 'Lokal aktualisiert' });
+    }
+
+    // 1. Auth Metadata aktualisieren
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: { title: title || '' }
+      });
+    } catch (authErr: any) {
+      console.warn('Auth title update warning:', authErr?.message);
+    }
+
+    // 2. Profiles Tabelle aktualisieren
+    try {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ title: title || '' })
+        .eq('id', userId);
+    } catch (profErr: any) {
+      console.warn('Profile title column update warning:', profErr?.message);
+    }
+
+    return res.status(200).json({ success: true, title: title || '' });
+  } catch (err: any) {
+    console.error('handleUpdateTitle error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
 
@@ -1966,7 +2008,7 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
     const { tournamentName } = body || {};
     if (!tournamentName) return res.status(400).json({ error: 'tournamentName erforderlich' });
 
-    // Nur das ausgewählte Turnier laden
+    // 1. Nur das ausgewählte Turnier laden
     const safeName = tournamentName.replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_');
     const { blobs } = await list({ prefix: `tournament_${safeName}`, token });
     const blob = blobs.find(b => b.pathname.includes(safeName));
@@ -1989,9 +2031,64 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
 
     let migrated = 0;
     let skipped = 0;
+    let supabaseSynced = 0;
     const newLines: string[] = [];
 
-    // 3. Turnier-CSV verarbeiten
+    // 3. Supabase Profile und bestehende game_results vorab laden (falls konfiguriert)
+    const profileMap = new Map<string, any>();
+    const existingSqlSet = new Set<string>();
+
+    if (isSupabaseConfigured() || !!supabaseSecretKey) {
+      try {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles')
+          .select('id, username, games_played, total_points, high_score');
+
+        if (profiles) {
+          profiles.forEach((p: any) => {
+            if (p.username) {
+              profileMap.set(p.username.toLowerCase().trim(), p);
+            }
+          });
+        }
+
+        // Fallback: auth.users abfragen für User, deren Username in den Metadaten liegt
+        try {
+          const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
+          if (authData?.users) {
+            authData.users.forEach((u: any) => {
+              const uname = u.user_metadata?.username || u.user_metadata?.name || u.email;
+              if (uname && !profileMap.has(uname.toLowerCase().trim())) {
+                profileMap.set(uname.toLowerCase().trim(), {
+                  id: u.id,
+                  username: uname,
+                  games_played: 0,
+                  total_points: 0,
+                  high_score: 999
+                });
+              }
+            });
+          }
+        } catch (authErr) {
+          // Fallback auth.users nicht kritisch
+        }
+
+        // Vorhandene game_results laden, um SQL-Duplikate zu vermeiden
+        const { data: existingResults } = await supabaseAdmin
+          .from('game_results')
+          .select('user_id, date, game_mode');
+
+        if (existingResults) {
+          existingResults.forEach((r: any) => {
+            existingSqlSet.add(`${r.user_id}|${r.date}|${r.game_mode}`);
+          });
+        }
+      } catch (dbLoadErr) {
+        console.warn('Supabase Profile Vorab-Laden Warnung:', dbLoadErr);
+      }
+    }
+
+    // 4. Turnier-CSV verarbeiten
     const tournamentRes = await fetch(blob.url);
     const tournamentCsv = await tournamentRes.text();
     const tournamentRows = tournamentCsv.trim().split('\n');
@@ -2006,8 +2103,12 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
       const tischId = parts[1];
       const datum = parts[2];
       const spielername = parts[3];
-      const avg = parts[4];
-      const schnaepse = parts[5];
+      const rawAvg = parts[4];
+      const rawSchnaepse = parts[5];
+
+      const avgVal = parseFloat(String(rawAvg).replace(',', '.')) || 0;
+      const schnaepseVal = parseInt(String(rawSchnaepse), 10) || 0;
+      const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
 
       // Turniermodus bestimmen
       const tName = blob.pathname
@@ -2020,19 +2121,72 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
           : `Turnier Vorrunde Tisch ${tischId} (${tName})`;
 
       // CSV-Zeile im results.csv Format
-      const newLine = `${datum};${gameMode};${spielername};${avg};${schnaepse}`;
+      const newLine = `${datum};${gameMode};${spielername};${rawAvg};${rawSchnaepse}`;
 
-      if (existingLines.has(newLine)) {
+      // Duplikate in CSV überspringen
+      if (!existingLines.has(newLine)) {
+        newLines.push(newLine);
+        existingLines.add(newLine);
+        migrated++;
+      } else {
         skipped++;
-        continue;
       }
 
-      newLines.push(newLine);
-      existingLines.add(newLine);
-      migrated++;
+      // ── SUPABASE SYNC ──────────────────────────────────────────
+      const matchedProfile = profileMap.get(spielername.toLowerCase().trim());
+      if (matchedProfile) {
+        const sqlKey = `${matchedProfile.id}|${datum}|${gameMode}`;
+        if (!existingSqlSet.has(sqlKey)) {
+          try {
+            // A) Spiel in game_results Tabelle eintragen
+            const { error: insertErr } = await supabaseAdmin
+              .from('game_results')
+              .insert({
+                user_id: matchedProfile.id,
+                game_mode: gameMode,
+                date: datum,
+                avg: avgVal,
+                schnaepse: schnaepseVal,
+                total: totalVal,
+                created_at: new Date().toISOString()
+              });
+
+            if (!insertErr) {
+              existingSqlSet.add(sqlKey);
+
+              // B) Profil-Stats in profiles aktualisieren
+              const newGamesPlayed = (matchedProfile.games_played || 0) + 1;
+              const newTotalPoints = (matchedProfile.total_points || 0) + schnaepseVal;
+              const currentHigh = (matchedProfile.high_score !== null && matchedProfile.high_score !== undefined)
+                ? Number(matchedProfile.high_score)
+                : 999;
+              const newHighScore = (currentHigh === 0 || avgVal < currentHigh) ? avgVal : currentHigh;
+
+              await supabaseAdmin
+                .from('profiles')
+                .update({
+                  games_played: newGamesPlayed,
+                  total_points: newTotalPoints,
+                  high_score: newHighScore,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', matchedProfile.id);
+
+              // In-Memory Stats aktualisieren
+              matchedProfile.games_played = newGamesPlayed;
+              matchedProfile.total_points = newTotalPoints;
+              matchedProfile.high_score = newHighScore;
+
+              supabaseSynced++;
+            }
+          } catch (syncErr) {
+            console.warn(`Supabase Sync Fehler für Spieler "${spielername}":`, syncErr);
+          }
+        }
+      }
     }
 
-    // 4. Neue Zeilen zur results.csv hinzufügen
+    // 5. Neue Zeilen zur results.csv hinzufügen
     if (newLines.length > 0) {
       const updatedCsv = existingCsv.trimEnd() + '\n' + newLines.join('\n') + '\n';
       await put('results.csv', updatedCsv, {
@@ -2043,9 +2197,10 @@ async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelRespo
     }
 
     return res.status(200).json({
-      message: `${migrated} Ergebnisse aus "${tournamentName}" übertragen, ${skipped} Duplikate übersprungen`,
+      message: `${migrated} Ergebnisse aus "${tournamentName}" übertragen (${supabaseSynced} mit Supabase-Profilen verknüpft), ${skipped} Duplikate übersprungen`,
       migrated,
-      skipped
+      skipped,
+      supabaseSynced
     });
 
   } catch (err: any) {

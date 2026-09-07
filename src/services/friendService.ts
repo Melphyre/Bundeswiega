@@ -64,7 +64,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
     // 3. Profile laden
     const { data: profiles, error: profErr } = await supabase
       .from('profiles')
-      .select('id, username, email, avatar_url')
+      .select('id, username, email, avatar_url, title')
       .in('id', allNeededUserIds);
 
     if (profErr) throw profErr;
@@ -79,7 +79,8 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           id: r.receiver_id,
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: p?.avatar_url || '',
-          friendshipId: r.id
+          friendshipId: r.id,
+          title: (p as any)?.title || undefined
         };
       }),
       ...acceptedReceived.map(r => {
@@ -88,7 +89,8 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           id: r.requester_id,
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: p?.avatar_url || '',
-          friendshipId: r.id
+          friendshipId: r.id,
+          title: (p as any)?.title || undefined
         };
       })
     ];
@@ -99,7 +101,8 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
       return {
         id: req.id,
         requesterId: req.requester_id,
-        requesterName: p?.username || p?.email || 'Unbekannter Spieler'
+        requesterName: p?.username || p?.email || 'Unbekannter Spieler',
+        title: (p as any)?.title || undefined
       };
     });
 
@@ -158,10 +161,12 @@ export async function sendFriendRequest(
       return { success: false, error: 'Du kannst dir nicht selbst eine Freundschaftsanfrage senden.' };
     }
 
+    const targetName = targetProfile.username || targetProfile.email || 'Dieser Spieler';
+
     // 2. Bestehende Beziehung prüfen (Sequentiell um Stream-Abbrüche zu vermeiden)
     const { data: relSent, error: errRelSent } = await supabase
       .from('friendships')
-      .select('id, status')
+      .select('id, requester_id, receiver_id, status')
       .eq('requester_id', cleanUserId)
       .eq('receiver_id', targetProfile.id);
 
@@ -169,28 +174,47 @@ export async function sendFriendRequest(
 
     const { data: relRec, error: errRelRec } = await supabase
       .from('friendships')
-      .select('id, status')
+      .select('id, requester_id, receiver_id, status')
       .eq('requester_id', targetProfile.id)
       .eq('receiver_id', cleanUserId);
 
     if (errRelRec) throw errRelRec;
 
-    const sentRecord = relSent?.[0];
-    const recRecord = relRec?.[0];
+    const allRelations = [...(relSent || []), ...(relRec || [])];
 
-    if (sentRecord || recRecord) {
-      const status = (sentRecord || recRecord)?.status;
-      if (status === 'accepted') {
-        return { success: false, error: `${targetProfile.username || 'Dieser Spieler'} ist bereits dein Freund!` };
-      } else if (status === 'pending') {
-        if (sentRecord) {
-          return { success: false, error: 'Du hast diesem Spieler bereits eine Anfrage gesendet.' };
-        } else {
-          return { success: false, error: 'Dieser Spieler hat dir bereits eine Anfrage gesendet. Schau unter "Ausstehende Anfragen".' };
-        }
-      } else {
-        return { success: false, error: 'Eine Anfrage existiert bereits.' };
-      }
+    // Fall 1: Freundschaft ist bereits abgeschlossen (status 'accepted')
+    const hasAccepted = allRelations.some(r => r.status === 'accepted');
+    if (hasAccepted) {
+      return {
+        success: false,
+        error: `${targetName} ist bereits dein Freund!`
+      };
+    }
+
+    // Fall 2: Der aktuelle Nutzer hat bereits eine offene Anfrage an den Spieler gesendet
+    const hasOutgoingPending = (relSent || []).some(r => r.status === 'pending');
+    if (hasOutgoingPending) {
+      return {
+        success: false,
+        error: `Es läuft bereits eine Freundschaftsanfrage an ${targetName}. Bitte warte auf die Bestätigung.`
+      };
+    }
+
+    // Fall 3: Der andere Spieler hat bereits eine offene Anfrage an den aktuellen Nutzer gesendet
+    const hasIncomingPending = (relRec || []).some(r => r.status === 'pending');
+    if (hasIncomingPending) {
+      return {
+        success: false,
+        error: `${targetName} hat dir bereits eine Freundschaftsanfrage gesendet! Bitte prüfe deine eingehenden Anfragen.`
+      };
+    }
+
+    // Fall 4: Sonstige bereits existierende Beziehung
+    if (allRelations.length > 0) {
+      return {
+        success: false,
+        error: `Es besteht bereits eine Anfrage oder Beziehung mit ${targetName}.`
+      };
     }
 
     // 3. Neue Anfrage mit Status 'pending' anlegen
@@ -202,14 +226,28 @@ export async function sendFriendRequest(
         status: 'pending'
       });
 
-    if (insertErr) throw insertErr;
+    if (insertErr) {
+      if (insertErr.code === '23505' || insertErr.message?.includes('duplicate key') || insertErr.message?.includes('unique constraint')) {
+        return {
+          success: false,
+          error: `Es läuft bereits eine Anfrage oder es besteht bereits eine Freundschaft mit ${targetName}.`
+        };
+      }
+      throw insertErr;
+    }
 
     return {
       success: true,
-      message: `Freundschaftsanfrage an "${targetProfile.username || targetProfile.email}" gesendet!`
+      message: `Freundschaftsanfrage an "${targetName}" gesendet!`
     };
   } catch (err: any) {
     console.error('Fehler beim Senden der Freundschaftsanfrage:', err);
+    if (err?.code === '23505' || err?.message?.includes('duplicate key') || err?.message?.includes('unique constraint')) {
+      return {
+        success: false,
+        error: 'Es besteht bereits eine laufende Anfrage oder Freundschaft mit diesem Spieler.'
+      };
+    }
     return {
       success: false,
       error: err.message || 'Anfrage konnte nicht gesendet werden.'

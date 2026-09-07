@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { BRAND_COLOR, matchesGameMode, calculateUserModeStats, MASTER_ACHIEVEMENTS_DEFINITIONS } from '../constants';
+import { getUnlockedTitles, PLAYER_TITLES } from '../constants/titlesConfig';
+import PlayerTitleBadge from './PlayerTitleBadge';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -96,6 +98,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   handleSavePrivacy,
   profileLoadingSection,
   profileSaveMessageOld,
+  profileStats,
   myGameData,
   myAchievementsData,
   recordsSubTab,
@@ -266,9 +269,77 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [pwLoading, setPwLoading] = useState(false);
   const [pwMessage, setPwMessage] = useState<string | null>(null);
 
+  const [selectedTitle, setSelectedTitle] = useState<string>('');
+  const [titleLoading, setTitleLoading] = useState(false);
+  const [titleMessage, setTitleMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (supabaseUser?.user_metadata?.title) {
+      setSelectedTitle(supabaseUser.user_metadata.title);
+    } else if (supabaseUser?.id) {
+      const stored = localStorage.getItem(`bundeswiega_user_title_${supabaseUser.id}`);
+      setSelectedTitle(stored || 'Neuling');
+    } else {
+      setSelectedTitle('Neuling');
+    }
+  }, [supabaseUser, showProfileModal]);
+
   if (!showProfileModal) return null;
 
   const currentAvatarUrl = supabaseUser?.user_metadata?.avatar_url || '';
+
+  const handleTitleChange = async (newTitle: string) => {
+    const userId = supabaseUser?.id;
+    if (!userId) return;
+
+    setSelectedTitle(newTitle);
+    setTitleLoading(true);
+    setTitleMessage(null);
+
+    try {
+      // 1. In Supabase Auth Metadaten speichern (auth.updateUser)
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { title: newTitle }
+      });
+      if (authErr) throw authErr;
+
+      // 2. In profiles Tabelle speichern (falls Spalte existiert)
+      try {
+        await supabase
+          .from('profiles')
+          .update({ title: newTitle })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn('profiles.title update warn:', dbErr);
+      }
+
+      // 3. Im localStorage speichern
+      try {
+        localStorage.setItem(`bundeswiega_user_title_${userId}`, newTitle);
+      } catch {
+        // ignore
+      }
+
+      // 4. Backend API aufrufen
+      try {
+        await fetch('/api/users/update-title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, title: newTitle })
+        });
+      } catch {
+        // ignore
+      }
+
+      setTitleMessage(`✅ Titel "${newTitle}" erfolgreich ausgerüstet!`);
+      if (refreshUserData) await refreshUserData();
+    } catch (e: any) {
+      console.error('Fehler beim Aktualisieren des Titels:', e);
+      setTitleMessage(`❌ Fehler: ${e.message || 'Titel konnte nicht gespeichert werden'}`);
+    } finally {
+      setTitleLoading(false);
+    }
+  };
 
   const handleUpdateAvatar = async (url: string) => {
     const userId = supabaseUser?.id;
@@ -463,8 +534,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               )}
               <div>
-                <h3 className="text-lg md:text-xl font-black flex items-center space-x-2">
+                <h3 className="text-lg md:text-xl font-black flex items-center space-x-2 flex-wrap gap-y-1">
                   <span>{supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Mein Profil'}</span>
+                  {selectedTitle && <PlayerTitleBadge title={selectedTitle} size="md" />}
                   {isAdmin && <span className="text-yellow-400 text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 border border-yellow-400/30">👑 Admin</span>}
                 </h3>
                 <p className="text-xs opacity-60">{supabaseUser?.email}</p>
@@ -485,7 +557,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <div className="flex border-b border-gray-500/20 px-4 md:px-6 flex-shrink-0 overflow-x-auto">
             {[
               { key: 'profil' as const, label: '👤 Mein Profil', count: undefined },
-              { key: 'rekorde' as const, label: '📊 Meine Rekorde & Stats', count: myGameData.length },
+              { key: 'rekorde' as const, label: '🎮 Meine Spiele', count: myGameData.length },
               { key: 'freunde' as const, label: '👥 Freunde', count: friends.length + (pendingRequests.length > 0 ? ` (${pendingRequests.length} neu)` : '') }
             ].map(tab => (
               <button
@@ -591,6 +663,58 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <p className={`text-xs font-bold ${profileSaveMessage.username.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>{profileSaveMessage.username}</p>
                   )}
                 </div>
+
+                {/* Aktiver Spielertitel */}
+                {(() => {
+                  const unlockedTitles = getUnlockedTitles(profileStats);
+                  return (
+                    <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h4 className="font-black text-sm uppercase tracking-wide flex items-center space-x-2">
+                          <i className="fas fa-crown text-[#238183]"></i>
+                          <span>Aktiver Titel</span>
+                        </h4>
+                        {selectedTitle && (
+                          <PlayerTitleBadge title={selectedTitle} size="md" />
+                        )}
+                      </div>
+
+                      <p className="text-xs opacity-70">
+                        Wähle deinen angezeigten Titel. Noch nicht freigeschaltete Titel werden erst sichtbar, wenn du die jeweiligen Spielziele erreicht hast:
+                      </p>
+
+                      <div className="space-y-2">
+                        <select
+                          value={selectedTitle || 'Neuling'}
+                          onChange={(e) => handleTitleChange(e.target.value)}
+                          disabled={titleLoading}
+                          className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                            darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
+                          }`}
+                        >
+                          {unlockedTitles.map((t) => (
+                            <option key={t.id} value={t.name}>
+                              {t.icon} {t.name} ({t.description})
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="flex items-center justify-between text-[11px] opacity-60 px-1 pt-1 flex-wrap gap-1">
+                          <span>
+                            Freigeschaltet: <strong className="text-emerald-500">{unlockedTitles.length}</strong> von {PLAYER_TITLES.length} Titeln
+                          </span>
+                          <span>{titleLoading ? 'Speichere Titel...' : 'Wird in Ranglisten & Profil angezeigt'}</span>
+                        </div>
+                      </div>
+
+                      {titleMessage && (
+                        <p className={`text-xs font-bold ${titleMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {titleMessage}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* E-Mail */}
                 <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
@@ -740,10 +864,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="text-2xl font-black text-amber-500">
-                      {recordsSubTab.toLowerCase().includes('speed') ? `${dynamicStats.bestTime ? dynamicStats.bestTime.toFixed(1) + 's' : '-'}` : dynamicStats.totalSchnaepse}
+                      {recordsSubTab.toLowerCase().includes('speed')
+                        ? `${dynamicStats.bestTime ? dynamicStats.bestTime.toFixed(1) + 's' : '-'}`
+                        : (dynamicStats.gamesPlayed && dynamicStats.gamesPlayed > 0
+                            ? (dynamicStats.totalSchnaepse / dynamicStats.gamesPlayed).toFixed(1)
+                            : '0.0')}
                     </div>
                     <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
-                      {recordsSubTab.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Gesamte Schnäpse'}
+                      {recordsSubTab.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Ø Schnäpse pro Spiel'}
                     </div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
@@ -938,6 +1066,22 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Prominenter Button ganz unten: Zurück ins Hauptmenü */}
+          <div className="p-4 md:p-5 border-t border-gray-500/20 flex-shrink-0 flex justify-center bg-black/5 dark:bg-white/5 rounded-b-3xl">
+            <button
+              type="button"
+              onClick={() => {
+                playButtonSound();
+                setShowProfileModal(false);
+              }}
+              className="w-full max-w-sm py-3.5 px-6 rounded-2xl text-white font-black text-sm md:text-base cursor-pointer shadow-lg hover:opacity-90 transition-all transform active:scale-95 flex items-center justify-center space-x-2"
+              style={{ backgroundColor: BRAND_COLOR }}
+            >
+              <i className="fas fa-arrow-left"></i>
+              <span>Zurück ins Hauptmenü</span>
+            </button>
           </div>
         </div>
       </div>

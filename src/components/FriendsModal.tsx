@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { Friend, PendingFriendRequest } from '../../types';
+import { PlayerTitleBadge } from './PlayerTitleBadge';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest,

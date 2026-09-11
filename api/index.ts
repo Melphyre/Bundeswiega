@@ -2,9 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import fs from 'fs';
-import { calculateGameXp, calculateLevelFromXp, getLevelFromXP } from '../src/utils/levelSystem';
-import { checkTournamentAchievements } from '../utils';
-import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../src/achievementsData';
+import { calculateGameXp, calculateLevelFromXp, getLevelFromXP } from '../src/utils/levelSystem.js';
+import { checkTournamentAchievements, MASTER_ACHIEVEMENTS_DEFINITIONS } from '../src/achievementsData.js';
 
 let rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
 if (rawSupabaseUrl.includes('.supabase.com')) {
@@ -82,6 +81,9 @@ ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAUL
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS player_name TEXT;
 ALTER TABLE public.achievements ALTER COLUMN user_id DROP NOT NULL;
 
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS selected_title TEXT;
+
 CREATE TABLE IF NOT EXISTS public.tournaments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT UNIQUE NOT NULL,
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS public.tournaments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS tournaments_name_unique_idx ON public.tournaments (name);
 
 CREATE TABLE IF NOT EXISTS public.database_backups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -220,24 +223,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ── Admin ────────────────────────────────────────
-    if (pathName === '/api/admin/rename' && req.method === 'POST') {
-      return await handleAdminRename(req, res);
-    }
-    if (pathName === '/api/admin/assign-to-account' && req.method === 'POST') {
-      return await handleAssignToAccount(req, res);
-    }
-    if (pathName === '/api/admin/migrate-to-sql' && req.method === 'POST') {
-      return await handleMigrateToSQL(req, res);
-    }
-    if (pathName === '/api/admin/migrate-tournament-to-csv' && req.method === 'POST') {
-      return await handleTournamentMigrateToCSV(req, res);
-    }
-    if (pathName === '/api/admin/migrate-to-staging' && req.method === 'POST') {
-      return await handleMigrateToStaging(req, res);
-    }
-    if (pathName === '/api/admin/save-csv' && req.method === 'POST') {
-      return await handleSaveCsv(req, res);
-    }
     if (pathName === '/api/admin/set-role' && req.method === 'POST') {
       return await handleAdminSetRole(req, res);
     }
@@ -574,7 +559,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     // Aus profiles Tabelle laden (hat username und title korrekt gespeichert)
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, avatar_url, role, title, selected_title, level, xp, name_bg_color')
+      .select('id, username, email, avatar_url, role, title, level, xp, name_bg_color')
       .order('username');
 
     if (!error && profiles && profiles.length > 0) {
@@ -585,7 +570,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
         email: p.email || '',
         role: p.role || 'user',
         imageUrl: p.avatar_url || '',
-        title: p.title || p.selected_title || '',
+        title: p.title || '',
         level: Number(p.level) || 1,
         xp: Number(p.xp) || 0,
         name_bg_color: p.name_bg_color || 'none'
@@ -785,7 +770,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     // Aktuelles Profil für XP & Level abrufen
     const { data: currentProf } = await supabaseAdmin
       .from('profiles')
-      .select('xp, level, title, selected_title')
+      .select('xp, level, title')
       .eq('id', userId)
       .maybeSingle();
 
@@ -1053,576 +1038,6 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       gameResults: [],
       achievements: []
     });
-  }
-}
-
-async function handleAdminRename(req: VercelRequest, res: VercelResponse) {
-  try {
-    await ensureCoreSchema();
-
-    const body = getRequestBody(req);
-    const { oldName, newName, requesterUserId } = body;
-
-    if (!oldName || !newName || typeof oldName !== "string" || typeof newName !== "string") {
-      return res.status(400).json({ error: "Ungültige Parameter. oldName und newName erforderlich." });
-    }
-
-    const trimmedOld = oldName.trim();
-    const trimmedNew = newName.trim();
-
-    if (!trimmedOld || !trimmedNew) {
-      return res.status(400).json({ error: "Namen dürfen nicht leer sein." });
-    }
-
-    if (trimmedOld === trimmedNew) {
-      return res.status(400).json({ error: "Der neue Name muss sich vom alten Namen unterscheiden." });
-    }
-
-    if (requesterUserId && isSupabaseConfigured()) {
-      try {
-        const { data: { user: reqUser } } = await supabaseAdmin.auth.admin.getUserById(requesterUserId);
-        if (reqUser && reqUser.user_metadata?.role !== 'admin') {
-          return res.status(403).json({ error: "Keine Admin-Rechte" });
-        }
-      } catch (authErr) {
-        console.warn("Auth check warning:", authErr);
-      }
-    }
-
-    let modifiedCount = 0;
-
-    if (isSupabaseConfigured()) {
-      // 1. Update player_name in game_results
-      const { data: updatedResults, error: resErr } = await supabaseAdmin
-        .from('game_results')
-        .update({ player_name: trimmedNew })
-        .eq('player_name', trimmedOld)
-        .select('id');
-
-      if (!resErr && updatedResults) {
-        modifiedCount += updatedResults.length;
-      }
-
-      // 2. Update player_name in achievements
-      const { data: updatedAchs, error: achErr } = await supabaseAdmin
-        .from('achievements')
-        .update({ player_name: trimmedNew })
-        .eq('player_name', trimmedOld)
-        .select('id');
-
-      if (!achErr && updatedAchs) {
-        modifiedCount += updatedAchs.length;
-      }
-
-      // 3. Also check tournaments config
-      const { data: allTourneys } = await supabaseAdmin.from('tournaments').select('*');
-      if (allTourneys && allTourneys.length > 0) {
-        for (const tourney of allTourneys) {
-          const stringified = JSON.stringify(tourney.config || {});
-          if (stringified.includes(trimmedOld)) {
-            const replaced = stringified.split(`"${trimmedOld}"`).join(`"${trimmedNew}"`);
-            try {
-              const parsed = JSON.parse(replaced);
-              await supabaseAdmin
-                .from('tournaments')
-                .update({ config: parsed, updated_at: new Date().toISOString() })
-                .eq('id', tourney.id);
-            } catch (pErr) {
-              console.warn('Error updating tourney config for rename:', pErr);
-            }
-          }
-        }
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      modifiedCount,
-      message: `Erfolgreich ${modifiedCount} Datensätze von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
-    });
-  } catch (error: any) {
-    console.error("Error in rename handler:", error);
-    return res.status(500).json({ error: error.message || "Fehler beim Umbenennen in den Rekorden." });
-  }
-}
-
-async function handleAssignToAccount(req: VercelRequest, res: VercelResponse) {
-  try {
-    await ensureCoreSchema();
-
-    const body = getRequestBody(req);
-    const { requesterUserId, csvName, targetUserId, entries: reqEntries } = body;
-    if ((!csvName && !reqEntries) || !targetUserId) {
-      return res.status(400).json({ error: 'targetUserId und (csvName oder entries) sind erforderlich.' });
-    }
-
-    if (!isSupabaseConfigured()) {
-      return res.status(500).json({ error: 'SUPABASE_SECRET_KEY / URL fehlt.' });
-    }
-
-    // Admin check if requesterUserId is provided
-    if (requesterUserId) {
-      const { data: { user: reqUser } } = await supabaseAdmin.auth.admin.getUserById(requesterUserId);
-      if (reqUser) {
-        const role = reqUser.user_metadata?.role;
-        if (role !== 'admin') {
-          return res.status(403).json({ error: 'Keine Admin-Rechte' });
-        }
-      }
-    }
-
-    // Fetch target user from Supabase
-    const { data: { user: targetUser }, error: userErr } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
-    if (userErr || !targetUser) {
-      return res.status(404).json({ error: 'Ziel-Account nicht gefunden.' });
-    }
-
-    const targetUsername = targetUser.user_metadata?.username || targetUser.email || 'Benutzer';
-    const trimmedCsvName = (csvName || '').trim();
-
-    let assignedCount = 0;
-
-    if (trimmedCsvName) {
-      // 1. Assign in game_results
-      const { data: assignedResults, error: resErr } = await supabaseAdmin
-        .from('game_results')
-        .update({ user_id: targetUserId, is_guest: false, player_name: targetUsername })
-        .ilike('player_name', trimmedCsvName)
-        .eq('is_guest', true)
-        .select('id, avg, schnaepse, time_seconds, game_mode');
-
-      if (!resErr && assignedResults) {
-        assignedCount += assignedResults.length;
-      }
-
-      // 2. Assign in achievements
-      await supabaseAdmin
-        .from('achievements')
-        .update({ user_id: targetUserId, is_guest: false, player_name: null })
-        .ilike('player_name', trimmedCsvName)
-        .eq('is_guest', true);
-    }
-
-    // 3. Recalculate target user profile stats in Supabase
-    const { data: allUserGames } = await supabaseAdmin
-      .from('game_results')
-      .select('avg, schnaepse, time_seconds, game_mode')
-      .eq('user_id', targetUserId);
-
-    if (allUserGames && allUserGames.length > 0) {
-      const gamesPlayed = allUserGames.length;
-      let totalPoints = 0;
-      let minAvg = 999;
-      let totalXp = 0;
-
-      allUserGames.forEach(g => {
-        const avg = Number(g.avg) || 0;
-        const schnaepse = Number(g.schnaepse) || 0;
-        const timeSec = Number(g.time_seconds) || 0;
-        totalPoints += (g.time_seconds !== null && g.time_seconds !== undefined) ? timeSec : schnaepse;
-        if (avg > 0 && avg < minAvg) minAvg = avg;
-
-        const isSpeed = (g.game_mode || '').toLowerCase().includes('speed');
-        const xpRes = calculateGameXp({
-          avg,
-          schnaepse,
-          isSpeedMode: isSpeed,
-          timeSeconds: isSpeed ? timeSec : undefined,
-          isWinner: false
-        });
-        totalXp += xpRes.totalXp;
-      });
-
-      const newLevel = getLevelFromXP(totalXp);
-      const highScore = minAvg === 999 ? 0 : minAvg;
-
-      await supabaseAdmin
-        .from('profiles')
-        .update({
-          games_played: gamesPlayed,
-          total_points: totalPoints,
-          high_score: highScore,
-          xp: totalXp,
-          level: newLevel,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', targetUserId);
-    }
-
-    return res.status(200).json({
-      success: true,
-      count: assignedCount,
-      message: `${assignedCount} Einträge von "${trimmedCsvName || 'Spieler'}" erfolgreich ${targetUsername} zugeordnet.`
-    });
-  } catch (err: any) {
-    console.error("Error in assign-to-account handler:", err);
-    return res.status(500).json({ error: err.message || 'Fehler beim Zuweisen' });
-  }
-}
-
-async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
-  try {
-    await ensureCoreSchema();
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    let dataRows: string[][] = [];
-
-    // 1. Aus Vercel Blob laden (falls Token vorhanden)
-    if (token) {
-      try {
-        const { list } = await import('@vercel/blob');
-        const { blobs } = await list({ prefix: 'results', token });
-        const resultsBlob = blobs.find(b => b.pathname === 'results.csv');
-        if (resultsBlob) {
-          const csvResponse = await fetch(resultsBlob.url);
-          const csvText = await csvResponse.text();
-          const csvRows = csvText.trim().split('\n').map(r => r.split(';'));
-          dataRows = csvRows.filter(row =>
-            row.length >= 5 &&
-            row[0] !== 'Datum' &&
-            row[2] !== 'Name' &&
-            row[2]?.trim() !== ''
-          );
-        }
-      } catch (blobErr) {
-        console.warn('handleMigrateToSQL blob error:', blobErr);
-      }
-    }
-
-    // 2. Fallback: aus staging_results_csv laden
-    if (dataRows.length === 0) {
-      const { data: stagingRows } = await supabaseAdmin
-        .from('staging_results_csv')
-        .select('raw_line');
-      if (stagingRows && stagingRows.length > 0) {
-        dataRows = stagingRows
-          .map((r: any) => r.raw_line.split(';'))
-          .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== '');
-      }
-    }
-
-    if (dataRows.length === 0) {
-      return res.status(200).json({
-        message: '0 Einträge in CSV gefunden',
-        migrated: 0, skipped_no_account: 0, skipped_duplicate: 0, errors: 0, total_csv_rows: 0
-      });
-    }
-
-    // 2. Alle Profile aus Supabase laden (username → id Mapping)
-    const usernameToId: Record<string, string> = {};
-
-    const { data: profiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, username');
-
-    if (!profilesError && profiles) {
-      profiles.forEach((p: any) => {
-        if (p.username) {
-          usernameToId[p.username.toLowerCase().trim()] = p.id;
-        }
-      });
-    }
-
-    // Fallback/Ergänzung auf auth.users falls manche Profile nicht in profiles-Tabelle stehen
-    try {
-      const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
-      if (authData?.users) {
-        authData.users.forEach((u: any) => {
-          const uname = u.user_metadata?.username || u.user_metadata?.name || u.email;
-          if (uname && !usernameToId[uname.toLowerCase().trim()]) {
-            usernameToId[uname.toLowerCase().trim()] = u.id;
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('Fallback listUsers error:', e);
-    }
-
-    if (Object.keys(usernameToId).length === 0 && profilesError) {
-      return res.status(500).json({ error: `Profile laden fehlgeschlagen: ${profilesError.message}` });
-    }
-
-    // 3. Bereits vorhandene Einträge laden um Duplikate zu vermeiden
-    const { data: existingResults } = await supabaseAdmin
-      .from('game_results')
-      .select('user_id, date, game_mode');
-
-    const existingSet = new Set(
-      (existingResults || []).map(r => `${r.user_id}|${r.date}|${r.game_mode}`)
-    );
-
-    // 4. CSV Zeilen verarbeiten
-    let migrated = 0;
-    let skipped_no_account = 0;
-    let skipped_duplicate = 0;
-    let errors = 0;
-    const errorDetails: string[] = [];
-
-    for (const row of dataRows) {
-      const [date, gameMode, playerName, avg, schnaepse, total, achievementsJson] = row;
-
-      if (!playerName?.trim()) { skipped_no_account++; continue; }
-
-      // Account suchen
-      const userId = usernameToId[playerName.toLowerCase().trim()];
-      if (!userId) {
-        skipped_no_account++;
-        continue;
-      }
-
-      // Duplikat prüfen
-      const key = `${userId}|${date?.trim()}|${gameMode?.trim()}`;
-      if (existingSet.has(key)) {
-        skipped_duplicate++;
-        continue;
-      }
-
-      // Ergebnis in Supabase eintragen
-      const avgVal = parseFloat(avg) || 0;
-      const schnaepseVal = parseInt(schnaepse) || 0;
-      const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
-
-      const { error: insertError } = await supabaseAdmin
-        .from('game_results')
-        .insert({
-          user_id: userId,
-          game_mode: gameMode?.trim(),
-          date: date?.trim(),
-          avg: avgVal,
-          schnaepse: schnaepseVal,
-          total: totalVal
-        });
-
-      if (insertError) {
-        // Duplikat durch Race Condition – überspringen
-        if (insertError.code === '23505') {
-          skipped_duplicate++;
-          continue;
-        }
-        errors++;
-        errorDetails.push(`${playerName}/${date}: ${insertError.message}`);
-        continue;
-      }
-
-      // Zum existingSet hinzufügen damit spätere Duplikate erkannt werden
-      existingSet.add(key);
-
-      // Achievements migrieren falls vorhanden
-      if (achievementsJson?.trim()) {
-        try {
-          const achievementsList = JSON.parse(achievementsJson.trim());
-          if (Array.isArray(achievementsList)) {
-            for (const ach of achievementsList) {
-              if (!ach.id || !ach.earnedBy?.includes(playerName.trim())) continue;
-
-              // Duplikat-Prüfung für Achievements
-              const { data: existingAch } = await supabaseAdmin
-                .from('achievements')
-                .select('id')
-                .eq('user_id', userId)
-                .eq('achievement_id', ach.id)
-                .eq('date', date?.trim())
-                .limit(1);
-
-              if (existingAch && existingAch.length > 0) continue;
-
-              await supabaseAdmin.from('achievements').insert({
-                user_id: userId,
-                achievement_id: ach.id,
-                title: ach.title || '',
-                description: ach.description || '',
-                icon: ach.icon || '',
-                rarity: ach.rarity || 'common',
-                game_mode: gameMode?.trim(),
-                earned_with: ach.earnedBy || [],
-                earned_together: ach.earnedTogether || false,
-                date: date?.trim()
-              });
-            }
-          }
-        } catch (parseErr) {
-          console.error('Achievement JSON parse error:', parseErr);
-        }
-      }
-
-      migrated++;
-    }
-
-    let migrated_from_metadata = 0;
-    let profiles_updated = 0;
-
-    // 5. Supabase user_metadata.gameData prüfen und migrieren
-    try {
-      const { data: { users: allUsers } } = await supabaseAdmin.auth.admin.listUsers();
-      if (allUsers && Array.isArray(allUsers)) {
-        for (const authUser of allUsers) {
-          const gameData = authUser.user_metadata?.gameData || [];
-          if (Array.isArray(gameData) && gameData.length > 0) {
-            for (const entry of gameData) {
-              const mode = entry.gameMode || entry.game_mode || 'Unbekannt';
-              const key = `${authUser.id}|${entry.date}|${mode}`;
-
-              if (existingSet.has(key)) continue;
-
-              const { error: insertErr } = await supabaseAdmin.from('game_results').insert({
-                user_id: authUser.id,
-                game_mode: mode,
-                date: entry.date,
-                avg: parseFloat(entry.avg) || 0,
-                schnaepse: parseInt(entry.schnaepse) || 0,
-                total: parseFloat(entry.total) || 0,
-                levels: entry.levels || null,
-                time_seconds: entry.time_seconds || null,
-                team_name: entry.team_name || null
-              });
-
-              if (!insertErr) {
-                existingSet.add(key);
-                migrated_from_metadata++;
-
-                // Achievements aus user_metadata übertragen
-                const achList = entry.achievements || [];
-                if (Array.isArray(achList)) {
-                  for (const ach of achList) {
-                    if (!ach.id) continue;
-                    const { data: existingAch } = await supabaseAdmin
-                      .from('achievements')
-                      .select('id')
-                      .eq('user_id', authUser.id)
-                      .eq('achievement_id', ach.id)
-                      .eq('date', entry.date)
-                      .limit(1);
-
-                    if (existingAch && existingAch.length > 0) continue;
-
-                    await supabaseAdmin.from('achievements').insert({
-                      user_id: authUser.id,
-                      achievement_id: ach.id,
-                      title: ach.title || '',
-                      description: ach.description || '',
-                      icon: ach.icon || '',
-                      rarity: ach.rarity || 'common',
-                      game_mode: mode,
-                      earned_with: ach.earnedBy || [],
-                      earned_together: ach.earnedTogether || false,
-                      date: entry.date
-                    });
-                  }
-                }
-              }
-            }
-
-            // user_metadata.gameData leeren
-            await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
-              user_metadata: {
-                ...authUser.user_metadata,
-                gameData: []
-              }
-            });
-          }
-        }
-
-        // 6. Profiles Statistiken aktualisieren
-        for (const authUser of allUsers) {
-          const { data: results } = await supabaseAdmin
-            .from('game_results')
-            .select('avg, schnaepse, total')
-            .eq('user_id', authUser.id);
-
-          if (!results || results.length === 0) continue;
-
-          const gamesPlayed = results.length;
-          const avgDistance = results.reduce((s, r) => s + (r.avg || 0), 0) / gamesPlayed;
-          const totalSchnaepse = results.reduce((s, r) => s + (r.schnaepse || 0), 0);
-          const bestAvg = Math.min(...results.map(r => r.avg ?? 999));
-
-          const { error: profUpdErr } = await supabaseAdmin.from('profiles').update({
-            games_played: gamesPlayed,
-            total_points: totalSchnaepse,
-            high_score: (bestAvg !== 999) ? bestAvg : 0
-          }).eq('id', authUser.id);
-
-          if (!profUpdErr) {
-            profiles_updated++;
-          }
-        }
-
-        // 7. Am Ende der Migration – Benutzernamen in profiles synchronisieren
-        let profiles_synced = 0;
-
-        for (const authUser of allUsers) {
-          const authUsername = authUser.user_metadata?.username;
-          if (!authUsername) continue;
-
-          // Prüfen ob Profil existiert
-          const { data: existingProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('id, username, email')
-            .eq('id', authUser.id)
-            .single();
-
-          if (!existingProfile) {
-            // Profil anlegen falls nicht vorhanden
-            const { error: insertError } = await supabaseAdmin
-              .from('profiles')
-              .insert({
-                id: authUser.id,
-                username: authUsername,
-                email: authUser.email || '',
-                role: authUser.user_metadata?.role || 'user'
-              });
-            if (!insertError) profiles_synced++;
-          } else {
-            // Profil aktualisieren falls Username oder Email abweicht
-            const needsUpdate =
-              existingProfile.username !== authUsername ||
-              existingProfile.email !== authUser.email;
-
-            if (needsUpdate) {
-              const { error: updateError } = await supabaseAdmin
-                .from('profiles')
-                .update({
-                  username: authUsername,
-                  email: authUser.email || existingProfile.email
-                })
-                .eq('id', authUser.id);
-              if (!updateError) profiles_synced++;
-            }
-          }
-        }
-
-        return res.status(200).json({
-          message: `Migration abgeschlossen: ${migrated} aus CSV, ${migrated_from_metadata} aus Account-Daten übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler, ${profiles_updated} Profile aktualisiert, ${profiles_synced} Profile synchronisiert`,
-          migrated,
-          migrated_from_metadata,
-          skipped_no_account,
-          skipped_duplicate,
-          errors,
-          profiles_updated,
-          profiles_synced,
-          total_csv_rows: dataRows.length,
-          errorDetails: errorDetails.slice(0, 10)
-        });
-      }
-    } catch (metaErr) {
-      console.error('Error migrating metadata/updating profiles:', metaErr);
-    }
-
-    return res.status(200).json({
-      message: `Migration abgeschlossen: ${migrated} aus CSV, ${migrated_from_metadata} aus Account-Daten übertragen, ${skipped_no_account} ohne Account übersprungen, ${skipped_duplicate} Duplikate übersprungen, ${errors} Fehler, ${profiles_updated} Profile aktualisiert`,
-      migrated,
-      migrated_from_metadata,
-      skipped_no_account,
-      skipped_duplicate,
-      errors,
-      profiles_updated,
-      profiles_synced: 0,
-      total_csv_rows: dataRows.length,
-      errorDetails: errorDetails.slice(0, 10)
-    });
-
-  } catch (err: any) {
-    console.error('migrate-to-sql error:', err);
-    return res.status(500).json({ error: err.message || 'Unbekannter Fehler' });
   }
 }
 
@@ -2000,13 +1415,15 @@ async function handleTournamentGet(req: VercelRequest, res: VercelResponse) {
 async function syncTournamentTableToSupabaseGameResults(params: {
   tournamentName: string;
   tournamentTable: string;
-  gameMode: string;
   date: string;
   results: Array<{ name?: string; playerName?: string; rank?: number; avg?: number | string; schnaepse?: number | string }>;
 }) {
   if (!isSupabaseConfigured()) return { syncedCount: 0 };
-  const { tournamentName, tournamentTable, gameMode, date: resultDate, results } = params;
+  const { tournamentName, tournamentTable, date: resultDate, results } = params;
   let syncedCount = 0;
+
+  // Strikter game_mode gemäß den neuen DB-Anforderungen
+  const fixedGameMode = 'Standardspiel (500ml)';
 
   try {
     const { data: profiles } = await supabaseAdmin
@@ -2031,12 +1448,13 @@ async function syncTournamentTableToSupabaseGameResults(params: {
       const schnaepseVal = parseInt(String(r.schnaepse), 10) || 0;
       const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
 
-      // Duplicate check
+      // Deduplizierungs-Prüfung über Turniername & Tisch
       let query = supabaseAdmin
         .from('game_results')
         .select('id')
         .eq('date', resultDate)
-        .eq('game_mode', gameMode);
+        .eq('tournament_name', tournamentName)
+        .eq('tournament_table', tournamentTable);
 
       if (isGuest) {
         query = query.eq('player_name', playerName).eq('is_guest', true);
@@ -2053,7 +1471,7 @@ async function syncTournamentTableToSupabaseGameResults(params: {
           user_id: userId,
           is_guest: isGuest,
           player_name: playerName,
-          game_mode: gameMode,
+          game_mode: fixedGameMode,
           date: resultDate,
           avg: avgVal,
           schnaepse: schnaepseVal,
@@ -2166,7 +1584,7 @@ async function awardTournamentAchievementsInSupabase(params: {
         .insert({
           user_id: userId,
           is_guest: isGuest,
-          player_name: isGuest ? trimmedPlayer : null,
+          player_name: trimmedPlayer, // Immer befüllen
           achievement_id: ach.id,
           title,
           description: desc,
@@ -2265,18 +1683,48 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
       };
       currentStatus = 'In Vorbereitung';
 
-      const { error: upsertErr } = await supabaseAdmin
-        .from('tournaments')
-        .upsert({
-          name: trimmedName,
-          status: currentStatus,
-          config: tournamentConfig,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'name' });
+      if (existingTournament) {
+        const { error: updateErr } = await supabaseAdmin
+          .from('tournaments')
+          .update({
+            name: trimmedName,
+            status: currentStatus,
+            config: tournamentConfig,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingTournament.id);
 
-      if (upsertErr) {
-        console.error('upsert tournament error:', upsertErr);
-        return res.status(500).json({ error: upsertErr.message });
+        if (updateErr) {
+          console.error('update tournament error:', updateErr);
+          return res.status(500).json({ error: updateErr.message });
+        }
+      } else {
+        const { error: insertErr } = await supabaseAdmin
+          .from('tournaments')
+          .insert({
+            name: trimmedName,
+            status: currentStatus,
+            config: tournamentConfig,
+            updated_at: new Date().toISOString()
+          });
+
+        if (insertErr) {
+          console.error('insert tournament error:', insertErr);
+          // Fallback update in case of duplicate name or race condition
+          const { error: fallbackUpdateErr } = await supabaseAdmin
+            .from('tournaments')
+            .update({
+              status: currentStatus,
+              config: tournamentConfig,
+              updated_at: new Date().toISOString()
+            })
+            .ilike('name', trimmedName);
+
+          if (fallbackUpdateErr) {
+            console.error('upsert tournament error:', fallbackUpdateErr);
+            return res.status(500).json({ error: insertErr.message || fallbackUpdateErr.message });
+          }
+        }
       }
 
       return res.status(200).json({
@@ -2409,17 +1857,9 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
 
         currentStatus = config.status;
 
-        // Sync table results to public.game_results
-        const gameMode = (targetTable.id === 'table_final')
-          ? `Turnier Finale (${trimmedName})`
-          : (targetTable.id === 'table_second_chance')
-            ? `Turnier Second Chance (${trimmedName})`
-            : `Turnier Vorrunde Tisch ${targetTable.id} (${trimmedName})`;
-
         await syncTournamentTableToSupabaseGameResults({
           tournamentName: trimmedName,
           tournamentTable: targetTable.name || targetTable.id,
-          gameMode,
           date: resultDate,
           results: sorted
         });
@@ -2448,14 +1888,25 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
       outPlayers: existingOutPlayers
     };
 
-    const { error: updateErr } = await supabaseAdmin
-      .from('tournaments')
-      .update({
-        status: currentStatus,
-        config: tournamentConfig,
-        updated_at: new Date().toISOString()
-      })
-      .ilike('name', trimmedName);
+    const updateQuery = existingTournament?.id
+      ? supabaseAdmin
+          .from('tournaments')
+          .update({
+            status: currentStatus,
+            config: tournamentConfig,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingTournament.id)
+      : supabaseAdmin
+          .from('tournaments')
+          .update({
+            status: currentStatus,
+            config: tournamentConfig,
+            updated_at: new Date().toISOString()
+          })
+          .ilike('name', trimmedName);
+
+    const { error: updateErr } = await updateQuery;
 
     if (updateErr) {
       console.error('update tournament error:', updateErr);
@@ -2508,411 +1959,10 @@ async function handleTournamentDelete(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelResponse) {
-  try {
-    await ensureCoreSchema();
-    if (!isSupabaseConfigured()) {
-      return res.status(500).json({ error: 'Supabase ist nicht konfiguriert.' });
-    }
-
-    const body = getRequestBody(req);
-    const { tournamentName } = body || {};
-    if (!tournamentName) return res.status(400).json({ error: 'tournamentName erforderlich' });
-
-    let migrated = 0;
-    let skipped = 0;
-
-    // 1. Zuerst in public.tournaments suchen
-    const { data: tourneyRows } = await supabaseAdmin
-      .from('tournaments')
-      .select('*')
-      .ilike('name', tournamentName.trim())
-      .limit(1);
-
-    if (tourneyRows && tourneyRows.length > 0) {
-      const tourney = tourneyRows[0];
-      const fullConfig = tourney.config || {};
-      const results = fullConfig.results || [];
-      const tables = fullConfig.tables || [];
-
-      for (const table of tables) {
-        const tableResults = results.filter((r: any) => r.tableId === table.id);
-        if (tableResults.length > 0) {
-          const gameMode = (table.id === 'table_final')
-            ? `Turnier Finale (${tourney.name})`
-            : (table.id === 'table_second_chance')
-              ? `Turnier Second Chance (${tourney.name})`
-              : `Turnier Vorrunde Tisch ${table.id} (${tourney.name})`;
-
-          const syncRes = await syncTournamentTableToSupabaseGameResults({
-            tournamentName: tourney.name,
-            tournamentTable: table.name || table.id,
-            gameMode,
-            date: tableResults[0]?.date || new Date().toLocaleDateString('de-DE'),
-            results: tableResults
-          });
-          migrated += syncRes.syncedCount;
-        }
-      }
-
-      if (fullConfig.config?.status === 'Beendet' || tables.find((t: any) => t.id === 'table_final')?.status === 'Abgeschlossen') {
-        await awardTournamentAchievementsInSupabase({
-          tournamentName: tourney.name,
-          config: fullConfig.config || {},
-          tables,
-          results,
-          date: results[0]?.date || new Date().toLocaleDateString('de-DE')
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: `${migrated} Ergebnisse aus Turnier '${tournamentName}' in Supabase game_results übertragen.`,
-        migrated,
-        skipped,
-        supabaseSynced: migrated
-      });
-    }
-
-    // 2. Fallback: Falls noch in Legacy Blob gespeichert
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (token) {
-      try {
-        const { list } = await import('@vercel/blob');
-        const safeName = tournamentName.replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_');
-        const { blobs } = await list({ prefix: `tournament_${safeName}`, token });
-        const blob = blobs.find(b => b.pathname.includes(safeName));
-        if (blob) {
-          const tournamentRes = await fetch(blob.url);
-          const tournamentCsv = await tournamentRes.text();
-          const tournamentRows = tournamentCsv.trim().split('\n');
-          const ergebnisRows = tournamentRows.filter(r => r.startsWith('RESULT;') || r.startsWith('Ergebnis;'));
-
-          const resultsList: any[] = [];
-          for (const row of ergebnisRows) {
-            const parts = row.split(';');
-            if (parts.length < 6) continue;
-            let tischId = parts[1];
-            let spielername = row.startsWith('RESULT;') ? parts[2] : parts[3];
-            let rawRank = row.startsWith('RESULT;') ? parts[3] : parts[7] || parts[6] || '99';
-            let rawAvg = row.startsWith('RESULT;') ? parts[4] : parts[4];
-            let rawSchnaepse = row.startsWith('RESULT;') ? parts[5] : parts[5];
-            let datum = row.startsWith('RESULT;') ? parts[6] : parts[2] || new Date().toLocaleDateString('de-DE');
-
-            if (!spielername?.trim()) continue;
-            resultsList.push({
-              tableId: tischId,
-              playerName: spielername.trim(),
-              name: spielername.trim(),
-              rank: parseInt(rawRank, 10) || 99,
-              avg: rawAvg,
-              schnaepse: rawSchnaepse,
-              date: datum
-            });
-          }
-
-          const syncRes = await syncTournamentTableToSupabaseGameResults({
-            tournamentName,
-            tournamentTable: 'Archiv',
-            gameMode: `Turnier (${tournamentName})`,
-            date: resultsList[0]?.date || new Date().toLocaleDateString('de-DE'),
-            results: resultsList
-          });
-          migrated = syncRes.syncedCount;
-
-          return res.status(200).json({
-            success: true,
-            message: `${migrated} Ergebnisse aus Blob in Supabase game_results übertragen.`,
-            migrated,
-            skipped,
-            supabaseSynced: migrated
-          });
-        }
-      } catch (blobErr: any) {
-        console.warn('Fallback blob read error:', blobErr?.message);
-      }
-    }
-
-    return res.status(404).json({ error: `Turnier "${tournamentName}" nicht gefunden.` });
-  } catch (err: any) {
-    console.error('tournament migrate error:', err);
-    return res.status(500).json({ error: err.message });
-  }
-}
-
-async function handleMigrateToStaging(req: VercelRequest, res: VercelResponse) {
-  try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
-
-    const body = getRequestBody(req);
-    const { clearExisting } = body || {};
-
-    // 1. Staging-Tabellen in Supabase (SQL) automatisiert anlegen (falls nicht vorhanden)
-    const createTablesSQL = `
-CREATE TABLE IF NOT EXISTS public.staging_results_csv (
-  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  raw_line TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.staging_tournaments (
-  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  tournament_name TEXT NOT NULL,
-  raw_line TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE OR REPLACE FUNCTION public.exec_sql(sql text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  EXECUTE sql;
-END;
-$$;
-
-ALTER TABLE public.staging_results_csv ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.staging_tournaments ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'staging_results_csv' AND policyname = 'Allow service role all staging_results_csv'
-  ) THEN
-    CREATE POLICY "Allow service role all staging_results_csv" ON public.staging_results_csv FOR ALL TO service_role USING (true);
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'staging_tournaments' AND policyname = 'Allow service role all staging_tournaments'
-  ) THEN
-    CREATE POLICY "Allow service role all staging_tournaments" ON public.staging_tournaments FOR ALL TO service_role USING (true);
-  END IF;
-END
-$$;
-`;
-
-    // A) Falls exec_sql RPC verfügbar ist, aufrufen:
-    try {
-      await supabaseAdmin.rpc('exec_sql', { sql: createTablesSQL });
-    } catch {
-      // ignore
-    }
-
-    // B) Falls DB-URL konfiguriert ist, direkt ausführen:
-    const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL;
-    if (dbUrl) {
-      try {
-        const { Client } = await import('pg');
-        const pgClient = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-        await pgClient.connect();
-        await pgClient.query(createTablesSQL);
-        await pgClient.end();
-      } catch (pgErr) {
-        console.warn('Direct PG execution failed:', pgErr);
-      }
-    }
-
-    // C) Prüfen, ob beide Staging-Tabellen in Supabase existieren
-    const checkResults = await supabaseAdmin.from('staging_results_csv').select('id').limit(1);
-    const checkTournaments = await supabaseAdmin.from('staging_tournaments').select('id').limit(1);
-
-    const resultsTableMissing = checkResults.error && checkResults.error.code === 'PGRST205';
-    const tournamentsTableMissing = checkTournaments.error && checkTournaments.error.code === 'PGRST205';
-
-    if (resultsTableMissing || tournamentsTableMissing) {
-      return res.status(200).json({
-        success: false,
-        tablesMissing: true,
-        missingTables: [
-          ...(resultsTableMissing ? ['staging_results_csv'] : []),
-          ...(tournamentsTableMissing ? ['staging_tournaments'] : [])
-        ],
-        sql: createTablesSQL.trim(),
-        message: 'Die Staging-Tabellen existieren noch nicht in Supabase. Bitte führe das SQL-Skript im Supabase SQL Editor aus.'
-      });
-    }
-
-    // Falls clearExisting aktiviert ist: Vorherige Staging-Daten leeren
-    if (clearExisting) {
-      try {
-        await supabaseAdmin.from('staging_results_csv').delete().neq('id', 0);
-        await supabaseAdmin.from('staging_tournaments').delete().neq('id', 0);
-      } catch (clearErr) {
-        console.warn('Staging tables clearing error:', clearErr);
-      }
-    }
-
-    // 2. Einlesen & Übertragen aus Vercel Blob
-    const { list } = await import('@vercel/blob');
-
-    // 2.1 results.csv einlesen
-    let resultsCsvRowsInserted = 0;
-    const { blobs: resultsBlobs } = await list({ prefix: 'results', token });
-    const resultsBlob = resultsBlobs.find(b => b.pathname === 'results.csv' || b.pathname.endsWith('/results.csv'));
-
-    if (resultsBlob) {
-      const csvResponse = await fetch(resultsBlob.url);
-      const csvText = await csvResponse.text();
-      const rawLines = csvText.split(/\r?\n/);
-
-      // Datenzeilen filtern (Header überspringen, falls vorhanden)
-      const dataLines = rawLines.filter(l => {
-        const trimmed = l.trim();
-        if (!trimmed) return false;
-        if (trimmed.toLowerCase().startsWith('datum;') || trimmed.toLowerCase().startsWith('datum ')) return false;
-        return true;
-      });
-
-      if (dataLines.length > 0) {
-        const rowsToInsert = dataLines.map(line => ({
-          raw_line: line.trim(),
-          created_at: new Date().toISOString()
-        }));
-
-        const batchSize = 100;
-        for (let i = 0; i < rowsToInsert.length; i += batchSize) {
-          const chunk = rowsToInsert.slice(i, i + batchSize);
-          const { error: insertErr } = await supabaseAdmin
-            .from('staging_results_csv')
-            .insert(chunk);
-          if (insertErr) {
-            console.error('staging_results_csv insert error:', insertErr);
-            throw new Error(`Fehler beim Einfügen in staging_results_csv: ${insertErr.message}`);
-          }
-          resultsCsvRowsInserted += chunk.length;
-        }
-      }
-    }
-
-    // 2.2 Alle Turnier-Blobs (prefix: 'tournament_') einlesen
-    let tournamentRowsInserted = 0;
-    let tournamentsProcessedCount = 0;
-    const { blobs: allBlobs } = await list({ prefix: 'tournament_', token });
-    const tournamentBlobs = allBlobs.filter(b =>
-      (b.pathname.startsWith('tournament_') || b.pathname.includes('/tournament_')) &&
-      b.pathname.endsWith('.csv')
-    );
-
-    const tournamentRowsToInsert: Array<{ tournament_name: string; raw_line: string; created_at: string }> = [];
-
-    for (const blob of tournamentBlobs) {
-      try {
-        const tourneyRes = await fetch(blob.url);
-        if (!tourneyRes.ok) continue;
-        const text = await tourneyRes.text();
-        const lines = text.split(/\r?\n/);
-
-        // Turniernamen ermitteln
-        let tournamentName = blob.pathname
-          .replace(/^.*tournament_/, '')
-          .replace(/\.csv$/, '');
-
-        // Falls im Blob TOURNAMENT_NAME; vorhanden ist, bevorzugen
-        for (const line of lines) {
-          if (line.startsWith('TOURNAMENT_NAME;')) {
-            const parts = line.split(';');
-            if (parts[1]?.trim()) {
-              tournamentName = parts[1].trim();
-              break;
-            }
-          }
-        }
-
-        // Relevante Zeilen (RESULT; / Ergebnis;) filtern
-        const relevantLines = lines.filter(l => {
-          const trimmed = l.trim();
-          return trimmed.startsWith('RESULT;') || trimmed.startsWith('Ergebnis;');
-        });
-
-        for (const row of relevantLines) {
-          tournamentRowsToInsert.push({
-            tournament_name: tournamentName,
-            raw_line: row.trim(),
-            created_at: new Date().toISOString()
-          });
-        }
-        tournamentsProcessedCount++;
-      } catch (tourneyErr) {
-        console.error(`Fehler beim Lesen des Turniers ${blob.pathname}:`, tourneyErr);
-      }
-    }
-
-    if (tournamentRowsToInsert.length > 0) {
-      const batchSize = 100;
-      for (let i = 0; i < tournamentRowsToInsert.length; i += batchSize) {
-        const chunk = tournamentRowsToInsert.slice(i, i + batchSize);
-        const { error: insertErr } = await supabaseAdmin
-          .from('staging_tournaments')
-          .insert(chunk);
-        if (insertErr) {
-          console.error('staging_tournaments insert error:', insertErr);
-          throw new Error(`Fehler beim Einfügen in staging_tournaments: ${insertErr.message}`);
-        }
-        tournamentRowsInserted += chunk.length;
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `Erfolgreich übertragen: ${resultsCsvRowsInserted} Zeilen in staging_results_csv, ${tournamentRowsInserted} Zeilen aus ${tournamentsProcessedCount} Turnieren in staging_tournaments.`,
-      resultsCsvRows: resultsCsvRowsInserted,
-      tournamentRows: tournamentRowsInserted,
-      tournamentsProcessed: tournamentsProcessedCount,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (err: any) {
-    console.error('handleMigrateToStaging error:', err);
-    return res.status(500).json({ error: err.message || 'Fehler bei der Übertragung in Staging-Tabellen' });
-  }
-}
-
-async function handleSaveCsv(req: VercelRequest, res: VercelResponse) {
-  try {
-    await ensureCoreSchema();
-    const body = getRequestBody(req);
-    const { rows } = body || {};
-    if (!rows || !Array.isArray(rows)) {
-      return res.status(400).json({ error: 'rows erforderlich' });
-    }
-
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (token) {
-      try {
-        const { put } = await import('@vercel/blob');
-        const header = 'Datum;Modus;Name;Avg;Schnaepse\n';
-        const dataRows = rows
-          .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum')
-          .map((row: string[]) => row.slice(0, 6).join(';'))
-          .join('\n');
-
-        const updatedCsv = header + dataRows + '\n';
-        await put('results.csv', updatedCsv, {
-          access: 'public',
-          token,
-          addRandomSuffix: false,
-          allowOverwrite: true
-        });
-      } catch (blobErr: any) {
-        console.warn('handleSaveCsv blob backup warning:', blobErr?.message);
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Ergebnisse in Supabase SQL Tabelle public.game_results verwaltet.'
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-}
-
 async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
   const report: string[] = [];
   const fixes: string[] = [];
   const errors: string[] = [];
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
 
   try {
     await ensureCoreSchema();
@@ -2956,21 +2006,6 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
       fixes.push('💾 Vollständiges Datenbank-Backup in public.database_backups gesichert');
     } catch (dbBackupErr: any) {
       console.warn('database_backups insert error:', dbBackupErr?.message);
-    }
-
-    if (token) {
-      try {
-        const { put } = await import('@vercel/blob');
-        const backupFilename = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        await put(`backups/${backupFilename}`, JSON.stringify(backupData, null, 2), {
-          access: 'public',
-          token,
-          addRandomSuffix: false
-        });
-        fixes.push(`💾 Backup zusätzlich in Blob erstellt: backups/${backupFilename}`);
-      } catch (bErr: any) {
-        console.warn('Blob backup optional write warning:', bErr?.message);
-      }
     }
 
     report.push(`📋 Backup enthält: ${allProfiles?.length || 0} Profile, ${allGameResults?.length || 0} Ergebnisse, ${allAchievements?.length || 0} Achievements, ${allFriendships?.length || 0} Freundschaften`);

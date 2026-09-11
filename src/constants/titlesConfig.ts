@@ -11,8 +11,13 @@ export interface ProfileData {
   gamesWon?: number;
   achievements_count?: number;
   achievementsCount?: number;
+  level?: number;
+  xp?: number;
+  name_bg_color?: string | null;
   [key: string]: any;
 }
+
+export type TitleCategory = 'level' | 'spiele' | 'praezision' | 'schnaepse' | 'achievements' | 'special';
 
 export interface PlayerTitle {
   id: string;
@@ -22,6 +27,9 @@ export interface PlayerTitle {
   badgeBg: string;
   textColor: string;
   borderColor: string;
+  category: TitleCategory;
+  conditionText: string;
+  requiredLevel?: number;
   isUnlocked: (profile: ProfileData) => boolean;
 }
 
@@ -36,7 +44,10 @@ export const extractProfileStats = (profile: ProfileData | null | undefined) => 
       totalPoints: 0,
       highScore: null,
       gamesWon: 0,
-      achievementsCount: 0
+      achievementsCount: 0,
+      level: 1,
+      xp: 0,
+      nameBgColor: 'none'
     };
   }
 
@@ -50,18 +61,44 @@ export const extractProfileStats = (profile: ProfileData | null | undefined) => 
 
   const gamesWon = Number(profile.games_won ?? profile.gamesWon ?? 0);
   const achievementsCount = Number(profile.achievements_count ?? profile.achievementsCount ?? 0);
+  const level = Number(profile.level ?? 1);
+  const xp = Number(profile.xp ?? 0);
+  const nameBgColor = profile.name_bg_color || profile.nameBgColor || 'none';
 
   return {
     gamesPlayed,
     totalPoints,
     highScore,
     gamesWon,
-    achievementsCount
+    achievementsCount,
+    level,
+    xp,
+    nameBgColor
   };
 };
 
 /**
- * Globale Liste aller verfügbaren Spielertitel
+ * =========================================================================
+ * ZENTRALE TITEL-KONFIGURATION
+ * =========================================================================
+ * Alle früheren Test-Titel wurden bereinigt. Nur der Standardtitel "Neuling"
+ * (Level 1) ist aktiv.
+ * 
+ * Neue Titel können hier einfach als weiteres Objekt zum Array hinzugefügt werden:
+ * 
+ * {
+ *   id: 'bier_meister',
+ *   name: 'Biermeister',
+ *   description: 'Erreiche Level 5',
+ *   icon: '🍺',
+ *   badgeBg: 'bg-amber-500/15 dark:bg-amber-500/25',
+ *   textColor: 'text-amber-700 dark:text-amber-300',
+ *   borderColor: 'border-amber-500/40',
+ *   category: 'level',
+ *   conditionText: 'Erfordert Level 5',
+ *   requiredLevel: 5,
+ *   isUnlocked: (p) => extractProfileStats(p).level >= 5
+ * }
  */
 export const PLAYER_TITLES: PlayerTitle[] = [
   {
@@ -72,101 +109,28 @@ export const PLAYER_TITLES: PlayerTitle[] = [
     badgeBg: 'bg-emerald-500/10 dark:bg-emerald-500/20',
     textColor: 'text-emerald-700 dark:text-emerald-300',
     borderColor: 'border-emerald-500/30',
+    category: 'level',
+    conditionText: 'Standard bei Registrierung (Level 1)',
+    requiredLevel: 1,
     isUnlocked: () => true
-  },
-  {
-    id: 'stammgast',
-    name: 'Stammgast',
-    description: 'Mindestens 10 Spiele absolviert',
-    icon: '🍺',
-    badgeBg: 'bg-blue-500/10 dark:bg-blue-500/20',
-    textColor: 'text-blue-700 dark:text-blue-300',
-    borderColor: 'border-blue-500/30',
-    isUnlocked: (p) => extractProfileStats(p).gamesPlayed >= 10
-  },
-  {
-    id: 'bierkoenig',
-    name: 'Bierkönig',
-    description: 'Mindestens 50 Spiele absolviert',
-    icon: '👑',
-    badgeBg: 'bg-amber-500/15 dark:bg-amber-500/25',
-    textColor: 'text-amber-800 dark:text-amber-300',
-    borderColor: 'border-amber-500/40',
-    isUnlocked: (p) => extractProfileStats(p).gamesPlayed >= 50
-  },
-  {
-    id: 'wiege_legende',
-    name: 'Wiege-Legende',
-    description: 'Mindestens 100 Spiele absolviert',
-    icon: '⚡',
-    badgeBg: 'bg-purple-500/15 dark:bg-purple-500/25',
-    textColor: 'text-purple-700 dark:text-purple-300',
-    borderColor: 'border-purple-500/40',
-    isUnlocked: (p) => extractProfileStats(p).gamesPlayed >= 100
-  },
-  {
-    id: 'praezisions_meister',
-    name: 'Präzisions-Meister',
-    description: 'Bester Durchschnitt von 2,0g oder besser erzielt',
-    icon: '🎯',
-    badgeBg: 'bg-rose-500/10 dark:bg-rose-500/20',
-    textColor: 'text-rose-700 dark:text-rose-300',
-    borderColor: 'border-rose-500/40',
-    isUnlocked: (p) => {
-      const { highScore, gamesPlayed } = extractProfileStats(p);
-      return gamesPlayed > 0 && highScore !== null && highScore <= 2.0;
-    }
-  },
-  {
-    id: 'scharfschuetze',
-    name: 'Scharfschütze',
-    description: 'Bester Durchschnitt von 1,0g oder besser erzielt',
-    icon: '🏹',
-    badgeBg: 'bg-red-500/15 dark:bg-red-500/25',
-    textColor: 'text-red-700 dark:text-red-300',
-    borderColor: 'border-red-500/40',
-    isUnlocked: (p) => {
-      const { highScore, gamesPlayed } = extractProfileStats(p);
-      return gamesPlayed > 0 && highScore !== null && highScore <= 1.0;
-    }
-  },
-  {
-    id: 'schnaps_baron',
-    name: 'Schnaps-Baron',
-    description: 'Mindestens 100 Schnäpse auf dem Konto',
-    icon: '🥃',
-    badgeBg: 'bg-amber-600/15 dark:bg-amber-600/25',
-    textColor: 'text-amber-900 dark:text-amber-200',
-    borderColor: 'border-amber-600/40',
-    isUnlocked: (p) => extractProfileStats(p).totalPoints >= 100
-  },
-  {
-    id: 'schnapsdrossel',
-    name: 'Schnapsdrossel',
-    description: 'Mindestens 250 Schnäpse auf dem Konto',
-    icon: '🦅',
-    badgeBg: 'bg-orange-500/15 dark:bg-orange-500/25',
-    textColor: 'text-orange-800 dark:text-orange-300',
-    borderColor: 'border-orange-500/40',
-    isUnlocked: (p) => extractProfileStats(p).totalPoints >= 250
-  },
-  {
-    id: 'pokaljaeger',
-    name: 'Pokaljäger',
-    description: 'Mindestens 10 Errungenschaften freigeschaltet',
-    icon: '🏆',
-    badgeBg: 'bg-yellow-500/15 dark:bg-yellow-500/25',
-    textColor: 'text-yellow-800 dark:text-yellow-300',
-    borderColor: 'border-yellow-500/40',
-    isUnlocked: (p) => extractProfileStats(p).achievementsCount >= 10
   }
 ];
+
+/**
+ * Standardtitel (immer Neuling)
+ */
+export const DEFAULT_TITLE: PlayerTitle = PLAYER_TITLES[0];
 
 /**
  * Gibt nur die Titel zurück, die der Spieler gemäß seinen Daten freigeschaltet hat.
  */
 export const getUnlockedTitles = (profile: ProfileData | null | undefined): PlayerTitle[] => {
-  return PLAYER_TITLES.filter(title => title.isUnlocked(profile || {}));
+  const titles = PLAYER_TITLES.filter(title => title.isUnlocked(profile || {}));
+  // Garantiere, dass mindestens Neuling vorhanden ist
+  if (titles.length === 0 && PLAYER_TITLES.length > 0) {
+    return [PLAYER_TITLES[0]];
+  }
+  return titles;
 };
 
 /**

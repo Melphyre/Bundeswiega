@@ -64,7 +64,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
     // 3. Profile laden
     const { data: profiles, error: profErr } = await supabase
       .from('profiles')
-      .select('id, username, email, avatar_url, title, selected_title, level, xp')
+      .select('id, username, email, avatar_url, title, level, xp')
       .in('id', allNeededUserIds);
 
     if (profErr) throw profErr;

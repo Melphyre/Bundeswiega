@@ -64,7 +64,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
     // 3. Profile laden
     const { data: profiles, error: profErr } = await supabase
       .from('profiles')
-      .select('id, username, email, avatar_url, title')
+      .select('id, username, email, avatar_url, title, selected_title, level, xp')
       .in('id', allNeededUserIds);
 
     if (profErr) throw profErr;
@@ -80,7 +80,9 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: p?.avatar_url || '',
           friendshipId: r.id,
-          title: (p as any)?.title || undefined
+          title: (p as any)?.title || (p as any)?.selected_title || undefined,
+          level: Number((p as any)?.level) || 1,
+          xp: Number((p as any)?.xp) || 0
         };
       }),
       ...acceptedReceived.map(r => {
@@ -90,7 +92,9 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: p?.avatar_url || '',
           friendshipId: r.id,
-          title: (p as any)?.title || undefined
+          title: (p as any)?.title || (p as any)?.selected_title || undefined,
+          level: Number((p as any)?.level) || 1,
+          xp: Number((p as any)?.xp) || 0
         };
       })
     ];
@@ -102,7 +106,8 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
         id: req.id,
         requesterId: req.requester_id,
         requesterName: p?.username || p?.email || 'Unbekannter Spieler',
-        title: (p as any)?.title || undefined
+        title: (p as any)?.title || (p as any)?.selected_title || undefined,
+        level: Number((p as any)?.level) || 1
       };
     });
 

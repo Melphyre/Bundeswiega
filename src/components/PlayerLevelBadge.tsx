@@ -1,7 +1,8 @@
 import React from 'react';
 
 interface PlayerLevelBadgeProps {
-  level: number;
+  level?: number;
+  isGuest?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   showLabel?: boolean;
   className?: string;
@@ -9,10 +10,29 @@ interface PlayerLevelBadgeProps {
 
 export const PlayerLevelBadge: React.FC<PlayerLevelBadgeProps> = ({
   level,
+  isGuest = false,
   size = 'sm',
   showLabel = true,
   className = ''
 }) => {
+  if (isGuest) {
+    const guestSizeClass = {
+      xs: 'text-[9px] px-1',
+      sm: 'text-[10px] px-1.5',
+      md: 'text-xs px-2',
+      lg: 'text-sm px-2.5'
+    }[size];
+
+    return (
+      <span
+        className={`inline-flex items-center justify-center font-bold text-gray-500 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10 rounded-md tracking-tight select-none whitespace-nowrap ${guestSizeClass} ${className}`}
+        title="Gast-Spieler (kein Account)"
+      >
+        (Gast)
+      </span>
+    );
+  }
+
   const safeLevel = Math.max(1, Math.floor(level || 1));
 
   // Visual tiers based on level

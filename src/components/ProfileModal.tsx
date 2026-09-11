@@ -23,6 +23,7 @@ interface ProfileModalProps {
   setShowProfileModal: (show: boolean) => void;
   supabaseUser?: any;
   currentUserId?: string;
+  isGuest?: boolean;
   darkMode: boolean;
   isAdmin: boolean;
   profileTab: 'profil' | 'rekorde' | 'freunde' | 'einstellungen';
@@ -83,6 +84,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   setShowProfileModal,
   supabaseUser,
   currentUserId: propCurrentUserId,
+  isGuest = false,
   darkMode,
   isAdmin,
   profileTab,
@@ -649,7 +651,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     className="px-2.5 py-0.5"
                   />
                   {selectedTitle && <PlayerTitleBadge title={selectedTitle} size="md" />}
-                  <PlayerLevelBadge level={extractProfileStats(profileStats).level} size="sm" />
+                  <PlayerLevelBadge level={extractProfileStats(profileStats).level} isGuest={isGuest || !supabaseUser?.id} size="sm" />
                   {isAdmin && <span className="text-yellow-400 text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 border border-yellow-400/30">👑 Admin</span>}
                 </h3>
                 <p className="text-xs opacity-60">{supabaseUser?.email}</p>
@@ -826,11 +828,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   );
                 })()}
 
-                {/* Sektion: Design & Anpassen (Namenshintergrund-System) */}
+                {/* Sektion: Design & Anpassen (Namenshintergrund-System) - erst ab Level 2 und nicht für Gäste */}
                 {(() => {
                   const stats = extractProfileStats(profileStats);
                   const levelInfo = calculateLevelFromXp(stats.xp);
                   const isUnlocked = levelInfo.level >= 2;
+                  const isUserGuest = isGuest || !supabaseUser?.id;
+
+                  // Wenn der Nutzer auf Level 1 ist ODER ein Gast-Spieler ist:
+                  // Blende den gesamten Block (inkl. Vorschau, Buttons und Banner) VOLLSTÄNDIG aus.
+                  if (!isUnlocked || isUserGuest) {
+                    return null;
+                  }
+
                   const currentName = profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Spieler';
 
                   return (
@@ -845,16 +855,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                               <h4 className="font-black text-sm uppercase tracking-wide">
                                 Design & Anpassen
                               </h4>
-                              {isUnlocked ? (
-                                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
-                                  Freigeschaltet (Level {levelInfo.level})
-                                </span>
-                              ) : (
-                                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center">
-                                  <i className="fas fa-lock text-[9px] mr-1"></i>
-                                  Freischaltung ab Level 2
-                                </span>
-                              )}
+                              <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
+                                Freigeschaltet (Level {levelInfo.level})
+                              </span>
                             </div>
                             <p className="text-xs opacity-60">
                               Personalisiere deinen Namenshintergrund für Spieltabelle & Ranglisten
@@ -863,119 +866,75 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Fall 1: Noch nicht freigeschaltet (Level < 2) */}
-                      {!isUnlocked ? (
-                        <div className={`p-4 rounded-xl border relative overflow-hidden ${
-                          darkMode ? 'bg-slate-900/70 border-amber-500/30' : 'bg-amber-50/70 border-amber-200'
-                        }`}>
-                          <div className="flex items-start space-x-3">
-                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center text-lg flex-shrink-0">
-                              <i className="fas fa-lock"></i>
-                            </div>
-                            <div className="space-y-1.5 flex-1 min-w-0">
-                              <h5 className="font-black text-xs md:text-sm text-amber-600 dark:text-amber-400">
-                                Feature gesperrt: Freischaltung ab Level 2
-                              </h5>
-                              <p className="text-xs opacity-80 leading-relaxed">
-                                Erreiche Stufe 2 (100 Gesamt-XP), um das Name-Tag Design-System freizuschalten und deinen Namen mit Rot, Blau, Grün oder Gelb einzufärben!
-                              </p>
-                              <div className="pt-1 flex items-center space-x-2 text-[11px] font-bold opacity-70">
-                                <span>Noch {Math.max(0, 100 - stats.xp)} XP bis zur Freischaltung</span>
-                              </div>
-                            </div>
-                          </div>
+                      <div className="space-y-3">
+                        <label className="block text-xs font-bold opacity-80">
+                          Wähle deinen Namenshintergrund:
+                        </label>
 
-                          {/* Vorschau der gesperrten Farboptionen (ausgegraut / disabled) */}
-                          <div className="mt-3 pt-3 border-t border-gray-500/20 flex flex-wrap gap-2 opacity-50 pointer-events-none">
-                            {NAME_TAG_COLORS.map((c) => (
-                              <div
-                                key={c.id}
-                                className="px-2.5 py-1 rounded-lg border text-xs flex items-center space-x-1.5 bg-black/5 dark:bg-white/5"
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {NAME_TAG_COLORS.map((opt) => {
+                            const isSelected = selectedNameBgColor === opt.id || (!selectedNameBgColor && opt.id === 'none');
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                disabled={nameBgLoading}
+                                onClick={() => handleNameBgColorChange(opt.id)}
+                                className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center space-y-1.5 cursor-pointer relative ${
+                                  isSelected
+                                    ? 'ring-2 ring-[#238183] border-[#238183] bg-[#238183]/10 shadow-sm'
+                                    : (darkMode ? 'bg-slate-900/50 border-slate-700 hover:border-slate-500' : 'bg-white border-gray-200 hover:border-gray-300')
+                                }`}
                               >
-                                {c.id !== 'none' && (
-                                  <span
-                                    className="w-3 h-3 rounded-full border border-black/20"
-                                    style={{ backgroundColor: c.bgHex }}
+                                {isSelected && (
+                                  <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#238183] text-white flex items-center justify-center text-[9px]">
+                                    <i className="fas fa-check"></i>
+                                  </div>
+                                )}
+
+                                {opt.id === 'none' ? (
+                                  <div className="w-6 h-6 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[10px] opacity-60">
+                                    ✕
+                                  </div>
+                                ) : (
+                                  <div
+                                    className="w-6 h-6 rounded-full border-2 border-white/60 shadow-sm"
+                                    style={{ backgroundColor: opt.bgHex }}
                                   />
                                 )}
-                                <span>{c.label}</span>
-                                <i className="fas fa-lock text-[9px] opacity-60"></i>
-                              </div>
-                            ))}
+
+                                <span className="text-[11px] truncate">{opt.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Live-Vorschau */}
+                        <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 ${
+                          darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'
+                        }`}>
+                          <span className="text-[11px] font-bold opacity-60">
+                            Live-Vorschau in Spiel & Rangliste:
+                          </span>
+                          <div className="flex items-center space-x-2">
+                            <PlayerNameTag
+                              name={currentName}
+                              colorKey={selectedNameBgColor}
+                              className="text-xs px-3 py-1 font-black"
+                            />
+                            {selectedTitle && (
+                              <PlayerTitleBadge title={selectedTitle} size="sm" />
+                            )}
                           </div>
                         </div>
-                      ) : (
-                        /* Fall 2: Freigeschaltet (Level >= 2) */
-                        <div className="space-y-3">
-                          <label className="block text-xs font-bold opacity-80">
-                            Wähle deinen Namenshintergrund:
-                          </label>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                            {NAME_TAG_COLORS.map((opt) => {
-                              const isSelected = selectedNameBgColor === opt.id || (!selectedNameBgColor && opt.id === 'none');
-                              return (
-                                <button
-                                  key={opt.id}
-                                  type="button"
-                                  disabled={nameBgLoading}
-                                  onClick={() => handleNameBgColorChange(opt.id)}
-                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center space-y-1.5 cursor-pointer relative ${
-                                    isSelected
-                                      ? 'ring-2 ring-[#238183] border-[#238183] bg-[#238183]/10 shadow-sm'
-                                      : (darkMode ? 'bg-slate-900/50 border-slate-700 hover:border-slate-500' : 'bg-white border-gray-200 hover:border-gray-300')
-                                  }`}
-                                >
-                                  {isSelected && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#238183] text-white flex items-center justify-center text-[9px]">
-                                      <i className="fas fa-check"></i>
-                                    </div>
-                                  )}
-
-                                  {opt.id === 'none' ? (
-                                    <div className="w-6 h-6 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[10px] opacity-60">
-                                      ✕
-                                    </div>
-                                  ) : (
-                                    <div
-                                      className="w-6 h-6 rounded-full border-2 border-white/60 shadow-sm"
-                                      style={{ backgroundColor: opt.bgHex }}
-                                    />
-                                  )}
-
-                                  <span className="text-[11px] truncate">{opt.label}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {/* Live-Vorschau */}
-                          <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 ${
-                            darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'
-                          }`}>
-                            <span className="text-[11px] font-bold opacity-60">
-                              Live-Vorschau in Spiel & Rangliste:
-                            </span>
-                            <div className="flex items-center space-x-2">
-                              <PlayerNameTag
-                                name={currentName}
-                                colorKey={selectedNameBgColor}
-                                className="text-xs px-3 py-1 font-black"
-                              />
-                              {selectedTitle && (
-                                <PlayerTitleBadge title={selectedTitle} size="sm" />
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Rückmeldung */}
-                          {nameBgMessage && (
-                            <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                              {nameBgMessage}
-                            </p>
-                          )}
-                        </div>
-                      )}
+                        {/* Rückmeldung */}
+                        {nameBgMessage && (
+                          <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {nameBgMessage}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -989,7 +948,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center space-x-3">
-                          <PlayerLevelBadge level={levelInfo.level} size="lg" />
+                          <PlayerLevelBadge level={levelInfo.level} isGuest={isGuest || !supabaseUser?.id} size="lg" />
                           <div>
                             <h4 className="font-black text-sm uppercase tracking-wide">
                               Level {levelInfo.level}

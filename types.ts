@@ -5,6 +5,10 @@ export interface Player {
   startWeight: number;
   schnaepse: number;
   isDisqualified?: boolean;
+  userId?: string;
+  title?: string;
+  name_bg_color?: string | null;
+  imageUrl?: string | null;
 }
 
 export const GAME_MODES = [
@@ -59,6 +63,8 @@ export interface Friend {
   imageUrl: string;
   friendshipId: string;
   title?: string;
+  level?: number;
+  xp?: number;
 }
 
 export interface PendingFriendRequest {
@@ -66,6 +72,7 @@ export interface PendingFriendRequest {
   requesterId: string;
   requesterName: string;
   title?: string;
+  level?: number;
 }
 
 export interface RecordItem {

@@ -43,14 +43,23 @@ import VerticalText from './src/components/VerticalText';
 import GameTable from './src/components/GameTable';
 import SqlMigrationModal from './src/components/SqlMigrationModal';
 import TournamentMigrationModal from './src/components/TournamentMigrationModal';
+import StagingMigrationModal, { StagingMigrationResult } from './src/components/StagingMigrationModal';
 import CsvEditModal from './src/components/CsvEditModal';
 import AdminAchievementsModal from './src/components/AdminAchievementsModal';
 import ProfileModal from './src/components/ProfileModal';
 import FriendsModal from './src/components/FriendsModal';
 import AuthModal from './src/components/AuthModal';
 import PlayerTitleBadge from './src/components/PlayerTitleBadge';
+import PlayerLevelBadge from './src/components/PlayerLevelBadge';
+import { WelcomeModal } from './src/components/WelcomeModal';
+import { LevelUpModal } from './src/components/LevelUpModal';
+import { ShareModal } from './src/components/ShareModal';
+import { StartPlayerDrawModal } from './src/components/StartPlayerDrawModal';
+import { AdminTitlesModal } from './src/components/AdminTitlesModal';
+import { calculateLevelFromXp, calculateGameXp, getTitleForLevel } from './src/utils/levelSystem';
 import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
+import { PlayerNameTag } from './src/components/PlayerNameTag';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest as apiSendFriendRequest,
@@ -325,35 +334,183 @@ const App: React.FC = () => {
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
   const [userTitle, setUserTitle] = useState<string>('Neuling');
+  const [userNameBgColor, setUserNameBgColor] = useState<string>('none');
+  const [userLevel, setUserLevel] = useState<number>(1);
+  const [userXp, setUserXp] = useState<number>(0);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [showLevelUpModal, setShowLevelUpModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [levelUpData, setLevelUpData] = useState<{ newLevel: number; unlockedTitle?: string }>({ newLevel: 1 });
+  const [showAdminTitlesModal, setShowAdminTitlesModal] = useState(false);
+  const [roundPlayerXp, setRoundPlayerXp] = useState<Record<string, { xpEarned: number; newLevel: number; newXp: number; levelUp?: boolean; xpBreakdown?: any }>>({});
   const [unlockedTitleToast, setUnlockedTitleToast] = useState<PlayerTitle | null>(null);
 
   // Titel-Lookup für Spieleranzeigen im gesamten System
-  const getPlayerTitle = (playerNameOrId?: string): string | undefined => {
+  const getPlayerTitle = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if (playerObj?.title) return playerObj.title;
     if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if (foundInPlayers?.title) return foundInPlayers.title;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      return userTitle || supabaseUser?.user_metadata?.title || 'Neuling';
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = playerAccountLinks[playerNameOrId];
+    if (directLinked) {
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if (match?.title) return match.title;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_title_${directLinked.userId}`);
+        if (stored) return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if (match?.title) return match.title;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_title_${linked.userId}`);
+        if (stored) return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if (matchUser?.title) return matchUser.title;
+
+    // 4. LocalStorage Fallback (falls lokal abgespeichert)
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_title_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_title_${target}`);
+      if (stored) return stored;
+    } catch {}
+
+    return undefined;
+  };
+
+  // Namenshintergrund-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerNameBgColor = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if (playerObj?.name_bg_color && playerObj.name_bg_color !== 'none') return playerObj.name_bg_color;
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if (foundInPlayers?.name_bg_color && foundInPlayers.name_bg_color !== 'none') return foundInPlayers.name_bg_color;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const userBg = userNameBgColor || supabaseUser?.user_metadata?.name_bg_color;
+      if (userBg && userBg !== 'none') return userBg;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.name_bg_color && directLinked.name_bg_color !== 'none') return directLinked.name_bg_color;
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if ((match as any)?.name_bg_color && (match as any).name_bg_color !== 'none') return (match as any).name_bg_color;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_name_bg_${directLinked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string; name_bg_color?: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.name_bg_color && linked.name_bg_color !== 'none') return linked.name_bg_color;
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.name_bg_color && (match as any).name_bg_color !== 'none') return (match as any).name_bg_color;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_name_bg_${linked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.name_bg_color && (matchUser as any).name_bg_color !== 'none') return (matchUser as any).name_bg_color;
+
+    // 4. LocalStorage Fallback
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_name_bg_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_name_bg_${target}`);
+      if (stored && stored !== 'none') return stored;
+    } catch {}
+
+    return undefined;
+  };
+
+  // Level-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerLevel = (playerNameOrId?: string): number => {
+    if (!playerNameOrId) return 1;
     const target = playerNameOrId.trim().toLowerCase();
 
     // 1. Eingeloggter Benutzer
     const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
     if (currentName && currentName === target) {
-      return userTitle || supabaseUser?.user_metadata?.title || 'Neuling';
+      return userLevel || 1;
     }
 
     // 2. Verknüpfte Spieler-Accounts
-    const linked = Object.values(playerAccountLinks).find(
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
       l => l.userName?.trim().toLowerCase() === target
     );
     if (linked) {
       const match = clerkUsers.find(u => u.id === linked.userId);
-      if (match?.title) return match.title;
+      if ((match as any)?.level) return Number((match as any).level) || 1;
     }
 
     // 3. Benutzer-Liste aus Supabase/Backend
     const matchUser = clerkUsers.find(
       u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
-    if (matchUser?.title) return matchUser.title;
+    if ((matchUser as any)?.level) return Number((matchUser as any).level) || 1;
 
-    return undefined;
+    return 1;
+  };
+
+  // XP-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerXp = (playerNameOrId?: string): number => {
+    if (!playerNameOrId) return 0;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    if (currentName && currentName === target) {
+      return userXp || 0;
+    }
+
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target
+    );
+    if (linked) {
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.xp !== undefined) return Number((match as any).xp) || 0;
+    }
+
+    const matchUser = clerkUsers.find(
+      u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.xp !== undefined) return Number((matchUser as any).xp) || 0;
+
+    return 0;
   };
 
   // Prüfung auf neu freigeschaltete Titel
@@ -440,6 +597,12 @@ const App: React.FC = () => {
   const [selectedTournament, setSelectedTournament] = useState<string>('');
   const [tournamentMigrateStep, setTournamentMigrateStep] = useState<'select' | 'confirm' | 'running' | 'done'>('select');
 
+  // Staging Migration States
+  const [showStagingMigrateModal, setShowStagingMigrateModal] = useState(false);
+  const [stagingLoading, setStagingLoading] = useState(false);
+  const [stagingProgressMessage, setStagingProgressMessage] = useState<string | null>(null);
+  const [stagingResult, setStagingResult] = useState<StagingMigrationResult | null>(null);
+
   // CSV Edit Modal States
   const [showCsvEditModal, setShowCsvEditModal] = useState(false);
   const [csvEditTab, setCsvEditTab] = useState<'standard' | 'speed' | 'team'>('standard');
@@ -468,7 +631,7 @@ const App: React.FC = () => {
   // Profile Modal State
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'freunde'>('profil');
+  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'freunde' | 'einstellungen'>('profil');
   const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
   const [deleteProfileInput, setDeleteProfileInput] = useState('');
   const [deletingProfile, setDeletingProfile] = useState(false);
@@ -492,7 +655,9 @@ const App: React.FC = () => {
     gamesPlayed: 0,
     totalSchnaepse: 0,
     bestAvg: null as number | null,
-    achievementsCount: 0
+    achievementsCount: 0,
+    level: 1,
+    xp: 0
   });
 
   const resetUserStates = () => {
@@ -502,8 +667,12 @@ const App: React.FC = () => {
       gamesPlayed: 0,
       totalSchnaepse: 0,
       bestAvg: null,
-      achievementsCount: 0
+      achievementsCount: 0,
+      level: 1,
+      xp: 0
     });
+    setUserLevel(1);
+    setUserXp(0);
     setMyGameData([]);
     setMyAchievementsData([]);
     setFriends([]);
@@ -552,11 +721,36 @@ const App: React.FC = () => {
         if (prof.username) {
           setProfileUsername(prof.username);
         }
-        if (prof.title) {
-          setUserTitle(prof.title);
-        } else if (supabaseUser?.user_metadata?.title) {
-          setUserTitle(supabaseUser.user_metadata.title);
+        const activeTitle = prof.selected_title || prof.title || supabaseUser?.user_metadata?.title || 'Neuling';
+        setUserTitle(activeTitle);
+        const activeNameBg = prof.name_bg_color || supabaseUser?.user_metadata?.name_bg_color || localStorage.getItem(`bundeswiega_user_name_bg_${currentUserId}`) || 'none';
+        setUserNameBgColor(activeNameBg);
+        const lvl = Number(prof.level) || 1;
+        const xp = Number(prof.xp) || 0;
+        setUserLevel(lvl);
+        setUserXp(xp);
+
+        // 1. Willkommens-Modal prüfen:
+        const welcomeKey = `bundeswiega_welcome_seen_${currentUserId}`;
+        if (!localStorage.getItem(welcomeKey)) {
+          setShowWelcomeModal(true);
         }
+
+        // 2. Level-Up Modal bei Stufenaufstieg prüfen:
+        const lastLevelKey = `bundeswiega_last_seen_level_${currentUserId}`;
+        const lastSeenLevelStr = localStorage.getItem(lastLevelKey);
+        if (lastSeenLevelStr !== null) {
+          const lastSeenLevel = parseInt(lastSeenLevelStr, 10);
+          if (lvl > lastSeenLevel) {
+            setLevelUpData({ newLevel: lvl, unlockedTitle: prof.selected_title || getTitleForLevel(lvl) });
+            setShowLevelUpModal(true);
+            localStorage.setItem(lastLevelKey, String(lvl));
+          }
+        } else {
+          // Erstanmeldung / Initialstand setzen, damit Level 1 nicht als Aufstieg gilt
+          localStorage.setItem(lastLevelKey, String(lvl));
+        }
+
         setPrivacyState({
           showRecords: prof.show_records ?? true,
           showStandardspiel: prof.show_standardspiel ?? true,
@@ -577,7 +771,9 @@ const App: React.FC = () => {
         gamesPlayed: 0,
         totalSchnaepse: 0,
         bestAvg: null,
-        achievementsCount: 0
+        achievementsCount: 0,
+        level: 1,
+        xp: 0
       });
       return;
     }
@@ -588,7 +784,9 @@ const App: React.FC = () => {
         gamesPlayed: 0,
         totalSchnaepse: 0,
         bestAvg: null,
-        achievementsCount: 0
+        achievementsCount: 0,
+        level: 1,
+        xp: 0
       });
       return;
     }
@@ -608,7 +806,9 @@ const App: React.FC = () => {
           gamesPlayed: stats.gamesPlayed,
           totalSchnaepse: stats.totalSchnaepse,
           bestAvg: stats.bestAvg,
-          achievementsCount: stats.achievementsCount
+          achievementsCount: stats.achievementsCount,
+          level: userLevel || 1,
+          xp: userXp || 0
         });
         checkForNewTitles(stats, currentUserId);
         return;
@@ -647,7 +847,9 @@ const App: React.FC = () => {
         gamesPlayed: stats.gamesPlayed,
         totalSchnaepse: stats.totalSchnaepse,
         bestAvg: stats.bestAvg,
-        achievementsCount: achCount || stats.achievementsCount
+        achievementsCount: achCount || stats.achievementsCount,
+        level: userLevel || 1,
+        xp: userXp || 0
       });
       checkForNewTitles(stats, currentUserId);
     } catch (err) {
@@ -656,7 +858,9 @@ const App: React.FC = () => {
         gamesPlayed: 0,
         totalSchnaepse: 0,
         bestAvg: null,
-        achievementsCount: 0
+        achievementsCount: 0,
+        level: 1,
+        xp: 0
       });
     }
   };
@@ -1107,6 +1311,13 @@ const App: React.FC = () => {
       }
     }
   }, [gameState, isAppInstalled, isIOS, isAndroid]);
+
+  // Bei Login & Rückkehr ins Hauptmenü Nutzerprofil & Level-Up / Welcome prüfen
+  useEffect(() => {
+    if (supabaseUser?.id && gameState === GameState.START) {
+      loadUserProfile(supabaseUser.id);
+    }
+  }, [supabaseUser?.id, gameState]);
   const [playerCount, setPlayerCount] = useState(2);
   const [isShortMode, setIsShortMode] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -1237,6 +1448,7 @@ const App: React.FC = () => {
   
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
+  const [speedUserId, setSpeedUserId] = useState<string | null>(null);
   const [speedLevels, setSpeedLevels] = useState<string>('3');
   const [speedIsShortMode, setSpeedIsShortMode] = useState<boolean>(false);
   const [showSpeedKlassischModal, setShowSpeedKlassischModal] = useState<boolean>(false);
@@ -1440,6 +1652,48 @@ const App: React.FC = () => {
     }
   };
 
+  const handleMigrateToStaging = async (clearExisting: boolean = false) => {
+    setStagingLoading(true);
+    setStagingProgressMessage('Staging-Migration wird vorbereitet...');
+    setStagingResult(null);
+
+    try {
+      setStagingProgressMessage('Lese Vercel Blobs (results.csv & Turniere) & lade in Supabase Staging-Tabellen...');
+      const res = await fetch('/api/admin/migrate-to-staging', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearExisting })
+      });
+
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server antwortete nicht mit JSON: ${text.substring(0, 100)}`);
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Fehler bei der Staging-Migration');
+      }
+
+      setStagingResult(data);
+      setShowStagingMigrateModal(true);
+    } catch (err: any) {
+      setStagingResult({
+        success: false,
+        message: `Fehler: ${err.message || 'Unbekannter Fehler'}`
+      });
+      setShowStagingMigrateModal(true);
+    } finally {
+      setStagingLoading(false);
+      setStagingProgressMessage(null);
+    }
+  };
+
+  const openStagingMigrationModal = () => {
+    setShowStagingMigrateModal(true);
+  };
+
   const openTournamentMigrateModal = async () => {
     setShowTournamentMigrateModal(true);
     setTournamentMigrateStep('select');
@@ -1580,7 +1834,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (gameState === GameState.SPEED_SETUP && isSignedIn && supabaseUser) {
       const username = supabaseUser.user_metadata?.username || supabaseUser.email || '';
-      if (username) setSpeedPlayerName(username);
+      if (username) {
+        setSpeedPlayerName(username);
+        setSpeedUserId(supabaseUser.id);
+      }
     }
   }, [gameState, isSignedIn, supabaseUser]);
 
@@ -1623,7 +1880,7 @@ const App: React.FC = () => {
       const isStandardPlayer = players.some(p => p.id === playerId);
       if (isStandardPlayer) {
         setPlayers(prev => prev.map(p =>
-          p.id === playerId ? { ...p, name: payload.userName } : p
+          p.id === playerId ? { ...p, name: payload.userName, userId: payload.userId } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
@@ -1695,7 +1952,7 @@ const App: React.FC = () => {
     if (!accountId) return;
     const match = clerkUsers.find(u => u.id === accountId);
     if (match) {
-      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, name: match.name } : p));
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, name: match.name, userId: match.id } : p));
       setPlayerAccountLinks(prev => ({
         ...prev,
         [playerId]: { userId: match.id, userName: match.name, imageUrl: match.imageUrl }
@@ -1704,6 +1961,7 @@ const App: React.FC = () => {
   };
 
   const unlinkAccount = (playerId: string) => {
+    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, userId: undefined } : p));
     setPlayerAccountLinks(prev => {
       const copy = { ...prev };
       delete copy[playerId];
@@ -1913,145 +2171,157 @@ const App: React.FC = () => {
     return keys.length > 0 ? totalDiff / keys.length : 0;
   };
 
+  // Automatismus: Nach Spielende alle registrierten Spieler-Accounts in Supabase speichern
   useEffect(() => {
-    // Nur einmal pro Spiel speichern
-    if (gameState !== GameState.RESULT_SCREEN) {
-      resultSavedRef.current = false;
-      return;
-    }
-    if (resultSavedRef.current) return;
-    resultSavedRef.current = true;
+    const autoSaveAccounts = async () => {
+      if (gameState !== GameState.RESULT_SCREEN && gameState !== GameState.SPEED_RESULT) {
+        resultSavedRef.current = false;
+        return;
+      }
+      if (resultSavedRef.current) return;
+      resultSavedRef.current = true;
 
-    const today = new Date().toLocaleDateString('de-DE');
+      const today = new Date().toLocaleDateString('de-DE');
 
-    const saveForPlayer = async (
-      userId: string,
-      playerName: string,
-      avg: number,
-      schnaepse: number,
-      gameMode: string,
-      extraFields: Record<string, any> = {}
-    ) => {
-      const total = Math.round((avg + schnaepse) * 100) / 100;
+      const saveForPlayer = async (
+        userId: string,
+        playerName: string,
+        avg: number,
+        schnaepse: number,
+        gameMode: string,
+        extraFields: Record<string, any> = {}
+      ) => {
+        const total = Math.round((avg + schnaepse) * 100) / 100;
 
-      console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total });
+        console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total });
 
-      const res = await fetch('/api/users/save-game-result', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          gameResult: {
-            game_mode: normalizeGameMode(gameMode),
-            date: today,
-            avg: Number(avg.toFixed(2)),
-            schnaepse,
-            total,
-            ...extraFields
-          },
-          achievements: earnedAchievements
-            .filter(a => a.earnedBy?.includes(playerName))
-            .map(a => ({
-              id: a.id,
-              title: a.title,
-              description: a.description || '',
-              icon: a.icon || '',
-              rarity: a.rarity,
-              earnedBy: a.earnedBy,
-              earnedTogether: a.earnedTogether || false
-            }))
-        })
-      });
+        try {
+          const res = await fetch('/api/users/save-game-result', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              gameResult: {
+                game_mode: normalizeGameMode(gameMode),
+                date: today,
+                avg: Number(avg.toFixed(2)),
+                schnaepse,
+                total,
+                ...extraFields
+              },
+              achievements: earnedAchievements
+                .filter(a => a.earnedBy?.includes(playerName))
+                .map(a => ({
+                  id: a.id,
+                  title: a.title,
+                  description: a.description || '',
+                  icon: a.icon || '',
+                  rarity: a.rarity,
+                  earnedBy: a.earnedBy,
+                  earnedTogether: a.earnedTogether || false
+                }))
+            })
+          });
 
-      const json = await res.json();
-      if (!res.ok) {
-        console.error(`Speichern fehlgeschlagen für ${playerName}:`, json.error);
-      } else {
-        console.log(`✅ Erfolgreich gespeichert für ${playerName}`);
-        setAccountResultsSaved(prev => [...prev, userId]);
+          const json = await res.json();
+          if (!res.ok) {
+            console.error(`Speichern fehlgeschlagen für ${playerName}:`, json.error);
+          } else {
+            console.log(`✅ Erfolgreich gespeichert für ${playerName}`, json);
+            setAccountResultsSaved(prev => (prev.includes(userId) ? prev : [...prev, userId]));
+            if (json.xpEarned !== undefined) {
+              setRoundPlayerXp(prev => ({
+                ...prev,
+                [playerName]: {
+                  xpEarned: json.xpEarned,
+                  newLevel: json.newLevel || 1,
+                  newXp: json.newXp || 0,
+                  levelUp: json.levelUp,
+                  xpBreakdown: json.xpBreakdown
+                }
+              }));
+            }
+            if (supabaseUser && userId === supabaseUser.id) {
+              if (json.newLevel) setUserLevel(json.newLevel);
+              if (json.newXp !== undefined) setUserXp(json.newXp);
+              if (json.levelUp || (json.newLevel && json.newLevel > (userLevel || 1))) {
+                setLevelUpData({
+                  newLevel: json.newLevel,
+                  unlockedTitle: json.unlockedTitle || getTitleForLevel(json.newLevel)
+                });
+                setShowLevelUpModal(true);
+              }
+              loadProfileStats(userId);
+            }
+          }
+        } catch (err) {
+          console.error(`Netzwerkfehler beim Speichern für ${playerName}:`, err);
+        }
+      };
+
+      // Für Standard- & Teamspiele
+      if (gameState === GameState.RESULT_SCREEN) {
+        if (activeTournamentTable !== null) return;
+
+        // Standardspiel
+        for (const player of players) {
+          const targetUserId = player.userId || playerAccountLinks[player.id]?.userId;
+          if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
+            const avg = calculateAverageDistance(player.id, rounds);
+            await saveForPlayer(
+              targetUserId,
+              player.name,
+              avg,
+              player.schnaepse,
+              isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)'
+            );
+          }
+        }
+
+        // Teamwiegen (falls Teams vorhanden sind)
+        if (teams.length > 0 && Object.keys(teamMemberAccountLinks || {}).length > 0) {
+          for (const [memberId, accountLink] of Object.entries(teamMemberAccountLinks || {}) as [string, any][]) {
+            const targetUserId = accountLink?.userId;
+            if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
+              const team = teams.find(t => t.members?.some((m: any) => m.id === memberId));
+              const member = team?.members?.find((m: any) => m.id === memberId);
+              if (member && team) {
+                const avg = member.avg || 0;
+                await saveForPlayer(targetUserId, member.name, avg, team.schnaepse || 0, 'Teamwiegen', {
+                  team_name: team.name
+                });
+              }
+            }
+          }
+        }
+      } 
+      // Für Speedwiegen
+      else if (gameState === GameState.SPEED_RESULT) {
+        const targetSpeedUserId = speedUserId || (isSignedIn && supabaseUser ? supabaseUser.id : null);
+        if (targetSpeedUserId && !accountResultsSaved.includes(targetSpeedUserId)) {
+          const totalLevels = parseInt(speedLevels) || 1;
+          let totalDiff = 0;
+          Array.from({ length: totalLevels }).forEach((_, i) => {
+            const target = parseInt(speedTargets[i + 1]) || 0;
+            const result = parseInt(speedResults[i + 1]) || 0;
+            totalDiff += Math.abs(result - target);
+          });
+          const avg = Number((totalDiff / totalLevels).toFixed(2));
+          const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+
+          await saveForPlayer(
+            targetSpeedUserId,
+            speedPlayerName || 'Gast',
+            avg,
+            timeSec,
+            speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)',
+            { levels: totalLevels, time_seconds: timeSec }
+          );
+        }
       }
     };
 
-    // Standardspiel
-    if (teams.length === 0 && Object.keys(playerAccountLinks).length > 0) {
-      const gameMode = isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
-      Object.entries(playerAccountLinks).forEach(([playerId, accountLink]: [string, any]) => {
-        const player = players.find(p => p.id === playerId);
-        if (!player || !accountLink.userId) return;
-        const avg = calculatePlayerAvg(playerId, rounds);
-        saveForPlayer(accountLink.userId, player.name, avg, player.schnaepse, gameMode);
-      });
-    }
-
-    // Teamwiegen
-    if (teams.length > 0 && Object.keys(teamMemberAccountLinks || {}).length > 0) {
-      Object.entries(teamMemberAccountLinks || {}).forEach(([memberId, accountLink]: [string, any]) => {
-        const team = teams.find(t => t.members?.some((m: any) => m.id === memberId));
-        const member = team?.members?.find((m: any) => m.id === memberId);
-        if (!member || !team || !accountLink.userId) return;
-        const avg = member.avg || 0;
-        saveForPlayer(accountLink.userId, member.name, avg, team.schnaepse || 0, 'Teamwiegen', {
-          team_name: team.name
-        });
-      });
-    }
-
-    // Eingeloggter Spieler im Speedwiegen
-    // (wird separat im SPEED_RESULT useEffect behandelt)
-
-  }, [gameState]);
-
-  // Speedwiegen separat
-  useEffect(() => {
-    if (gameState !== GameState.SPEED_RESULT) return;
-    if (!supabaseUser || !isSignedIn) return;
-
-    const today = new Date().toLocaleDateString('de-DE');
-    const gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
-    const speedAvg = calculateSpeedAvg();
-    const timeSeconds = speedEndTime && speedStartTime
-      ? (speedEndTime - speedStartTime) / 1000
-      : 0;
-
-    console.log('Speichere Speedwiegen für:', supabaseUser.id);
-
-    fetch('/api/users/save-game-result', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: supabaseUser.id,
-        gameResult: {
-          game_mode: normalizeGameMode(gameMode),
-          date: today,
-          avg: Number(speedAvg.toFixed(2)),
-          schnaepse: 0,
-          total: Number(speedAvg.toFixed(2)),
-          levels: parseInt(speedLevels),
-          time_seconds: timeSeconds
-        },
-        achievements: earnedAchievements
-          .filter(a => a.earnedBy?.includes(speedPlayerName || ''))
-          .map(a => ({
-          id: a.id,
-          title: a.title,
-          icon: a.icon || '',
-          rarity: a.rarity,
-          earnedBy: a.earnedBy,
-          earnedTogether: false
-        }))
-    })
-  })
-  .then(r => r.json())
-  .then(json => {
-    if (json.message) {
-      console.log('✅ Speedwiegen gespeichert');
-      setAccountResultsSaved(prev => prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]);
-    } else {
-      console.error('Speedwiegen Speichern fehlgeschlagen:', json.error);
-    }
-  })
-  .catch(err => console.error('Speedwiegen fetch error:', err));
-
+    autoSaveAccounts();
   }, [gameState]);
 
   const saveTournamentParticipants = async () => {
@@ -2244,6 +2514,7 @@ const App: React.FC = () => {
   const startGame = () => {
     setGameState(GameState.PLAYER_COUNT);
     setResultsSaved(false);
+    setAccountResultsSaved([]);
     setRounds([]);
     setPlayers([]);
     setTeams([]);
@@ -2261,6 +2532,7 @@ const App: React.FC = () => {
   const startTeamwiegen = () => {
     setGameState(GameState.TEAM_SETUP);
     setResultsSaved(false);
+    setAccountResultsSaved([]);
     setTeamCount(2);
     setTeamSizes({ 1: 2, 2: 2 });
     setRounds([]);
@@ -2278,7 +2550,9 @@ const App: React.FC = () => {
   const startSpeedwiegen = () => {
     setGameState(GameState.SPEED_SETUP);
     setResultsSaved(false);
-    setSpeedPlayerName('');
+    setAccountResultsSaved([]);
+    setSpeedPlayerName(isSignedIn && supabaseUser ? (supabaseUser.user_metadata?.username || supabaseUser.email || '') : '');
+    setSpeedUserId(isSignedIn && supabaseUser ? supabaseUser.id : null);
     setSpeedLevels('3');
     setSpeedIsShortMode(false);
     setSpeedTargets({});
@@ -3960,6 +4234,17 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2">
           {gameState === GameState.START && (
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              className="px-3.5 py-2 rounded-xl border border-teal-500/40 text-teal-600 dark:text-teal-400 font-bold text-xs flex items-center space-x-1.5 cursor-pointer hover:bg-teal-500/10 shadow-sm transition-all active:scale-95"
+              title="1. Bundeswiega teilen"
+            >
+              <i className="fas fa-share-alt"></i>
+              <span>Teilen</span>
+            </button>
+          )}
+          {gameState === GameState.START && (
             !isSignedIn ? (
               <>
                 <button
@@ -3994,7 +4279,8 @@ const App: React.FC = () => {
                   ) : (
                     <i className="fas fa-user"></i>
                   )}
-                  <span>{supabaseUser?.user_metadata?.username || 'Profil verwalten'}</span>
+                  <PlayerNameTag name={supabaseUser?.user_metadata?.username || 'Profil verwalten'} colorKey={userNameBgColor} className="px-1.5 py-0.5" />
+                  <PlayerLevelBadge level={userLevel} size="sm" />
                   {userTitle && <PlayerTitleBadge title={userTitle} size="sm" />}
                   {isAdmin && <span className="text-yellow-300">👑</span>}
                   {pendingRequests.length > 0 && (
@@ -4025,16 +4311,6 @@ const App: React.FC = () => {
             <img src={LOGO_URL} className="w-64 h-64 mx-auto mb-12 drop-shadow-2xl" alt="Bundeswiega Logo" />
             <h1 className="text-5xl font-black mb-12 tracking-tighter uppercase" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
             <div className="flex flex-col space-y-4 max-w-xs mx-auto">
-              {isSignedIn && (
-                <button
-                  onClick={openJoinTableModal}
-                  className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  <i className="fas fa-qrcode"></i>
-                  <span>An Tisch teilnehmen</span>
-                </button>
-              )}
               <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-play"></i><span>Spiel starten</span>
               </button>
@@ -4268,11 +4544,29 @@ const App: React.FC = () => {
             {(() => {
               const activePlayers = players.filter(p => !p.isDisqualified);
               const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
-              return currentAnnouncer ? (
-                <div className="mb-6 p-3 rounded-2xl border-2 font-black text-sm flex items-center justify-center space-x-2 shadow-sm" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` }}>
-                  <span>🎙️ {currentAnnouncer.name} sagt das Zielgewicht an</span>
+              if (!currentAnnouncer) return null;
+              const announcerAccount = playerAccountLinks?.[currentAnnouncer.id];
+              const announcerAvatar = currentAnnouncer.imageUrl || announcerAccount?.imageUrl;
+              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || 'Neuling';
+              const pIdx = players.indexOf(currentAnnouncer);
+              const col = PLAYER_COLORS[(pIdx >= 0 ? pIdx : 0) % PLAYER_COLORS.length];
+
+              return (
+                <div className="mb-6 p-3.5 rounded-2xl border-2 font-black text-sm flex flex-col items-center justify-center space-y-2 shadow-sm" style={{ borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}12` }}>
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    {announcerAvatar ? (
+                      <img src={announcerAvatar} alt={currentAnnouncer.name} className="w-8 h-8 rounded-full object-cover border-2 shadow-xs" style={{ borderColor: col }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shadow-xs" style={{ backgroundColor: col }}>
+                        {currentAnnouncer.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <PlayerNameTag name={currentAnnouncer.name} colorKey={getPlayerNameBgColor(currentAnnouncer.id, currentAnnouncer)} className="text-base font-black px-2 py-0.5" />
+                    <PlayerTitleBadge title={announcerTitle} size="sm" />
+                  </div>
+                  <span className="text-xs opacity-75 font-semibold">🎙️ sagt das Zielgewicht an</span>
                 </div>
-              ) : null;
+              );
             })()}
 
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
@@ -4310,6 +4604,8 @@ const App: React.FC = () => {
                currentRoundResults={currentRoundResults} 
                setCurrentRoundResults={setCurrentRoundResults} 
                playerAccountLinks={playerAccountLinks}
+               getPlayerTitle={getPlayerTitle}
+               getPlayerNameBgColor={getPlayerNameBgColor}
              />
              <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
           </div>
@@ -4448,11 +4744,29 @@ const App: React.FC = () => {
             {(() => {
               const activePlayers = players.filter(p => !p.isDisqualified);
               const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
-              return currentAnnouncer ? (
-                <div className="mb-6 p-3 rounded-2xl border-2 font-black text-sm flex items-center justify-center space-x-2 shadow-sm" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}15` }}>
-                  <span>🎙️ {currentAnnouncer.name} sagt das Zielgewicht an</span>
+              if (!currentAnnouncer) return null;
+              const announcerAccount = playerAccountLinks?.[currentAnnouncer.id];
+              const announcerAvatar = currentAnnouncer.imageUrl || announcerAccount?.imageUrl;
+              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || 'Neuling';
+              const pIdx = players.indexOf(currentAnnouncer);
+              const col = PLAYER_COLORS[(pIdx >= 0 ? pIdx : 0) % PLAYER_COLORS.length];
+
+              return (
+                <div className="mb-6 p-3.5 rounded-2xl border-2 font-black text-sm flex flex-col items-center justify-center space-y-2 shadow-sm" style={{ borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}12` }}>
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    {announcerAvatar ? (
+                      <img src={announcerAvatar} alt={currentAnnouncer.name} className="w-8 h-8 rounded-full object-cover border-2 shadow-xs" style={{ borderColor: col }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shadow-xs" style={{ backgroundColor: col }}>
+                        {currentAnnouncer.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <PlayerNameTag name={currentAnnouncer.name} colorKey={getPlayerNameBgColor(currentAnnouncer.id, currentAnnouncer)} className="text-base font-black px-2 py-0.5" />
+                    <PlayerTitleBadge title={announcerTitle} size="sm" />
+                  </div>
+                  <span className="text-xs opacity-75 font-semibold">🎙️ sagt das Zielgewicht an</span>
                 </div>
-              ) : null;
+              );
             })()}
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
             <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
@@ -4974,6 +5288,8 @@ const App: React.FC = () => {
                currentRoundResults={currentRoundResults} 
                setCurrentRoundResults={setCurrentRoundResults} 
                playerAccountLinks={playerAccountLinks}
+               getPlayerTitle={getPlayerTitle}
+               getPlayerNameBgColor={getPlayerNameBgColor}
              />
              <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
           </div>
@@ -5071,7 +5387,8 @@ const App: React.FC = () => {
                               <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
                               <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>
                                 <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                                  <span>{p.name}</span>
+                                  <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} />
+                                  <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
                                   {getPlayerTitle(p.name) && (
                                     <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                   )}
@@ -5087,6 +5404,73 @@ const App: React.FC = () => {
                  </div>
                );
              })()}
+
+             {/* RUNDEN-XP & LEVEL-FORTSCHRITT */}
+             {players.length > 0 && (
+               <div className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl space-y-4`}>
+                 <div className="flex items-center justify-between">
+                   <h3 className="text-lg font-black uppercase flex items-center space-x-2">
+                     <span className="text-amber-400 text-xl">⭐</span>
+                     <span>Erfahrung &amp; Level-Fortschritt</span>
+                   </h3>
+                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-500">
+                     +XP Runde
+                   </span>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {players.map((p, idx) => {
+                     const pAvg = calculateAverageDistance(p.id, rounds);
+                     const isWinner = idx === 0 && !p.isDisqualified;
+                     const gameXp = roundPlayerXp[p.name]?.xpEarned ?? calculateGameXp({
+                       avg: pAvg,
+                       schnaepse: p.schnaepse,
+                       isWinner,
+                       disqualified: p.isDisqualified
+                     }).totalXp;
+
+                     const pLevel = roundPlayerXp[p.name]?.newLevel ?? getPlayerLevel(p.name);
+                     const pTotalXp = roundPlayerXp[p.name]?.newXp ?? getPlayerXp(p.name);
+                     const levelInfo = calculateLevelFromXp(pTotalXp);
+
+                     return (
+                       <div
+                         key={p.id}
+                         className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'} space-y-3 shadow-sm`}
+                       >
+                         <div className="flex items-center justify-between flex-wrap gap-2">
+                           <div className="flex items-center space-x-2">
+                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} className="font-black text-sm" />
+                             <PlayerLevelBadge level={pLevel} size="sm" />
+                             {getPlayerTitle(p.name) && (
+                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                             )}
+                           </div>
+                           <div className="flex items-center space-x-1 font-black text-emerald-500 text-sm bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                             <span>+{gameXp}</span>
+                             <span className="text-[10px]">XP</span>
+                           </div>
+                         </div>
+
+                         {/* Level Fortschrittsbalken */}
+                         <div className="space-y-1.5">
+                           <div className="flex justify-between text-[11px] font-bold opacity-70">
+                             <span>Level {levelInfo.level} ({levelInfo.title})</span>
+                             <span>{levelInfo.currentLevelXp} / {levelInfo.neededForNextLevel} XP ({levelInfo.progressPercent}%)</span>
+                           </div>
+                           <div className="w-full h-2.5 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+                             <div
+                               className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-1000"
+                               style={{ width: `${levelInfo.progressPercent}%` }}
+                             />
+                           </div>
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+               </div>
+             )}
 
              {teams.length > 0 ? (
                <div ref={roundsAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl w-full`}>
@@ -5155,6 +5539,8 @@ const App: React.FC = () => {
                      currentRoundResults={currentRoundResults} 
                      setCurrentRoundResults={setCurrentRoundResults} 
                      playerAccountLinks={playerAccountLinks}
+                     getPlayerTitle={getPlayerTitle}
+                     getPlayerNameBgColor={getPlayerNameBgColor}
                    />
                  </div>
                )
@@ -5453,38 +5839,24 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {showStartPlayerModal && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-8 max-w-md w-full shadow-2xl border-2 text-center ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
-            <div className="text-5xl mb-4 animate-bounce">🎲</div>
-            {(() => {
-              const active = players.filter(p => !p.isDisqualified);
-              const announcer = active.length > 0 ? active[announcingPlayerIndex % active.length] : null;
-              const announcerName = announcer ? announcer.name : 'Spieler';
-              return (
-                <>
-                  <h3 className="text-2xl font-black mb-2" style={{ color: BRAND_COLOR }}>
-                    {announcerName} fängt an!
-                  </h3>
-                  <p className="text-sm font-bold opacity-70 mb-8">
-                    {announcerName} bestimmt das erste Zielgewicht.
-                  </p>
-                </>
-              );
-            })()}
-            <button
-              onClick={() => {
-                setShowStartPlayerModal(false);
-                setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
-              }}
-              className="w-full text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 text-lg uppercase"
-              style={{ backgroundColor: BRAND_COLOR }}
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+      {showStartPlayerModal && (() => {
+        const active = players.filter(p => !p.isDisqualified);
+        const announcer = active.length > 0 ? active[announcingPlayerIndex % active.length] : null;
+        return (
+          <StartPlayerDrawModal
+            isOpen={showStartPlayerModal}
+            onClose={() => {
+              setShowStartPlayerModal(false);
+              setGameState(teams.length > 0 ? GameState.TEAM_ROUND_TARGET : GameState.ROUND_TARGET);
+            }}
+            players={players}
+            selectedPlayer={announcer}
+            playerAccountLinks={playerAccountLinks}
+            getPlayerTitle={getPlayerTitle}
+            darkMode={darkMode}
+          />
+        );
+      })()}
 
       {showSummary && summaryData && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -6400,7 +6772,9 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Ø pro Spiel)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <span>{topAvgSchnaepse.name}</span>
+                                        <PlayerNameTag name={topAvgSchnaepse.name} colorKey={getPlayerNameBgColor(topAvgSchnaepse.name)} />
+                                        <PlayerLevelBadge level={getPlayerLevel(topAvgSchnaepse.name)} size="sm" />
+
                                         {getPlayerTitle(topAvgSchnaepse.name) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topAvgSchnaepse.name)} size="sm" />
                                         )}
@@ -6417,7 +6791,9 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Rekord-Einzelspiel (Schnäpse)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <span>{topSingle.playerName}</span>
+                                        <PlayerNameTag name={topSingle.playerName} colorKey={getPlayerNameBgColor(topSingle.playerName)} />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingle.playerName)} size="sm" />
+
                                         {getPlayerTitle(topSingle.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingle.playerName)} size="sm" />
                                         )}
@@ -6470,7 +6846,9 @@ const App: React.FC = () => {
                                             onClick={() => setSelectedPlayerForDetails(p.name)}
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
-                                            <span>{p.name}</span>
+                                            <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                             )}
@@ -6492,7 +6870,9 @@ const App: React.FC = () => {
                                             onClick={() => setSelectedPlayerForDetails(p.playerName)}
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
-                                            <span>{p.playerName}</span>
+                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
@@ -6530,7 +6910,9 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Präzisions-Meister (Ø Gesamt)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <span>{topCareerAvg.name}</span>
+                                        <PlayerNameTag name={topCareerAvg.name} colorKey={getPlayerNameBgColor(topCareerAvg.name)} />
+                                        <PlayerLevelBadge level={getPlayerLevel(topCareerAvg.name)} size="sm" />
+
                                         {getPlayerTitle(topCareerAvg.name) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topCareerAvg.name)} size="sm" />
                                         )}
@@ -6547,7 +6929,9 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <span>{topSingleAvg.playerName}</span>
+                                        <PlayerNameTag name={topSingleAvg.playerName} colorKey={getPlayerNameBgColor(topSingleAvg.playerName)} />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingleAvg.playerName)} size="sm" />
+
                                         {getPlayerTitle(topSingleAvg.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingleAvg.playerName)} size="sm" />
                                         )}
@@ -6600,7 +6984,9 @@ const App: React.FC = () => {
                                             onClick={() => setSelectedPlayerForDetails(p.name)}
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
-                                            <span>{p.name}</span>
+                                            <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                             )}
@@ -6622,7 +7008,9 @@ const App: React.FC = () => {
                                             onClick={() => setSelectedPlayerForDetails(p.playerName)}
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
-                                            <span>{p.playerName}</span>
+                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
@@ -6664,7 +7052,9 @@ const App: React.FC = () => {
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <span>{topSingleTotal.playerName}</span>
+                                        <PlayerNameTag name={topSingleTotal.playerName} colorKey={getPlayerNameBgColor(topSingleTotal.playerName)} />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingleTotal.playerName)} size="sm" />
+
                                         {getPlayerTitle(topSingleTotal.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingleTotal.playerName)} size="sm" />
                                         )}
@@ -6683,7 +7073,9 @@ const App: React.FC = () => {
                                       <div>
                                         <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
                                         <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                          <span>{topCareerAverageTotal.name}</span>
+                                          <PlayerNameTag name={topCareerAverageTotal.name} colorKey={getPlayerNameBgColor(topCareerAverageTotal.name)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topCareerAverageTotal.name)} size="sm" />
+
                                           {getPlayerTitle(topCareerAverageTotal.name) && (
                                             <PlayerTitleBadge title={getPlayerTitle(topCareerAverageTotal.name)} size="sm" />
                                           )}
@@ -6740,6 +7132,8 @@ const App: React.FC = () => {
                                               className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                             >
                                               <span>{p.name}</span>
+                                              <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+
                                               {getPlayerTitle(p.name) && (
                                                 <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                               )}
@@ -6763,6 +7157,8 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.playerName}</span>
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
@@ -6849,6 +7245,8 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black text-sm flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.playerName}</span>
+                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                       )}
@@ -6880,6 +7278,8 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.name}</span>
+                                      <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+
                                       {getPlayerTitle(p.name) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                       )}
@@ -6912,6 +7312,8 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.playerName}</span>
+                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                       )}
@@ -6964,7 +7366,9 @@ const App: React.FC = () => {
                                           onClick={() => setSelectedPlayerForDetails(item.playerName)}
                                           className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                         >
-                                          <span>{item.playerName}</span>
+                                          <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} size="sm" />
+
                                           {getPlayerTitle(item.playerName) && (
                                             <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
                                           )}
@@ -6972,7 +7376,9 @@ const App: React.FC = () => {
                                         </button>
                                       ) : (
                                         <span className="inline-flex items-center space-x-1.5 flex-wrap">
-                                          <span>{item.playerName}</span>
+                                          <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} size="sm" />
+
                                           {getPlayerTitle(item.playerName) && (
                                             <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
                                           )}
@@ -7021,7 +7427,10 @@ const App: React.FC = () => {
           <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 flex-wrap gap-y-1" style={{ color: BRAND_COLOR }}>
-                <span>Historie: {selectedPlayerForDetails}</span>
+                <span>Historie:</span>
+                <PlayerNameTag name={selectedPlayerForDetails} colorKey={getPlayerNameBgColor(selectedPlayerForDetails)} className="px-2 py-0.5" />
+                <PlayerLevelBadge level={getPlayerLevel(selectedPlayerForDetails)} size="md" />
+
                 {getPlayerTitle(selectedPlayerForDetails) && (
                   <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
                 )}
@@ -8940,28 +9349,67 @@ const App: React.FC = () => {
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setShowMigrateModal(true)}
-                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
-                style={{ backgroundColor: '#7C3AED' }}
-              >
-                <div className="flex items-center space-x-3">
-                  <i className="fas fa-database text-lg"></i>
-                  <span>Ergebnisse in SQL übertragen</span>
-                </div>
-                <i className="fas fa-chevron-right opacity-60"></i>
-              </button>
+              {/* 🗄️ Sektion: Datenbank & Migration */}
+              <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-indigo-400">
+                  <i className="fas fa-database"></i>
+                  <span>Datenbank &amp; Migration</span>
+                </h4>
 
-              <button
-                type="button"
-                onClick={openTournamentMigrateModal}
-                className="w-full py-4 rounded-2xl text-white font-black flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all"
-                style={{ backgroundColor: '#059669' }}
-              >
-                <i className="fas fa-trophy"></i>
-                <span>Turnierergebnisse in CSV übertragen</span>
-              </button>
+                <div className="space-y-2.5">
+                  {/* Neuer Button: Turnier- & Ergebnisdaten in Staging-Tabellen laden */}
+                  <button
+                    type="button"
+                    disabled={stagingLoading}
+                    onClick={() => handleMigrateToStaging(false)}
+                    className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95 disabled:opacity-50"
+                    style={{ backgroundColor: '#2563EB' }}
+                  >
+                    <div className="flex items-center space-x-3">
+                      {stagingLoading ? (
+                        <i className="fas fa-spinner fa-spin text-lg"></i>
+                      ) : (
+                        <i className="fas fa-layer-group text-lg"></i>
+                      )}
+                      <div className="text-left">
+                        <div className="font-black">Turnier- &amp; Ergebnisdaten in Staging-Tabellen laden</div>
+                        <div className="text-[11px] opacity-75 font-normal">results.csv &amp; Turnierdaten nach Supabase übertragen</div>
+                      </div>
+                    </div>
+                    {stagingLoading ? (
+                      <span className="text-[11px] font-mono opacity-80 uppercase">Lädt...</span>
+                    ) : (
+                      <i className="fas fa-chevron-right opacity-60"></i>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMigrateModal(true)}
+                    className="w-full p-3.5 rounded-xl text-white font-bold text-xs flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                    style={{ backgroundColor: '#7C3AED' }}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <i className="fas fa-database text-base"></i>
+                      <span>Ergebnisse in SQL übertragen</span>
+                    </div>
+                    <i className="fas fa-chevron-right opacity-60"></i>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={openTournamentMigrateModal}
+                    className="w-full p-3.5 rounded-xl text-white font-black text-xs flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                    style={{ backgroundColor: '#059669' }}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <i className="fas fa-trophy text-base"></i>
+                      <span>Turnierergebnisse in CSV übertragen</span>
+                    </div>
+                    <i className="fas fa-chevron-right opacity-60"></i>
+                  </button>
+                </div>
+              </div>
 
               <button
                 type="button"
@@ -8978,6 +9426,25 @@ const App: React.FC = () => {
                 <div className="flex items-center space-x-3">
                   <span className="text-lg">🏆</span>
                   <span>🏆 Achievements verwalten</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (buttonAudio) {
+                    buttonAudio.currentTime = 0;
+                    buttonAudio.play().catch(() => {});
+                  }
+                  setShowAdminTitlesModal(true);
+                }}
+                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                style={{ backgroundColor: '#7C3AED' }}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">🎖️</span>
+                  <span>🎖️ Spielertitel &amp; Level verwalten</span>
                 </div>
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
@@ -9274,6 +9741,17 @@ const App: React.FC = () => {
         brandColor={BRAND_COLOR}
       />
 
+      {/* 📦 STAGING MIGRATION MODAL */}
+      <StagingMigrationModal
+        isOpen={showStagingMigrateModal}
+        onClose={() => setShowStagingMigrateModal(false)}
+        darkMode={darkMode}
+        isLoading={stagingLoading}
+        progressMessage={stagingProgressMessage}
+        result={stagingResult}
+        onStartMigration={handleMigrateToStaging}
+      />
+
       {/* 🗄️ SQL MIGRATION MODAL */}
       <SqlMigrationModal
         showMigrateModal={showMigrateModal}
@@ -9327,11 +9805,52 @@ const App: React.FC = () => {
         darkMode={darkMode}
       />
 
+      {/* 🎖️ TITEL & LEVEL ADMIN MODAL */}
+      <AdminTitlesModal
+        isOpen={showAdminTitlesModal}
+        onClose={() => setShowAdminTitlesModal(false)}
+        darkMode={darkMode}
+      />
+
+      {/* 👋 WILLKOMMENS MODAL */}
+      <WelcomeModal
+        isOpen={showWelcomeModal}
+        onClose={() => {
+          if (supabaseUser?.id) {
+            localStorage.setItem(`bundeswiega_welcome_seen_${supabaseUser.id}`, 'true');
+          }
+          setShowWelcomeModal(false);
+        }}
+        username={supabaseUser?.user_metadata?.username || profileUsername}
+        darkMode={darkMode}
+      />
+
+      {/* ⭐ LEVEL UP MODAL */}
+      <LevelUpModal
+        isOpen={showLevelUpModal}
+        onClose={() => {
+          if (supabaseUser?.id) {
+            localStorage.setItem(`bundeswiega_last_seen_level_${supabaseUser.id}`, String(levelUpData.newLevel || userLevel));
+          }
+          setShowLevelUpModal(false);
+        }}
+        newLevel={levelUpData.newLevel || userLevel}
+        unlockedTitle={levelUpData.unlockedTitle || getTitleForLevel(levelUpData.newLevel || userLevel)}
+        darkMode={darkMode}
+      />
+
       {/* 🎖️ TITEL-FREISCHALTUNG TOAST */}
       <TitleUnlockToast
         unlockedTitle={unlockedTitleToast}
         onClose={() => setUnlockedTitleToast(null)}
         onEquip={handleEquipTitleFromToast}
+        darkMode={darkMode}
+      />
+
+      {/* 📤 TEILEN MODAL */}
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
         darkMode={darkMode}
       />
 

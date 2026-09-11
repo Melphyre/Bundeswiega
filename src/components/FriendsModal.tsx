@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { Friend, PendingFriendRequest } from '../../types';
 import { PlayerTitleBadge } from './PlayerTitleBadge';
+import { PlayerLevelBadge } from './PlayerLevelBadge';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest,
@@ -312,9 +313,10 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                     key={req.id}
                     className="flex items-center justify-between p-3 rounded-xl bg-white/10 dark:bg-black/20"
                   >
-                    <div className="flex items-center space-x-2 font-bold text-xs">
+                    <div className="flex items-center space-x-2 font-bold text-xs flex-wrap gap-y-1">
                       <i className="fas fa-user-clock text-amber-400"></i>
                       <span>{req.requesterName}</span>
+                      {req.title && <PlayerTitleBadge title={req.title} size="sm" />}
                     </div>
                     <div className="flex space-x-2">
                       <button
@@ -387,7 +389,11 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         </div>
                       )}
                       <div className="min-w-0">
-                        <div className="font-black text-xs truncate">{f.name}</div>
+                        <div className="font-black text-xs truncate flex items-center gap-1.5 flex-wrap">
+                          <span>{f.name}</span>
+                          <PlayerLevelBadge level={f.level || 1} size="sm" />
+                          {f.title && <PlayerTitleBadge title={f.title} size="sm" />}
+                        </div>
                         <div className="text-[10px] opacity-60 flex items-center space-x-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                           <span>Freund</span>

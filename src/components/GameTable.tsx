@@ -2,6 +2,7 @@ import React from 'react';
 import { Player, Round } from '../../types';
 import { PLAYER_COLORS } from '../constants';
 import VerticalText from './VerticalText';
+import PlayerTitleBadge from './PlayerTitleBadge';
 
 interface GameTableProps {
   showInputs?: boolean;
@@ -10,7 +11,9 @@ interface GameTableProps {
   darkMode: boolean;
   currentRoundResults: Record<string, string>;
   setCurrentRoundResults: (val: Record<string, string>) => void;
-  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null }>;
+  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null; name_bg_color?: string | null }>;
+  getPlayerTitle?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
+  getPlayerNameBgColor?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
 }
 
 export const GameTable: React.FC<GameTableProps> = ({
@@ -20,26 +23,41 @@ export const GameTable: React.FC<GameTableProps> = ({
   darkMode,
   currentRoundResults,
   setCurrentRoundResults,
-  playerAccountLinks
+  playerAccountLinks,
+  getPlayerTitle,
+  getPlayerNameBgColor
 }) => {
   return (
     <div className={`p-2 md:p-4 rounded-3xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border shadow-sm overflow-x-auto w-full mb-6`}>
       <table className={`w-full text-[10px] md:text-xs text-left border-collapse min-w-[320px] ${darkMode ? 'text-white' : 'text-gray-900'}`}>
         <thead>
           <tr className={`border-b ${darkMode ? 'border-white/20' : 'border-gray-700/20'} font-black`}>
-            <th className="py-2 px-1">RND</th>
+            <th className="py-2 px-1 align-bottom">RND</th>
             {players.map((p, idx) => {
               const accountLink = playerAccountLinks?.[p.id];
-              const avatarUrl = accountLink?.imageUrl;
+              const avatarUrl = p.imageUrl || accountLink?.imageUrl;
+              const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || 'Neuling';
+              const resolvedNameBg = (getPlayerNameBgColor ? (getPlayerNameBgColor(p.id, p) || getPlayerNameBgColor(p.name, p)) : undefined) || p.name_bg_color || accountLink?.name_bg_color;
 
               return (
-                <th key={p.id} className="text-center p-1">
-                  <div className="flex flex-col items-center space-y-1">
+                <th key={p.id} className="text-center p-1 align-top">
+                  <div className="flex flex-col items-center space-y-1.5 min-w-[56px] max-w-[96px] mx-auto">
+                    {/* Spielertitel über dem Profilbild */}
+                    <div className="flex justify-center w-full min-h-[20px] items-center">
+                      <PlayerTitleBadge
+                        title={resolvedTitle}
+                        size="sm"
+                        showIcon={true}
+                        className="text-[9px] py-0.5 px-1.5 max-w-[85px] justify-center shadow-xs"
+                      />
+                    </div>
+
+                    {/* Profilbild / Avatar */}
                     {avatarUrl ? (
                       <img
                         src={avatarUrl}
                         alt={p.name}
-                        className="w-7 h-7 rounded-full object-cover border-2 flex-shrink-0"
+                        className="w-8 h-8 rounded-full object-cover border-2 flex-shrink-0 shadow-sm"
                         style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                         onError={e => {
                           (e.target as HTMLImageElement).style.display = 'none';
@@ -47,18 +65,18 @@ export const GameTable: React.FC<GameTableProps> = ({
                       />
                     ) : (
                       <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-black flex-shrink-0"
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-black flex-shrink-0 shadow-sm"
                         style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                       >
                         {p.name?.charAt(0)?.toUpperCase() || '?'}
                       </div>
                     )}
-                    <VerticalText text={p.name} />
+                    <VerticalText text={p.name} colorKey={resolvedNameBg} />
                   </div>
                 </th>
               );
             })}
-            <th className="py-2 text-right px-1">ZIEL</th>
+            <th className="py-2 text-right px-1 align-bottom">ZIEL</th>
           </tr>
         </thead>
         <tbody>

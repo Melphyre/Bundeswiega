@@ -1,8 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { put, list, del } from '@vercel/blob';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import fs from 'fs';
+import { calculateGameXp, calculateLevelFromXp, getLevelFromXP } from '../src/utils/levelSystem';
+import { checkTournamentAchievements } from '../utils';
+import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../src/achievementsData';
 
 let rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
 if (rawSupabaseUrl.includes('.supabase.com')) {
@@ -26,6 +28,102 @@ const isSupabaseConfigured = () => {
     !supabaseSecretKey.includes('placeholder')
   );
 };
+
+let schemaEnsured = false;
+async function ensureCoreSchema() {
+  if (schemaEnsured || !isSupabaseConfigured()) return;
+  try {
+    const coreSql = `
+CREATE TABLE IF NOT EXISTS public.game_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  is_guest BOOLEAN DEFAULT false,
+  player_name TEXT,
+  game_mode TEXT NOT NULL,
+  date TEXT NOT NULL,
+  avg NUMERIC(8,2) NOT NULL DEFAULT 0,
+  schnaepse INTEGER NOT NULL DEFAULT 0,
+  time_seconds NUMERIC(8,2),
+  total NUMERIC(8,2) NOT NULL DEFAULT 0,
+  levels INTEGER,
+  team_name TEXT,
+  tournament_name TEXT,
+  tournament_table TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT false;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS player_name TEXT;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS tournament_name TEXT;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS tournament_table TEXT;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS time_seconds NUMERIC(8,2);
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS levels INTEGER;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS team_name TEXT;
+ALTER TABLE public.game_results ALTER COLUMN user_id DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.achievements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  is_guest BOOLEAN DEFAULT false,
+  player_name TEXT,
+  achievement_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  icon TEXT,
+  rarity TEXT DEFAULT 'common',
+  game_mode TEXT,
+  earned_with TEXT[],
+  earned_together BOOLEAN DEFAULT false,
+  date TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT false;
+ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS player_name TEXT;
+ALTER TABLE public.achievements ALTER COLUMN user_id DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.tournaments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'In Vorbereitung',
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.database_backups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  backup_type TEXT NOT NULL,
+  data JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`;
+
+    try {
+      await supabaseAdmin.rpc('exec_sql', { sql: coreSql });
+      schemaEnsured = true;
+      return;
+    } catch {
+      // rpc might not exist
+    }
+
+    const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL;
+    if (dbUrl) {
+      try {
+        const { Client } = await import('pg');
+        const pgClient = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        await pgClient.connect();
+        await pgClient.query(coreSql);
+        await pgClient.end();
+        schemaEnsured = true;
+      } catch (e: any) {
+        console.warn('pgClient schema ensure error:', e?.message);
+      }
+    }
+  } catch (err: any) {
+    console.warn('ensureCoreSchema warning:', err?.message);
+  }
+}
 
 const supabaseAdmin = createClient(
   supabaseUrl || '',
@@ -96,6 +194,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathName === '/api/users/update-title' && req.method === 'POST') {
       return await handleUpdateTitle(req, res);
     }
+    if (pathName === '/api/users/update-name-bg' && req.method === 'POST') {
+      return await handleUpdateNameBg(req, res);
+    }
     if (pathName === '/api/users/save-result' && req.method === 'POST') {
       return await handleSaveResult(req, res);
     }
@@ -130,6 +231,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (pathName === '/api/admin/migrate-tournament-to-csv' && req.method === 'POST') {
       return await handleTournamentMigrateToCSV(req, res);
+    }
+    if (pathName === '/api/admin/migrate-to-staging' && req.method === 'POST') {
+      return await handleMigrateToStaging(req, res);
     }
     if (pathName === '/api/admin/save-csv' && req.method === 'POST') {
       return await handleSaveCsv(req, res);
@@ -167,40 +271,87 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 // ════════════════════════════════════════════════
 
 async function handleRecords(req: VercelRequest, res: VercelResponse) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-
   try {
-    let content = "";
+    await ensureCoreSchema();
 
-    if (token) {
-      try {
-        const { blobs } = await list({ prefix: 'results', token });
-        const resultsBlob = blobs.find(b => b.pathname === "results.csv");
-        if (resultsBlob) {
-          const fetchRes = await fetch(resultsBlob.url);
-          if (fetchRes.ok) {
-            content = await fetchRes.text();
-          }
-        }
-      } catch (listErr: any) {
-        console.error("Error listing or fetching results.csv from Vercel Blob:", listErr);
-        return res.status(500).json({ error: listErr.message || 'Blob Fehler', data: [] });
-      }
-    } else {
-      // Local development fallback
-      const localPath = path.join(process.cwd(), "results.csv");
-      if (fs.existsSync(localPath)) {
-        content = fs.readFileSync(localPath, "utf-8");
-      }
-    }
-
-    if (!content) {
+    if (!isSupabaseConfigured()) {
       return res.status(200).json({ data: [] });
     }
 
-    // Parse CSV line by line and split by semicolon
-    const rows = content.trim().split(/\r?\n/).map(row => row.split(';'));
-    return res.status(200).json({ data: rows });
+    // Load results, profiles, achievements directly from Supabase
+    const [resultsRes, profilesRes, achRes] = await Promise.all([
+      supabaseAdmin.from('game_results').select('*').order('created_at', { ascending: false }),
+      supabaseAdmin.from('profiles').select('*'),
+      supabaseAdmin.from('achievements').select('*')
+    ]);
+
+    if (resultsRes.error) {
+      console.error('game_results select error:', resultsRes.error);
+      return res.status(500).json({ error: resultsRes.error.message, data: [] });
+    }
+
+    const profileMap: Record<string, any> = {};
+    (profilesRes.data || []).forEach(p => {
+      if (p && p.id) profileMap[p.id] = p;
+    });
+
+    const safeResults = Array.isArray(resultsRes.data) ? resultsRes.data : [];
+    const safeAchs = Array.isArray(achRes.data) ? achRes.data : [];
+
+    const rows = safeResults
+      .filter(r => {
+        if (!r) return false;
+        if (r.user_id) {
+          const profile = profileMap[r.user_id];
+          if (profile) {
+            if (profile.show_records === false) return false;
+            const mode = (r.game_mode || '').toLowerCase();
+            if (mode.includes('standardspiel') && profile.show_standardspiel === false) return false;
+            if (mode.includes('speedwiegen') && profile.show_speedwiegen === false) return false;
+            if (mode.includes('teamwiegen') && profile.show_teamwiegen === false) return false;
+          }
+        }
+        return true;
+      })
+      .map(r => {
+        const profile = r.user_id ? profileMap[r.user_id] : null;
+        const playerName = profile?.username || r.player_name || (r.is_guest ? 'Gast' : 'Unbekannt');
+        const canonicalMode = r.game_mode || 'Standardspiel';
+
+        const entryAchs = safeAchs
+          .filter(a => {
+            if (!a) return false;
+            const matchUser = r.user_id ? a.user_id === r.user_id : (a.player_name === playerName || a.is_guest);
+            const matchDate = a.date === r.date;
+            return matchUser && matchDate && (a.game_mode === canonicalMode || !a.game_mode);
+          })
+          .map(a => ({
+            id: a.achievement_id,
+            title: a.title,
+            icon: a.icon,
+            rarity: a.rarity,
+            earnedBy: a.earned_with || [playerName],
+            earnedTogether: a.earned_together
+          }));
+
+        const isSpeed = (r.game_mode || '').toLowerCase().includes('speed') || (r.time_seconds !== null && r.time_seconds !== undefined);
+        const schnaepseOrTime = (isSpeed && r.time_seconds !== null && r.time_seconds !== undefined)
+          ? String(r.time_seconds)
+          : String(r.schnaepse ?? 0);
+
+        return [
+          r.date || '',
+          canonicalMode,
+          playerName,
+          String(r.avg ?? 0),
+          schnaepseOrTime,
+          String(r.total ?? 0),
+          entryAchs.length > 0 ? encodeURIComponent(JSON.stringify(entryAchs)) : ''
+        ];
+      });
+
+    const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements'];
+    return res.status(200).json({ data: [header, ...rows] });
   } catch (error: any) {
     console.error("Error in records handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Laden der Statistiken", data: [] });
@@ -219,91 +370,198 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Invalid request payload. Must include gameMode, results array, and date." });
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-
   try {
-    let existingContent = "";
+    await ensureCoreSchema();
 
-    if (token) {
-      try {
-        const { blobs } = await list({ prefix: 'results', token });
-        const resultsBlob = blobs.find(b => b.pathname === "results.csv");
-        if (resultsBlob) {
-          const fetchRes = await fetch(resultsBlob.url);
-          if (fetchRes.ok) {
-            existingContent = await fetchRes.text();
-          }
-        }
-      } catch (listErr) {
-        console.error("Error reading existing results.csv from Vercel Blob:", listErr);
-      }
-    } else {
-      // Local development fallback
-      const localPath = path.join(process.cwd(), "results.csv");
-      if (fs.existsSync(localPath)) {
-        existingContent = fs.readFileSync(localPath, "utf-8");
-      }
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'Supabase ist nicht konfiguriert.' });
     }
 
-    let csv = 'Datum;Modus;Name;Avg;Schnaepse;Levels;Achievements\n';
-    if (existingContent.trim()) {
-      csv = existingContent;
-    }
+    // Load registered user profiles for matching
+    const { data: profiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, games_played, total_points, high_score, xp, level');
 
+    const profileMap = new Map<string, any>();
+    (profiles || []).forEach((p: any) => {
+      if (p.username) {
+        profileMap.set(p.username.toLowerCase().trim(), p);
+      }
+    });
+
+    const isSpeedMode = gameMode.toLowerCase().includes('speed');
     const TOGETHER_ACHIEVEMENT_IDS = ['twins', 'doppelganger', 'mirror_number', 'shadow', 'equilibrium'];
 
-    const newLines = results.map((item: any) => {
+    let savedResultsCount = 0;
+    let savedAchievementsCount = 0;
+
+    for (const item of results) {
+      const rawName = (item.name || '').trim();
+      if (!rawName) continue;
+
+      let userId: string | null = item.userId || null;
+      let matchedProfile: any = null;
+
+      if (userId) {
+        matchedProfile = (profiles || []).find((p: any) => p.id === userId);
+      } else {
+        matchedProfile = profileMap.get(rawName.toLowerCase());
+        if (matchedProfile) {
+          userId = matchedProfile.id;
+        }
+      }
+
+      const isGuest = !userId;
+      const playerName = matchedProfile ? matchedProfile.username : rawName;
+      const avg = Number(item.avg) || 0;
+
+      let schnaepse = 0;
+      let timeSeconds: number | null = null;
+      let total = 0;
+
+      if (isSpeedMode || item.time_seconds !== undefined) {
+        timeSeconds = item.time_seconds !== undefined ? Number(item.time_seconds) : (Number(item.schnaepse) || null);
+        schnaepse = 0;
+        total = Math.round((avg + (timeSeconds || 0)) * 100) / 100;
+      } else {
+        schnaepse = Number(item.schnaepse) || 0;
+        timeSeconds = null;
+        total = Math.round((avg + schnaepse) * 100) / 100;
+      }
+
+      // Insert into public.game_results
+      const { error: insertErr } = await supabaseAdmin
+        .from('game_results')
+        .insert({
+          user_id: isGuest ? null : userId,
+          is_guest: isGuest,
+          player_name: playerName,
+          game_mode: gameMode,
+          date,
+          avg,
+          schnaepse,
+          time_seconds: timeSeconds,
+          total,
+          levels: item.levels !== undefined ? Number(item.levels) : null,
+          team_name: item.team_name || null
+        });
+
+      if (insertErr) {
+        console.error(`game_results insert error for ${playerName}:`, insertErr.message);
+      } else {
+        savedResultsCount++;
+      }
+
+      // If registered user, update profiles stats and XP
+      if (!isGuest && matchedProfile) {
+        try {
+          const xpResult = calculateGameXp({
+            avg,
+            schnaepse,
+            isSpeedMode,
+            timeSeconds: isSpeedMode ? (timeSeconds || 0) : undefined,
+            isWinner: false
+          });
+          const earnedXp = xpResult.totalXp;
+
+          const currentXp = Number(matchedProfile.xp) || 0;
+          const newXp = currentXp + earnedXp;
+          const newLevel = getLevelFromXP(newXp);
+          const newGamesPlayed = (Number(matchedProfile.games_played) || 0) + 1;
+          const newTotalPoints = (Number(matchedProfile.total_points) || 0) + (isSpeedMode ? (timeSeconds || 0) : schnaepse);
+          const currentHigh = (matchedProfile.high_score !== null && matchedProfile.high_score !== undefined)
+            ? Number(matchedProfile.high_score)
+            : 999;
+          const newHighScore = (currentHigh === 0 || avg < currentHigh) ? avg : currentHigh;
+
+          await supabaseAdmin
+            .from('profiles')
+            .update({
+              xp: newXp,
+              level: newLevel,
+              games_played: newGamesPlayed,
+              total_points: newTotalPoints,
+              high_score: newHighScore,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', userId);
+
+          matchedProfile.xp = newXp;
+          matchedProfile.level = newLevel;
+          matchedProfile.games_played = newGamesPlayed;
+          matchedProfile.total_points = newTotalPoints;
+          matchedProfile.high_score = newHighScore;
+        } catch (profErr: any) {
+          console.warn('Profile stats update warning:', profErr.message);
+        }
+      }
+
+      // Handle achievements for this player
       const rawPlayerAch = item.achievements && item.achievements.length > 0
         ? item.achievements
         : (achievements && Array.isArray(achievements)
-            ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.includes(item.name))
+            ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.some((eb: string) => eb.toLowerCase() === rawName.toLowerCase()))
             : []);
 
-      const formattedAch = rawPlayerAch.map((a: any) => {
+      for (const a of rawPlayerAch) {
+        if (!a.id) continue;
+
         const isTogether = typeof a.earnedTogether === 'boolean'
           ? a.earnedTogether
           : TOGETHER_ACHIEVEMENT_IDS.includes(a.id);
 
-        const achObj: any = {
-          id: a.id,
-          title: a.title,
-          icon: a.icon,
-          rarity: a.rarity,
-          earnedBy: Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy : [item.name]
-        };
+        const earnedWith = Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy : [playerName];
 
-        if (isTogether) {
-          achObj.earnedTogether = true;
+        // Duplicate check
+        let dupeQuery = supabaseAdmin
+          .from('achievements')
+          .select('id')
+          .eq('achievement_id', a.id)
+          .eq('date', date);
+
+        if (isGuest) {
+          dupeQuery = dupeQuery.eq('player_name', playerName).eq('is_guest', true);
+        } else {
+          dupeQuery = dupeQuery.eq('user_id', userId);
         }
 
-        return achObj;
-      });
+        const { data: existingAch } = await dupeQuery.limit(1);
+        if (existingAch && existingAch.length > 0) continue;
 
-      const achievementsStr = formattedAch.length > 0 ? encodeURIComponent(JSON.stringify(formattedAch)) : "";
-      const levelsStr = item.levels !== undefined && item.levels !== null ? String(item.levels) : "";
+        const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(d => d.id === a.id);
 
-      return `${date};${gameMode};${item.name};${item.avg};${item.schnaepse};${levelsStr};${achievementsStr}`;
-    });
+        const { error: achErr } = await supabaseAdmin
+          .from('achievements')
+          .insert({
+            user_id: isGuest ? null : userId,
+            is_guest: isGuest,
+            player_name: isGuest ? playerName : null,
+            achievement_id: a.id,
+            title: a.title || def?.title || a.id,
+            description: a.description || def?.description || '',
+            icon: a.icon || def?.icon || '🏆',
+            rarity: a.rarity || def?.rarity || 'common',
+            game_mode: gameMode,
+            earned_with: earnedWith,
+            earned_together: isTogether,
+            date
+          });
 
-    const updated = csv.trimEnd() + '\n' + newLines.join('\n') + '\n';
-
-    if (token) {
-      await put("results.csv", updated, {
-        access: "public",
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        token,
-        contentType: "text/csv",
-      });
-      return res.status(200).json({ message: "Ergebnisse wurden erfolgreich gespeichert!" });
-    } else {
-      const localPath = path.join(process.cwd(), "results.csv");
-      fs.writeFileSync(localPath, updated, "utf-8");
-      return res.status(200).json({ message: "Ergebnisse lokal gespeichert!" });
+        if (!achErr) {
+          savedAchievementsCount++;
+        }
+      }
     }
+
+    return res.status(200).json({
+      success: true,
+      message: `${savedResultsCount} Ergebnisse und ${savedAchievementsCount} Achievements erfolgreich in Supabase gespeichert!`,
+      savedResultsCount,
+      savedAchievementsCount
+    });
   } catch (error: any) {
     console.error("Error in upload handler:", error);
-    return res.status(500).json({ error: error.message || "Fehler beim Upload der Ergebnisse." });
+    return res.status(500).json({ error: error.message || "Fehler beim Upload der Ergebnisse in Supabase." });
   }
 }
 
@@ -316,7 +574,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     // Aus profiles Tabelle laden (hat username und title korrekt gespeichert)
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, avatar_url, role, title')
+      .select('id, username, email, avatar_url, role, title, selected_title, level, xp, name_bg_color')
       .order('username');
 
     if (!error && profiles && profiles.length > 0) {
@@ -327,7 +585,10 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
         email: p.email || '',
         role: p.role || 'user',
         imageUrl: p.avatar_url || '',
-        title: p.title || ''
+        title: p.title || p.selected_title || '',
+        level: Number(p.level) || 1,
+        xp: Number(p.xp) || 0,
+        name_bg_color: p.name_bg_color || 'none'
       }));
       return res.status(200).json({ users: userList });
     }
@@ -345,12 +606,50 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       email: u.email || '',
       role: u.user_metadata?.role || 'user',
       imageUrl: u.user_metadata?.avatar_url || '',
-      title: u.user_metadata?.title || ''
+      title: u.user_metadata?.title || '',
+      name_bg_color: u.user_metadata?.name_bg_color || 'none'
     }));
 
     return res.status(200).json({ users: userList });
   } catch (err: any) {
     return res.status(500).json({ error: err.message, users: [] });
+  }
+}
+
+async function handleUpdateNameBg(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const body = getRequestBody(req) || req.body || {};
+    const { userId, name_bg_color } = body;
+    if (!userId) return res.status(400).json({ error: 'userId fehlt' });
+
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ success: true, message: 'Lokal aktualisiert' });
+    }
+
+    // 1. Auth Metadata aktualisieren
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: { name_bg_color: name_bg_color || 'none' }
+      });
+    } catch (authErr: any) {
+      console.warn('Auth name_bg_color update warning:', authErr?.message);
+    }
+
+    // 2. Profiles Tabelle aktualisieren
+    try {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ name_bg_color: name_bg_color || 'none' })
+        .eq('id', userId);
+    } catch (profErr: any) {
+      console.warn('Profile name_bg_color update warning:', profErr?.message);
+    }
+
+    return res.status(200).json({ success: true, name_bg_color: name_bg_color || 'none' });
+  } catch (err: any) {
+    console.error('handleUpdateNameBg error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
 
@@ -483,12 +782,38 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       ? Math.min(...validAvgs.map((r: any) => Number(r.avg)))
       : null;
 
+    // Aktuelles Profil für XP & Level abrufen
+    const { data: currentProf } = await supabaseAdmin
+      .from('profiles')
+      .select('xp, level, title, selected_title')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const curXp = Number(currentProf?.xp || 0);
+    const isWinner = gameResult.isWinner === true || false;
+    const isSpeed = (gameResult.game_mode || '').includes('Speedwiegen');
+    const xpResult = calculateGameXp({
+      avg,
+      schnaepse,
+      isWinner,
+      isSpeedMode: isSpeed,
+      speedLevels: gameResult.levels,
+      timeSeconds: gameResult.time_seconds,
+      achievementsCount: achSaved
+    });
+
+    const newXp = curXp + xpResult.totalXp;
+    const levelInfo = calculateLevelFromXp(newXp);
+    const newLevel = levelInfo.level;
+
     await supabaseAdmin
       .from('profiles')
       .update({
         games_played: gamesPlayed,
         total_points: totalSchnaepse,
         high_score: bestAvg,
+        xp: newXp,
+        level: newLevel,
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
@@ -496,7 +821,11 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       message: 'Ergebnis gespeichert',
       resultId: insertedResult?.id,
-      achSaved
+      achSaved,
+      xpEarned: xpResult.totalXp,
+      newXp,
+      newLevel,
+      xpBreakdown: xpResult.items
     });
 
   } catch (err: any) {
@@ -728,128 +1057,89 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleAdminRename(req: VercelRequest, res: VercelResponse) {
-  const body = getRequestBody(req);
-  const { oldName, newName } = body;
-
-  if (!oldName || !newName || typeof oldName !== "string" || typeof newName !== "string") {
-    return res.status(400).json({ error: "Invalid parameters. Must include oldName and newName as strings." });
-  }
-
-  const trimmedOld = oldName.trim();
-  const trimmedNew = newName.trim();
-
-  if (!trimmedOld || !trimmedNew) {
-    return res.status(400).json({ error: "oldName and newName cannot be empty." });
-  }
-
-  if (trimmedOld === trimmedNew) {
-    return res.status(400).json({ error: "Der neue Name muss sich vom alten Namen unterscheiden." });
-  }
-
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-
   try {
-    let existingContent = "";
+    await ensureCoreSchema();
 
-    if (token) {
+    const body = getRequestBody(req);
+    const { oldName, newName, requesterUserId } = body;
+
+    if (!oldName || !newName || typeof oldName !== "string" || typeof newName !== "string") {
+      return res.status(400).json({ error: "Ungültige Parameter. oldName und newName erforderlich." });
+    }
+
+    const trimmedOld = oldName.trim();
+    const trimmedNew = newName.trim();
+
+    if (!trimmedOld || !trimmedNew) {
+      return res.status(400).json({ error: "Namen dürfen nicht leer sein." });
+    }
+
+    if (trimmedOld === trimmedNew) {
+      return res.status(400).json({ error: "Der neue Name muss sich vom alten Namen unterscheiden." });
+    }
+
+    if (requesterUserId && isSupabaseConfigured()) {
       try {
-        console.log("Fetching list of blobs from Vercel Blob storage for rename...");
-        const listResult = await list({ token });
-        const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
-        if (resultsBlob) {
-          const fetchRes = await fetch(resultsBlob.url);
-          if (fetchRes.ok) {
-            existingContent = await fetchRes.text();
-          }
+        const { data: { user: reqUser } } = await supabaseAdmin.auth.admin.getUserById(requesterUserId);
+        if (reqUser && reqUser.user_metadata?.role !== 'admin') {
+          return res.status(403).json({ error: "Keine Admin-Rechte" });
         }
-      } catch (listErr) {
-        console.error("Error reading results.csv for rename:", listErr);
-      }
-    } else {
-      // Local development fallback
-      const localPath = path.join(process.cwd(), "results.csv");
-      if (fs.existsSync(localPath)) {
-        existingContent = fs.readFileSync(localPath, "utf-8");
+      } catch (authErr) {
+        console.warn("Auth check warning:", authErr);
       }
     }
 
-    if (!existingContent.trim()) {
-      return res.status(400).json({ error: "Keine CSV-Daten gefunden zum Umbenennen." });
-    }
-
-    const lines = existingContent.split(/\r?\n/).filter(line => line.trim() !== "");
     let modifiedCount = 0;
 
-    const updatedLines = lines.map((line, idx) => {
-      if (idx === 0) return line; // Header row
+    if (isSupabaseConfigured()) {
+      // 1. Update player_name in game_results
+      const { data: updatedResults, error: resErr } = await supabaseAdmin
+        .from('game_results')
+        .update({ player_name: trimmedNew })
+        .eq('player_name', trimmedOld)
+        .select('id');
 
-      const parts = line.split(";");
-      if (parts.length < 3) return line;
-
-      let rowChanged = false;
-
-      // Check Name column (index 2)
-      if (parts[2] && parts[2].trim() === trimmedOld) {
-        parts[2] = trimmedNew;
-        rowChanged = true;
+      if (!resErr && updatedResults) {
+        modifiedCount += updatedResults.length;
       }
 
-      // Check Achievements JSON column (index 6)
-      if (parts[6] && parts[6].trim()) {
-        try {
-          const decoded = decodeURIComponent(parts[6]);
-          if (decoded.includes(trimmedOld)) {
-            const achievementsObj = JSON.parse(decoded);
-            if (Array.isArray(achievementsObj)) {
-              achievementsObj.forEach((ach: any) => {
-                if (ach.earnedBy && Array.isArray(ach.earnedBy)) {
-                  ach.earnedBy = ach.earnedBy.map((name: string) => name === trimmedOld ? trimmedNew : name);
-                }
-              });
-              parts[6] = encodeURIComponent(JSON.stringify(achievementsObj));
-              rowChanged = true;
+      // 2. Update player_name in achievements
+      const { data: updatedAchs, error: achErr } = await supabaseAdmin
+        .from('achievements')
+        .update({ player_name: trimmedNew })
+        .eq('player_name', trimmedOld)
+        .select('id');
+
+      if (!achErr && updatedAchs) {
+        modifiedCount += updatedAchs.length;
+      }
+
+      // 3. Also check tournaments config
+      const { data: allTourneys } = await supabaseAdmin.from('tournaments').select('*');
+      if (allTourneys && allTourneys.length > 0) {
+        for (const tourney of allTourneys) {
+          const stringified = JSON.stringify(tourney.config || {});
+          if (stringified.includes(trimmedOld)) {
+            const replaced = stringified.split(`"${trimmedOld}"`).join(`"${trimmedNew}"`);
+            try {
+              const parsed = JSON.parse(replaced);
+              await supabaseAdmin
+                .from('tournaments')
+                .update({ config: parsed, updated_at: new Date().toISOString() })
+                .eq('id', tourney.id);
+            } catch (pErr) {
+              console.warn('Error updating tourney config for rename:', pErr);
             }
           }
-        } catch (e) {
-          // If decoding/parsing fails, attempt simple string replace inside string
-          const replacedDecoded = decodeURIComponent(parts[6]).replaceAll(trimmedOld, trimmedNew);
-          parts[6] = encodeURIComponent(replacedDecoded);
-          rowChanged = true;
         }
       }
-
-      if (rowChanged) {
-        modifiedCount++;
-      }
-
-      return parts.join(";");
-    });
-
-    const newContent = updatedLines.join("\n");
-
-    if (token) {
-      console.log("Uploading renamed results.csv to Vercel Blob storage...");
-      await put("results.csv", newContent, {
-        access: "public",
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        token,
-        contentType: "text/csv",
-      });
-      return res.json({
-        success: true,
-        modifiedCount,
-        message: `Erfolgreich ${modifiedCount} Eintrags-Zeilen von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
-      });
-    } else {
-      const localPath = path.join(process.cwd(), "results.csv");
-      fs.writeFileSync(localPath, newContent, "utf-8");
-      return res.json({
-        success: true,
-        modifiedCount,
-        message: `Erfolgreich ${modifiedCount} Eintrags-Zeilen lokal von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
-      });
     }
+
+    return res.status(200).json({
+      success: true,
+      modifiedCount,
+      message: `Erfolgreich ${modifiedCount} Datensätze von "${trimmedOld}" zu "${trimmedNew}" umbenannt!`
+    });
   } catch (error: any) {
     console.error("Error in rename handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Umbenennen in den Rekorden." });
@@ -858,6 +1148,8 @@ async function handleAdminRename(req: VercelRequest, res: VercelResponse) {
 
 async function handleAssignToAccount(req: VercelRequest, res: VercelResponse) {
   try {
+    await ensureCoreSchema();
+
     const body = getRequestBody(req);
     const { requesterUserId, csvName, targetUserId, entries: reqEntries } = body;
     if ((!csvName && !reqEntries) || !targetUserId) {
@@ -886,135 +1178,127 @@ async function handleAssignToAccount(req: VercelRequest, res: VercelResponse) {
     }
 
     const targetUsername = targetUser.user_metadata?.username || targetUser.email || 'Benutzer';
-    const existingUserMetadata = targetUser.user_metadata || {};
-    const existingGameData = Array.isArray(existingUserMetadata.gameData) ? existingUserMetadata.gameData : [];
+    const trimmedCsvName = (csvName || '').trim();
 
-    let newEntries: any[] = [];
-    let updatedCsv = "";
+    let assignedCount = 0;
 
-    if (reqEntries && Array.isArray(reqEntries)) {
-      newEntries = reqEntries;
-    } else if (csvName) {
-      // Fetch CSV content
-      const token = process.env.BLOB_READ_WRITE_TOKEN;
-      let existingContent = "";
+    if (trimmedCsvName) {
+      // 1. Assign in game_results
+      const { data: assignedResults, error: resErr } = await supabaseAdmin
+        .from('game_results')
+        .update({ user_id: targetUserId, is_guest: false, player_name: targetUsername })
+        .ilike('player_name', trimmedCsvName)
+        .eq('is_guest', true)
+        .select('id, avg, schnaepse, time_seconds, game_mode');
 
-      if (token) {
-        try {
-          const listResult = await list({ token });
-          const resultsBlob = listResult.blobs.find(b => b.pathname === "results.csv");
-          if (resultsBlob) {
-            const fetchRes = await fetch(resultsBlob.url);
-            if (fetchRes.ok) existingContent = await fetchRes.text();
-          }
-        } catch (e) {
-          console.error("Error reading CSV from blob:", e);
-        }
-      } else {
-        const localPath = path.join(process.cwd(), "results.csv");
-        if (fs.existsSync(localPath)) {
-          existingContent = fs.readFileSync(localPath, "utf-8");
-        }
+      if (!resErr && assignedResults) {
+        assignedCount += assignedResults.length;
       }
 
-      if (!existingContent.trim()) {
-        return res.status(400).json({ error: "Keine CSV-Daten vorhanden." });
-      }
-
-      const lines = existingContent.split(/\r?\n/).filter(line => line.trim() !== "");
-      const header = lines[0];
-      const dataLines = lines.slice(1);
-
-      const targetCsvName = csvName.trim().toLowerCase();
-      const matchedRows: string[][] = [];
-      const remainingLines: string[] = [header];
-
-      dataLines.forEach(line => {
-        const parts = line.split(";");
-        const rowName = parts[2] ? parts[2].trim().toLowerCase() : "";
-        if (rowName === targetCsvName) {
-          matchedRows.push(parts);
-        } else {
-          remainingLines.push(line);
-        }
-      });
-
-      if (matchedRows.length === 0) {
-        return res.status(404).json({ error: `Keine Einträge für "${csvName}" in der CSV gefunden.` });
-      }
-
-      newEntries = matchedRows.map(parts => ({
-        date: parts[0] || '',
-        gameMode: parts[1] || '',
-        avg: parts[3] ? Number(parts[3]) : 0,
-        schnaepse: parts[4] ? Number(parts[4]) : 0,
-        levels: parts[5] && !isNaN(Number(parts[5])) ? Number(parts[5]) : undefined,
-        achievements: parts[6] || parts[5] || '',
-      }));
-
-      updatedCsv = remainingLines.join("\n");
-
-      // Write updated CSV (without matched rows) back to storage
-      if (token) {
-        await put("results.csv", updatedCsv, {
-          access: "public",
-          addRandomSuffix: false,
-          allowOverwrite: true,
-          token,
-          contentType: "text/csv",
-        });
-      } else {
-        const localPath = path.join(process.cwd(), "results.csv");
-        fs.writeFileSync(localPath, updatedCsv, "utf-8");
-      }
+      // 2. Assign in achievements
+      await supabaseAdmin
+        .from('achievements')
+        .update({ user_id: targetUserId, is_guest: false, player_name: null })
+        .ilike('player_name', trimmedCsvName)
+        .eq('is_guest', true);
     }
 
-    // Update target user user_metadata in Supabase
-    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-      user_metadata: {
-        ...existingUserMetadata,
-        gameData: [...existingGameData, ...newEntries]
-      }
-    });
+    // 3. Recalculate target user profile stats in Supabase
+    const { data: allUserGames } = await supabaseAdmin
+      .from('game_results')
+      .select('avg, schnaepse, time_seconds, game_mode')
+      .eq('user_id', targetUserId);
 
-    if (updateErr) {
-      return res.status(500).json({ error: updateErr.message || 'Fehler beim Speichern der Spieldaten im Account.' });
+    if (allUserGames && allUserGames.length > 0) {
+      const gamesPlayed = allUserGames.length;
+      let totalPoints = 0;
+      let minAvg = 999;
+      let totalXp = 0;
+
+      allUserGames.forEach(g => {
+        const avg = Number(g.avg) || 0;
+        const schnaepse = Number(g.schnaepse) || 0;
+        const timeSec = Number(g.time_seconds) || 0;
+        totalPoints += (g.time_seconds !== null && g.time_seconds !== undefined) ? timeSec : schnaepse;
+        if (avg > 0 && avg < minAvg) minAvg = avg;
+
+        const isSpeed = (g.game_mode || '').toLowerCase().includes('speed');
+        const xpRes = calculateGameXp({
+          avg,
+          schnaepse,
+          isSpeedMode: isSpeed,
+          timeSeconds: isSpeed ? timeSec : undefined,
+          isWinner: false
+        });
+        totalXp += xpRes.totalXp;
+      });
+
+      const newLevel = getLevelFromXP(totalXp);
+      const highScore = minAvg === 999 ? 0 : minAvg;
+
+      await supabaseAdmin
+        .from('profiles')
+        .update({
+          games_played: gamesPlayed,
+          total_points: totalPoints,
+          high_score: highScore,
+          xp: totalXp,
+          level: newLevel,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetUserId);
     }
 
     return res.status(200).json({
       success: true,
-      message: `${newEntries.length} Einträge erfolgreich ${targetUsername} zugeordnet.`
+      count: assignedCount,
+      message: `${assignedCount} Einträge von "${trimmedCsvName || 'Spieler'}" erfolgreich ${targetUsername} zugeordnet.`
     });
-
   } catch (err: any) {
     console.error("Error in assign-to-account handler:", err);
-    return res.status(500).json({ error: err.message || "Serverfehler" });
+    return res.status(500).json({ error: err.message || 'Fehler beim Zuweisen' });
   }
 }
 
 async function handleMigrateToSQL(req: VercelRequest, res: VercelResponse) {
   try {
+    await ensureCoreSchema();
     const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
+    let dataRows: string[][] = [];
 
-    // 1. CSV aus Blob laden
-    const { blobs } = await list({ prefix: 'results', token });
-    const resultsBlob = blobs.find(b => b.pathname === 'results.csv');
-    if (!resultsBlob) {
-      return res.status(404).json({ error: 'results.csv nicht gefunden im Blob Storage' });
+    // 1. Aus Vercel Blob laden (falls Token vorhanden)
+    if (token) {
+      try {
+        const { list } = await import('@vercel/blob');
+        const { blobs } = await list({ prefix: 'results', token });
+        const resultsBlob = blobs.find(b => b.pathname === 'results.csv');
+        if (resultsBlob) {
+          const csvResponse = await fetch(resultsBlob.url);
+          const csvText = await csvResponse.text();
+          const csvRows = csvText.trim().split('\n').map(r => r.split(';'));
+          dataRows = csvRows.filter(row =>
+            row.length >= 5 &&
+            row[0] !== 'Datum' &&
+            row[2] !== 'Name' &&
+            row[2]?.trim() !== ''
+          );
+        }
+      } catch (blobErr) {
+        console.warn('handleMigrateToSQL blob error:', blobErr);
+      }
     }
 
-    const csvResponse = await fetch(resultsBlob.url);
-    const csvText = await csvResponse.text();
-    const csvRows = csvText.trim().split('\n').map(r => r.split(';'));
-
-    // Header-Zeile überspringen
-    const dataRows = csvRows.filter(row =>
-      row.length >= 5 &&
-      row[0] !== 'Datum' &&
-      row[2] !== 'Name' &&
-      row[2]?.trim() !== ''
-    );
+    // 2. Fallback: aus staging_results_csv laden
+    if (dataRows.length === 0) {
+      const { data: stagingRows } = await supabaseAdmin
+        .from('staging_results_csv')
+        .select('raw_line');
+      if (stagingRows && stagingRows.length > 0) {
+        dataRows = stagingRows
+          .map((r: any) => r.raw_line.split(';'))
+          .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum' && row[2] !== 'Name' && row[2]?.trim() !== '');
+      }
+    }
 
     if (dataRows.length === 0) {
       return res.status(200).json({
@@ -1385,48 +1669,17 @@ function getSafeFilename(tournamentName: string): string {
 
 async function loadTournamentCsv(
   tournamentName: string,
-  token: string
+  token?: string
 ): Promise<{ filename: string; content: string } | null> {
-  try {
-    const filename = getSafeFilename(tournamentName);
-    const safeName = getSafeTournamentName(tournamentName);
-
-    const listResult = await list({ prefix: `tournament_${safeName}`, token });
-    const blob = listResult.blobs.find(
-      b => b.pathname === filename || b.pathname.endsWith("/" + filename)
-    );
-
-    if (!blob) return null;
-
-    const fetchRes = await fetch(blob.url);
-    if (!fetchRes.ok) return null;
-    const content = await fetchRes.text();
-    return { filename, content };
-  } catch (err) {
-    console.error("loadTournamentCsv error:", err);
-    return null;
-  }
+  return null;
 }
 
 async function saveTournamentCsv(
   tournamentName: string,
   csvContent: string,
-  token: string
+  token?: string
 ): Promise<boolean> {
-  try {
-    const filename = getSafeFilename(tournamentName);
-    await put(filename, csvContent, {
-      access: "public",
-      token,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: "text/csv"
-    });
-    return true;
-  } catch (err) {
-    console.error("saveTournamentCsv error:", err);
-    return false;
-  }
+  return true;
 }
 
 const TOURNAMENT_TABLE_COLORS = [
@@ -1637,114 +1890,327 @@ function parseTournamentCSV(filename: string, content: string) {
 }
 
 async function handleTournamentList(req: VercelRequest, res: VercelResponse) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   const query = getRequestQuery(req);
 
   if (query.healthcheck === 'true') {
     return res.status(200).json({
-      token: token ? 'vorhanden' : 'fehlt',
-      tokenPrefix: token ? token.substring(0, 20) + '...' : null
-    });
-  }
-
-  if (!token) {
-    return res.status(500).json({
-      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
+      supabase: isSupabaseConfigured() ? 'vorhanden' : 'fehlt',
+      status: 'ok'
     });
   }
 
   try {
-    const tournaments: Array<{
-      filename: string;
-      name: string;
-      tablesCount: number;
-      finalistsCount: number;
-      hasSecondChance: boolean;
-      status: string;
-      createdDate: string;
-    }> = [];
+    await ensureCoreSchema();
 
-    const listResult = await list({ prefix: "tournament_", token });
-    const tourneyBlobs = listResult.blobs.filter(
-      b => (b.pathname.startsWith("tournament_") || b.pathname.includes("/tournament_")) && b.pathname.endsWith(".csv")
-    );
-
-    for (const blob of tourneyBlobs) {
-      try {
-        const fetchRes = await fetch(blob.url);
-        if (fetchRes.ok) {
-          const text = await fetchRes.text();
-          const meta = parseTournamentMeta(blob.pathname, text);
-          if (meta) tournaments.push(meta);
-        }
-      } catch (e) {
-        console.error(`Error reading blob ${blob.pathname}:`, e);
-      }
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ tournaments: [] });
     }
 
-    return res.json({ tournaments });
+    const { data: rows, error } = await supabaseAdmin
+      .from('tournaments')
+      .select('id, name, status, config, created_at, updated_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('tournaments select error:', error);
+      return res.status(500).json({ error: error.message, tournaments: [] });
+    }
+
+    const tournaments = (rows || []).map((row: any) => {
+      const fullConfig = row.config || {};
+      const cfg = fullConfig.config || fullConfig;
+      return {
+        filename: `tournament_${row.name}.csv`,
+        name: row.name,
+        tablesCount: Number(cfg.tablesCount) || 1,
+        finalistsCount: Number(cfg.finalistsCount) || 4,
+        hasSecondChance: Boolean(cfg.hasSecondChance),
+        status: row.status || cfg.status || 'In Vorbereitung',
+        createdDate: cfg.createdDate || (row.created_at ? new Date(row.created_at).toLocaleDateString('de-DE') : new Date().toLocaleDateString('de-DE'))
+      };
+    });
+
+    return res.status(200).json({ tournaments });
   } catch (error: any) {
     console.error("Error in tournament list handler:", error);
-    return res.status(500).json({ error: error.message || "Fehler beim Laden der Turnierliste." });
+    return res.status(500).json({ error: error.message || "Fehler beim Laden der Turnierliste.", tournaments: [] });
   }
 }
 
 async function handleTournamentGet(req: VercelRequest, res: VercelResponse) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    return res.status(500).json({
-      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
-    });
-  }
-
-  const query = getRequestQuery(req);
-  let { name, filename } = query;
-  if (!name && !filename) {
-    return res.status(400).json({ error: "Missing parameter 'name' or 'filename'." });
-  }
-
-  const targetName = String(name || filename);
-
   try {
-    const loaded = await loadTournamentCsv(targetName, token);
+    await ensureCoreSchema();
 
-    if (!loaded || !loaded.content) {
-      const safeFn = getSafeFilename(targetName);
-      return res.status(404).json({ error: `Turnier-Datei '${safeFn}' nicht gefunden.` });
+    const query = getRequestQuery(req);
+    let { name, filename } = query;
+    if (!name && !filename) {
+      return res.status(400).json({ error: "Missing parameter 'name' or 'filename'." });
     }
 
-    const parsed = parseTournamentCSV(loaded.filename, loaded.content);
-    return res.json(parsed);
+    const targetName = String(name || filename).replace(/^tournament_/, '').replace(/\.csv$/, '').trim();
+
+    if (!isSupabaseConfigured()) {
+      return res.status(404).json({ error: 'Supabase ist nicht konfiguriert.' });
+    }
+
+    const { data: rows, error } = await supabaseAdmin
+      .from('tournaments')
+      .select('id, name, status, config, created_at, updated_at')
+      .ilike('name', targetName)
+      .limit(1);
+
+    if (error) {
+      console.error('tournament get error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: `Turnier '${targetName}' nicht gefunden.` });
+    }
+
+    const row = rows[0];
+    const fullConfig = row.config || {};
+    const config = fullConfig.config || {
+      name: row.name,
+      tablesCount: 1,
+      finalistsCount: 4,
+      hasSecondChance: false,
+      status: row.status || 'In Vorbereitung',
+      createdDate: row.created_at ? new Date(row.created_at).toLocaleDateString('de-DE') : new Date().toLocaleDateString('de-DE'),
+      qualifikationVorrunde: 1,
+      qualifikationSecondChance: 1
+    };
+
+    const tables = fullConfig.tables || [];
+    const results = fullConfig.results || [];
+    const outPlayers = fullConfig.outPlayers || [];
+
+    return res.status(200).json({
+      config,
+      tables,
+      results,
+      outPlayers
+    });
   } catch (error: any) {
     console.error("Error in tournament get handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Laden des Turniers." });
   }
 }
 
-async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    return res.status(500).json({
-      error: "BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen."
-    });
-  }
-
-  const body = getRequestBody(req);
-  const { action, name, tablesCount, finalistsCount, hasSecondChance, tableId, results, date } = body;
-
-  if (!name) {
-    return res.status(400).json({ error: "Missing required parameter 'name'." });
-  }
-
-  const filename = getSafeFilename(name);
+async function syncTournamentTableToSupabaseGameResults(params: {
+  tournamentName: string;
+  tournamentTable: string;
+  gameMode: string;
+  date: string;
+  results: Array<{ name?: string; playerName?: string; rank?: number; avg?: number | string; schnaepse?: number | string }>;
+}) {
+  if (!isSupabaseConfigured()) return { syncedCount: 0 };
+  const { tournamentName, tournamentTable, gameMode, date: resultDate, results } = params;
+  let syncedCount = 0;
 
   try {
-    const loaded = await loadTournamentCsv(name, token);
-    const existingContent = loaded ? loaded.content : "";
+    const { data: profiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, games_played, total_points, high_score, xp, level');
 
-    let csvContent = "";
+    const profileMap = new Map<string, any>();
+    (profiles || []).forEach((p: any) => {
+      if (p.username) profileMap.set(p.username.toLowerCase().trim(), p);
+    });
 
-    if (action === "create" || !existingContent) {
+    for (const r of results) {
+      const playerName = (r.name || r.playerName || '').trim();
+      if (!playerName) continue;
+
+      const matchedProfile = profileMap.get(playerName.toLowerCase());
+      const isGuest = !matchedProfile;
+      const userId = matchedProfile ? matchedProfile.id : null;
+
+      const rankVal = parseInt(String(r.rank), 10) || 99;
+      const avgVal = parseFloat(String(r.avg).replace(',', '.')) || 0;
+      const schnaepseVal = parseInt(String(r.schnaepse), 10) || 0;
+      const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
+
+      // Duplicate check
+      let query = supabaseAdmin
+        .from('game_results')
+        .select('id')
+        .eq('date', resultDate)
+        .eq('game_mode', gameMode);
+
+      if (isGuest) {
+        query = query.eq('player_name', playerName).eq('is_guest', true);
+      } else {
+        query = query.eq('user_id', userId);
+      }
+
+      const { data: existing } = await query.limit(1);
+      if (existing && existing.length > 0) continue;
+
+      await supabaseAdmin
+        .from('game_results')
+        .insert({
+          user_id: userId,
+          is_guest: isGuest,
+          player_name: playerName,
+          game_mode: gameMode,
+          date: resultDate,
+          avg: avgVal,
+          schnaepse: schnaepseVal,
+          total: totalVal,
+          tournament_name: tournamentName,
+          tournament_table: tournamentTable,
+          created_at: new Date().toISOString()
+        });
+
+      if (!isGuest && matchedProfile) {
+        let earnedXp = 1;
+        if (rankVal === 1) earnedXp += 5;
+        else if (rankVal === 2) earnedXp += 3;
+        else if (rankVal === 3) earnedXp += 1;
+
+        if (avgVal < 2.0) earnedXp += 2;
+        else if (avgVal < 4.0) earnedXp += 1;
+
+        const currentXp = Number(matchedProfile.xp) || 0;
+        const newXp = currentXp + earnedXp;
+        const newLevel = getLevelFromXP(newXp);
+        const newGamesPlayed = (Number(matchedProfile.games_played) || 0) + 1;
+        const newTotalPoints = (Number(matchedProfile.total_points) || 0) + schnaepseVal;
+        const currentHigh = (matchedProfile.high_score !== null && matchedProfile.high_score !== undefined)
+          ? Number(matchedProfile.high_score)
+          : 999;
+        const newHighScore = (currentHigh === 0 || avgVal < currentHigh) ? avgVal : currentHigh;
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({
+            xp: newXp,
+            level: newLevel,
+            games_played: newGamesPlayed,
+            total_points: newTotalPoints,
+            high_score: newHighScore,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId);
+
+        matchedProfile.xp = newXp;
+        matchedProfile.level = newLevel;
+        matchedProfile.games_played = newGamesPlayed;
+        matchedProfile.total_points = newTotalPoints;
+        matchedProfile.high_score = newHighScore;
+      }
+
+      syncedCount++;
+    }
+  } catch (err: any) {
+    console.warn('syncTournamentTableToSupabaseGameResults warning:', err.message);
+  }
+
+  return { syncedCount };
+}
+
+async function awardTournamentAchievementsInSupabase(params: {
+  tournamentName: string;
+  config: any;
+  tables: any[];
+  results: any[];
+  date: string;
+}) {
+  const { tournamentName, config, tables, results, date } = params;
+  const earnedTourneyAchs = checkTournamentAchievements({ config, tables, results });
+
+  if (earnedTourneyAchs.length === 0) return;
+
+  const { data: profiles } = await supabaseAdmin
+    .from('profiles')
+    .select('id, username');
+
+  const profileMap = new Map<string, any>();
+  (profiles || []).forEach((p: any) => {
+    if (p.username) profileMap.set(p.username.toLowerCase().trim(), p);
+  });
+
+  for (const ach of earnedTourneyAchs) {
+    const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(d => d.id === ach.id);
+    const title = def ? def.title : ach.id;
+    const desc = def ? def.description : '';
+    const icon = def ? def.icon : '🏆';
+    const rarity = def ? def.rarity : 'epic';
+
+    for (const playerName of ach.earnedBy) {
+      const trimmedPlayer = playerName.trim();
+      if (!trimmedPlayer) continue;
+
+      const matchedProfile = profileMap.get(trimmedPlayer.toLowerCase());
+      const isGuest = !matchedProfile;
+      const userId = matchedProfile ? matchedProfile.id : null;
+
+      let dupeQuery = supabaseAdmin
+        .from('achievements')
+        .select('id')
+        .eq('achievement_id', ach.id)
+        .eq('date', date);
+
+      if (isGuest) {
+        dupeQuery = dupeQuery.eq('player_name', trimmedPlayer).eq('is_guest', true);
+      } else {
+        dupeQuery = dupeQuery.eq('user_id', userId);
+      }
+
+      const { data: existing } = await dupeQuery.limit(1);
+      if (existing && existing.length > 0) continue;
+
+      await supabaseAdmin
+        .from('achievements')
+        .insert({
+          user_id: userId,
+          is_guest: isGuest,
+          player_name: isGuest ? trimmedPlayer : null,
+          achievement_id: ach.id,
+          title,
+          description: desc,
+          icon,
+          rarity,
+          game_mode: `Turnier (${tournamentName})`,
+          earned_with: [trimmedPlayer],
+          earned_together: false,
+          date
+        });
+    }
+  }
+}
+
+async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
+  try {
+    await ensureCoreSchema();
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: "Supabase ist nicht konfiguriert." });
+    }
+
+    const body = getRequestBody(req);
+    const { action, name, tablesCount, finalistsCount, hasSecondChance, tableId, results, date } = body;
+
+    if (!name) {
+      return res.status(400).json({ error: "Missing required parameter 'name'." });
+    }
+
+    const trimmedName = name.trim();
+
+    // Fetch existing tournament
+    const { data: existingRows } = await supabaseAdmin
+      .from('tournaments')
+      .select('*')
+      .ilike('name', trimmedName)
+      .limit(1);
+
+    const existingTournament = existingRows && existingRows.length > 0 ? existingRows[0] : null;
+
+    let tournamentConfig: any = null;
+    let currentStatus = 'In Vorbereitung';
+
+    if (action === "create" || !existingTournament) {
       const tCount = parseInt(tablesCount) || 1;
       const qVorrunde = parseInt(body.qualifikationVorrunde) || 1;
       const qSecondChance = parseInt(body.qualifikationSecondChance) || 1;
@@ -1752,213 +2218,254 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
       const fCount = tCount * qVorrunde + (secondChance ? qSecondChance : 0);
       const today = date || new Date().toLocaleDateString("de-DE");
 
-      const lines: string[] = [];
-      lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
-      lines.push(`CONFIG;${name};${tCount};${fCount};${secondChance};In Vorbereitung;${today}`);
-      lines.push(`QualifikationVorrunde;${qVorrunde}`);
-      if (secondChance) {
-        lines.push(`QualifikationSecondChance;${qSecondChance}`);
-      }
-
+      const tables: any[] = [];
       for (let i = 1; i <= tCount; i++) {
         const color = TOURNAMENT_TABLE_COLORS[(i - 1) % TOURNAMENT_TABLE_COLORS.length];
-        lines.push(`TABLE;table_${i};Tisch ${i};Offen;;;[];${color}`);
+        tables.push({
+          id: `table_${i}`,
+          name: `Tisch ${i}`,
+          status: 'Offen',
+          players: [],
+          color
+        });
       }
 
       if (secondChance) {
-        lines.push(`TABLE;table_second_chance;Second Chance Tisch;Gesperrt;;;[];#F59E0B`);
+        tables.push({
+          id: 'table_second_chance',
+          name: 'Second Chance Tisch',
+          status: 'Gesperrt',
+          players: [],
+          color: '#F59E0B'
+        });
       }
 
-      lines.push(`TABLE;table_final;Finaltisch;Gesperrt;;;[];#D4AF37`);
+      tables.push({
+        id: 'table_final',
+        name: 'Finaltisch',
+        status: 'Gesperrt',
+        players: [],
+        color: '#D4AF37'
+      });
 
-      csvContent = lines.join("\n");
-    } else {
-      const tournament = parseTournamentCSV(filename, existingContent);
-      const config = tournament.config;
-      const tables = tournament.tables;
-      const existingResults = tournament.results;
-      const existingOutPlayers = tournament.outPlayers || [];
+      tournamentConfig = {
+        config: {
+          name: trimmedName,
+          tablesCount: tCount,
+          finalistsCount: fCount,
+          hasSecondChance: secondChance,
+          status: 'In Vorbereitung',
+          createdDate: today,
+          qualifikationVorrunde: qVorrunde,
+          qualifikationSecondChance: qSecondChance
+        },
+        tables,
+        results: [],
+        outPlayers: []
+      };
+      currentStatus = 'In Vorbereitung';
 
-      if (action === "updateParticipantsAndTables" && Array.isArray(body.tables)) {
-        body.tables.forEach((updatedT: any) => {
-          const targetTable = tables.find(t => t.id === updatedT.id);
-          if (targetTable) {
-            if (updatedT.name) targetTable.name = updatedT.name;
-            if (Array.isArray(updatedT.players)) targetTable.players = updatedT.players;
-            if (updatedT.color) targetTable.color = updatedT.color;
-          }
+      const { error: upsertErr } = await supabaseAdmin
+        .from('tournaments')
+        .upsert({
+          name: trimmedName,
+          status: currentStatus,
+          config: tournamentConfig,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'name' });
+
+      if (upsertErr) {
+        console.error('upsert tournament error:', upsertErr);
+        return res.status(500).json({ error: upsertErr.message });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Turnier '${trimmedName}' erfolgreich erstellt.`
+      });
+    }
+
+    // Update existing tournament
+    const fullData = existingTournament.config || {};
+    const config = fullData.config || {
+      name: trimmedName,
+      tablesCount: 1,
+      finalistsCount: 4,
+      hasSecondChance: false,
+      status: existingTournament.status || 'In Vorbereitung',
+      createdDate: new Date().toLocaleDateString('de-DE'),
+      qualifikationVorrunde: 1,
+      qualifikationSecondChance: 1
+    };
+    const tables: any[] = fullData.tables || [];
+    let existingResults: any[] = fullData.results || [];
+    let existingOutPlayers: any[] = fullData.outPlayers || [];
+
+    if (action === "updateParticipantsAndTables" && Array.isArray(body.tables)) {
+      body.tables.forEach((updatedT: any) => {
+        const targetTable = tables.find(t => t.id === updatedT.id);
+        if (targetTable) {
+          if (updatedT.name) targetTable.name = updatedT.name;
+          if (Array.isArray(updatedT.players)) targetTable.players = updatedT.players;
+          if (updatedT.color) targetTable.color = updatedT.color;
+        }
+      });
+      currentStatus = config.status || existingTournament.status || 'In Vorbereitung';
+    } else if (action === "saveTableResult" && tableId && Array.isArray(results)) {
+      const resultDate = date || new Date().toLocaleDateString("de-DE");
+      const targetTable = tables.find(t => t.id === tableId || (tableId === "SecondChance" && t.id === "table_second_chance") || (tableId === "Final" && t.id === "table_final"));
+
+      if (targetTable) {
+        targetTable.status = "Abgeschlossen";
+        const sorted = [...results].sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
+        if (sorted.length > 0) targetTable.winner = sorted[0].name;
+        if (sorted.length > 1) targetTable.secondPlace = sorted[1].name;
+        targetTable.players = sorted.map(r => r.name);
+
+        existingResults = existingResults.filter(r => r.tableId !== targetTable.id);
+        sorted.forEach(r => {
+          existingResults.push({
+            tableId: targetTable.id,
+            playerName: r.name,
+            rank: Number(r.rank) || 1,
+            avg: parseFloat(String(r.avg).replace(',', '.')) || 0,
+            schnaepse: parseInt(String(r.schnaepse), 10) || 0,
+            date: resultDate
+          });
         });
+
+        let updatedOutPlayers = existingOutPlayers.filter(op => op.tableId !== targetTable.id);
+        if (Array.isArray(body.outPlayers) && body.outPlayers.length > 0) {
+          body.outPlayers.forEach((pName: string) => {
+            updatedOutPlayers.push({
+              tableId: targetTable.id,
+              playerName: pName
+            });
+          });
+        }
+        existingOutPlayers = updatedOutPlayers;
+
+        const vorrundeTables = tables.filter(t => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
+        const allVorrundeDone = vorrundeTables.every(t => t.status === "Abgeschlossen");
+
+        const secondChanceTable = tables.find(t => t.id === "table_second_chance");
+        const finalTable = tables.find(t => t.id === "table_final");
 
         const qVorrunde = config.qualifikationVorrunde || 1;
         const qSecondChance = config.qualifikationSecondChance || 1;
 
-        const lines: string[] = [];
-        lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
-        lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
-        lines.push(`QualifikationVorrunde;${qVorrunde}`);
-        if (config.hasSecondChance) {
-          lines.push(`QualifikationSecondChance;${qSecondChance}`);
-        }
+        if (allVorrundeDone) {
+          config.status = "Vorrunde beendet";
 
-        tables.forEach((t, idx) => {
-          const playersJson = encodeURIComponent(JSON.stringify(t.players || []));
-          const tColor = t.color || (
-            t.id === "table_second_chance" ? "#F59E0B" :
-            t.id === "table_final" ? "#D4AF37" :
-            TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
-          );
-          lines.push(`TABLE;${t.id};${t.name};${t.status};${t.winner || ""};${t.secondPlace || ""};${playersJson};${tColor}`);
-        });
+          const directQualifiers: string[] = [];
+          const nonQualifiers: string[] = [];
 
-        existingResults.forEach(r => {
-          lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
-        });
-
-        existingOutPlayers.forEach(op => {
-          const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
-          lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
-        });
-
-        csvContent = lines.join("\n");
-      } else if (action === "saveTableResult" && tableId && Array.isArray(results)) {
-        const resultDate = date || new Date().toLocaleDateString("de-DE");
-        
-        const targetTable = tables.find(t => t.id === tableId || (tableId === "SecondChance" && t.id === "table_second_chance") || (tableId === "Final" && t.id === "table_final"));
-        if (targetTable) {
-          targetTable.status = "Abgeschlossen";
-          
-          const sorted = [...results].sort((a, b) => (a.rank || 0) - (b.rank || 0));
-          if (sorted.length > 0) targetTable.winner = sorted[0].name;
-          if (sorted.length > 1) targetTable.secondPlace = sorted[1].name;
-          targetTable.players = sorted.map(r => r.name);
-          
-          const filteredResults = existingResults.filter(r => r.tableId !== targetTable.id);
-          sorted.forEach(r => {
-            filteredResults.push({
-              tableId: targetTable.id,
-              playerName: r.name,
-              rank: r.rank,
-              avg: r.avg,
-              schnaepse: r.schnaepse,
-              date: resultDate
+          vorrundeTables.forEach(vt => {
+            const vtResults = existingResults.filter(r => r.tableId === vt.id).sort((a, b) => a.rank - b.rank);
+            vtResults.forEach(r => {
+              if (r.rank <= qVorrunde) {
+                directQualifiers.push(r.playerName);
+              } else {
+                nonQualifiers.push(r.playerName);
+              }
             });
           });
 
-          let updatedOutPlayers = existingOutPlayers.filter(op => op.tableId !== targetTable.id);
-          if (Array.isArray(body.outPlayers) && body.outPlayers.length > 0) {
-            body.outPlayers.forEach((pName: string) => {
-              updatedOutPlayers.push({
-                tableId: targetTable.id,
-                playerName: pName
-              });
-            });
+          if (secondChanceTable) {
+            secondChanceTable.players = nonQualifiers;
+            if (secondChanceTable.status === "Gesperrt") {
+              secondChanceTable.status = "Offen";
+              config.status = "Second Chance";
+            }
           }
-          
-          const vorrundeTables = tables.filter(t => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
-          const allVorrundeDone = vorrundeTables.every(t => t.status === "Abgeschlossen");
 
-          const secondChanceTable = tables.find(t => t.id === "table_second_chance");
-          const finalTable = tables.find(t => t.id === "table_final");
+          const scDone = !secondChanceTable || secondChanceTable.status === "Abgeschlossen";
 
-          const qVorrunde = config.qualifikationVorrunde || 1;
-          const qSecondChance = config.qualifikationSecondChance || 1;
+          if (scDone && finalTable) {
+            if (finalTable.status === "Gesperrt") {
+              finalTable.status = "Offen";
+              config.status = "Finale";
+            }
 
-          if (allVorrundeDone) {
-            config.status = "Vorrunde beendet";
-
-            const directQualifiers: string[] = [];
-            const nonQualifiers: string[] = [];
-
-            vorrundeTables.forEach(vt => {
-              const vtResults = filteredResults.filter(r => r.tableId === vt.id).sort((a, b) => a.rank - b.rank);
-              vtResults.forEach(r => {
-                if (r.rank <= qVorrunde) {
-                  directQualifiers.push(r.playerName);
-                } else {
-                  nonQualifiers.push(r.playerName);
+            const finalists = [...directQualifiers];
+            if (secondChanceTable && secondChanceTable.status === "Abgeschlossen") {
+              const scResults = existingResults.filter(r => r.tableId === secondChanceTable.id).sort((a, b) => a.rank - b.rank);
+              scResults.forEach(r => {
+                if (r.rank <= qSecondChance) {
+                  finalists.push(r.playerName);
                 }
               });
+            }
+            finalTable.players = finalists;
+          }
+        } else {
+          config.status = "Vorrunde läuft";
+        }
+
+        const isFinalDone = targetTable.id === "table_final" && targetTable.status === "Abgeschlossen";
+        if (isFinalDone) {
+          config.status = "Beendet";
+        }
+
+        currentStatus = config.status;
+
+        // Sync table results to public.game_results
+        const gameMode = (targetTable.id === 'table_final')
+          ? `Turnier Finale (${trimmedName})`
+          : (targetTable.id === 'table_second_chance')
+            ? `Turnier Second Chance (${trimmedName})`
+            : `Turnier Vorrunde Tisch ${targetTable.id} (${trimmedName})`;
+
+        await syncTournamentTableToSupabaseGameResults({
+          tournamentName: trimmedName,
+          tournamentTable: targetTable.name || targetTable.id,
+          gameMode,
+          date: resultDate,
+          results: sorted
+        });
+
+        // If Final table completed: Award tournament achievements into public.achievements!
+        if (isFinalDone) {
+          try {
+            await awardTournamentAchievementsInSupabase({
+              tournamentName: trimmedName,
+              config,
+              tables,
+              results: existingResults,
+              date: resultDate
             });
-
-            if (secondChanceTable) {
-              secondChanceTable.players = nonQualifiers;
-              if (secondChanceTable.status === "Gesperrt") {
-                secondChanceTable.status = "Offen";
-                config.status = "Second Chance";
-              }
-            }
-
-            const scDone = !secondChanceTable || secondChanceTable.status === "Abgeschlossen";
-
-            if (scDone && finalTable) {
-              if (finalTable.status === "Gesperrt") {
-                finalTable.status = "Offen";
-                config.status = "Finale";
-              }
-
-              const finalists = [...directQualifiers];
-              if (secondChanceTable && secondChanceTable.status === "Abgeschlossen") {
-                const scResults = filteredResults.filter(r => r.tableId === secondChanceTable.id).sort((a, b) => a.rank - b.rank);
-                scResults.forEach(r => {
-                  if (r.rank <= qSecondChance) {
-                    finalists.push(r.playerName);
-                  }
-                });
-              }
-              finalTable.players = finalists;
-            }
-          } else {
-            config.status = "Vorrunde läuft";
+          } catch (achErr: any) {
+            console.error('Error awarding tournament achievements:', achErr);
           }
-
-          if (targetTable.id === "table_final" && targetTable.status === "Abgeschlossen") {
-            config.status = "Beendet";
-          }
-
-          config.finalistsCount = config.tablesCount * qVorrunde + (config.hasSecondChance ? qSecondChance : 0);
-
-          const lines: string[] = [];
-          lines.push("TYPE;KEY;VAL1;VAL2;VAL3;VAL4;VAL5");
-          lines.push(`CONFIG;${config.name};${config.tablesCount};${config.finalistsCount};${config.hasSecondChance};${config.status};${config.createdDate}`);
-          lines.push(`QualifikationVorrunde;${qVorrunde}`);
-          if (config.hasSecondChance) {
-            lines.push(`QualifikationSecondChance;${qSecondChance}`);
-          }
-
-          tables.forEach((t, idx) => {
-            const playersJson = encodeURIComponent(JSON.stringify(t.players || []));
-            const tColor = t.color || (
-              t.id === "table_second_chance" ? "#F59E0B" :
-              t.id === "table_final" ? "#D4AF37" :
-              TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length]
-            );
-            lines.push(`TABLE;${t.id};${t.name};${t.status};${t.winner || ""};${t.secondPlace || ""};${playersJson};${tColor}`);
-          });
-
-          filteredResults.forEach(r => {
-            lines.push(`RESULT;${r.tableId};${r.playerName};${r.rank};${r.avg};${r.schnaepse};${r.date}`);
-          });
-
-          updatedOutPlayers.forEach(op => {
-            const displayT = op.tableId === "table_second_chance" ? "SecondChance" : op.tableId;
-            lines.push(`Ausgeschieden;${displayT};${op.playerName}`);
-          });
-
-          csvContent = lines.join("\n");
         }
       }
     }
 
-    if (!csvContent) {
-      return res.status(400).json({ error: "Keine Daten zum Speichern vorhanden." });
+    tournamentConfig = {
+      config,
+      tables,
+      results: existingResults,
+      outPlayers: existingOutPlayers
+    };
+
+    const { error: updateErr } = await supabaseAdmin
+      .from('tournaments')
+      .update({
+        status: currentStatus,
+        config: tournamentConfig,
+        updated_at: new Date().toISOString()
+      })
+      .ilike('name', trimmedName);
+
+    if (updateErr) {
+      console.error('update tournament error:', updateErr);
+      return res.status(500).json({ error: updateErr.message });
     }
 
-    const saved = await saveTournamentCsv(name, csvContent, token);
-    if (!saved) {
-      return res.status(500).json({ error: "Speichern der Turnier-CSV fehlgeschlagen." });
-    }
-
-    return res.json({ success: true, message: `Turnier '${name}' erfolgreich gespeichert.` });
+    return res.status(200).json({
+      success: true,
+      message: `Turnier '${trimmedName}' erfolgreich aktualisiert.`
+    });
   } catch (error: any) {
     console.error("Error in tournament save handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Speichern des Turniers." });
@@ -1966,33 +2473,35 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleTournamentDelete(req: VercelRequest, res: VercelResponse) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    return res.status(500).json({
-      error: 'BLOB_READ_WRITE_TOKEN ist nicht konfiguriert. Bitte in den Vercel Environment Variables setzen.'
-    });
-  }
-
-  const body = getRequestBody(req);
-  const { name, tournamentName } = body;
-  const targetName = name || tournamentName;
-
-  if (!targetName) {
-    return res.status(400).json({ error: "Missing required parameter 'name' or 'tournamentName'." });
-  }
-
-  const filename = getSafeFilename(targetName);
-  const safeName = getSafeTournamentName(targetName);
-
   try {
-    const listResult = await list({ prefix: `tournament_${safeName}`, token });
-    const blob = listResult.blobs.find(b => b.pathname === filename || b.pathname.endsWith("/" + filename));
-    if (blob) {
-      await del(blob.url, { token });
-      return res.json({ success: true, message: `Turnier '${targetName}' erfolgreich gelöscht.` });
-    } else {
-      return res.status(404).json({ error: `Turnier '${targetName}' nicht gefunden.` });
+    await ensureCoreSchema();
+
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: "Supabase ist nicht konfiguriert." });
     }
+
+    const body = getRequestBody(req);
+    const { name, tournamentName } = body;
+    const targetName = (name || tournamentName || '').trim();
+
+    if (!targetName) {
+      return res.status(400).json({ error: "Missing required parameter 'name' or 'tournamentName'." });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('tournaments')
+      .delete()
+      .ilike('name', targetName);
+
+    if (error) {
+      console.error('tournaments delete error:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Turnier '${targetName}' erfolgreich gelöscht.`
+    });
   } catch (error: any) {
     console.error("Error in tournament delete handler:", error);
     return res.status(500).json({ error: error.message || "Fehler beim Löschen des Turniers." });
@@ -2001,241 +2510,399 @@ async function handleTournamentDelete(req: VercelRequest, res: VercelResponse) {
 
 async function handleTournamentMigrateToCSV(req: VercelRequest, res: VercelResponse) {
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
+    await ensureCoreSchema();
+    if (!isSupabaseConfigured()) {
+      return res.status(500).json({ error: 'Supabase ist nicht konfiguriert.' });
+    }
 
     const body = getRequestBody(req);
     const { tournamentName } = body || {};
     if (!tournamentName) return res.status(400).json({ error: 'tournamentName erforderlich' });
 
-    // 1. Nur das ausgewählte Turnier laden
-    const safeName = tournamentName.replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_');
-    const { blobs } = await list({ prefix: `tournament_${safeName}`, token });
-    const blob = blobs.find(b => b.pathname.includes(safeName));
-
-    if (!blob) {
-      return res.status(404).json({ error: `Turnier "${tournamentName}" nicht gefunden` });
-    }
-
-    // 2. Bestehende results.csv laden
-    const { blobs: resultBlobs } = await list({ prefix: 'results', token });
-    const resultsBlob = resultBlobs.find(b => b.pathname === 'results.csv');
-    let existingCsv = 'Datum;Modus;Name;Avg;Schnaepse\n';
-    if (resultsBlob) {
-      const r = await fetch(resultsBlob.url);
-      existingCsv = await r.text();
-    }
-
-    // Bereits vorhandene Einträge als Set
-    const existingLines = new Set(existingCsv.trim().split('\n').slice(1));
-
     let migrated = 0;
     let skipped = 0;
-    let supabaseSynced = 0;
-    const newLines: string[] = [];
 
-    // 3. Supabase Profile und bestehende game_results vorab laden (falls konfiguriert)
-    const profileMap = new Map<string, any>();
-    const existingSqlSet = new Set<string>();
+    // 1. Zuerst in public.tournaments suchen
+    const { data: tourneyRows } = await supabaseAdmin
+      .from('tournaments')
+      .select('*')
+      .ilike('name', tournamentName.trim())
+      .limit(1);
 
-    if (isSupabaseConfigured() || !!supabaseSecretKey) {
-      try {
-        const { data: profiles } = await supabaseAdmin
-          .from('profiles')
-          .select('id, username, games_played, total_points, high_score');
+    if (tourneyRows && tourneyRows.length > 0) {
+      const tourney = tourneyRows[0];
+      const fullConfig = tourney.config || {};
+      const results = fullConfig.results || [];
+      const tables = fullConfig.tables || [];
 
-        if (profiles) {
-          profiles.forEach((p: any) => {
-            if (p.username) {
-              profileMap.set(p.username.toLowerCase().trim(), p);
-            }
+      for (const table of tables) {
+        const tableResults = results.filter((r: any) => r.tableId === table.id);
+        if (tableResults.length > 0) {
+          const gameMode = (table.id === 'table_final')
+            ? `Turnier Finale (${tourney.name})`
+            : (table.id === 'table_second_chance')
+              ? `Turnier Second Chance (${tourney.name})`
+              : `Turnier Vorrunde Tisch ${table.id} (${tourney.name})`;
+
+          const syncRes = await syncTournamentTableToSupabaseGameResults({
+            tournamentName: tourney.name,
+            tournamentTable: table.name || table.id,
+            gameMode,
+            date: tableResults[0]?.date || new Date().toLocaleDateString('de-DE'),
+            results: tableResults
           });
-        }
-
-        // Fallback: auth.users abfragen für User, deren Username in den Metadaten liegt
-        try {
-          const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
-          if (authData?.users) {
-            authData.users.forEach((u: any) => {
-              const uname = u.user_metadata?.username || u.user_metadata?.name || u.email;
-              if (uname && !profileMap.has(uname.toLowerCase().trim())) {
-                profileMap.set(uname.toLowerCase().trim(), {
-                  id: u.id,
-                  username: uname,
-                  games_played: 0,
-                  total_points: 0,
-                  high_score: 999
-                });
-              }
-            });
-          }
-        } catch (authErr) {
-          // Fallback auth.users nicht kritisch
-        }
-
-        // Vorhandene game_results laden, um SQL-Duplikate zu vermeiden
-        const { data: existingResults } = await supabaseAdmin
-          .from('game_results')
-          .select('user_id, date, game_mode');
-
-        if (existingResults) {
-          existingResults.forEach((r: any) => {
-            existingSqlSet.add(`${r.user_id}|${r.date}|${r.game_mode}`);
-          });
-        }
-      } catch (dbLoadErr) {
-        console.warn('Supabase Profile Vorab-Laden Warnung:', dbLoadErr);
-      }
-    }
-
-    // 4. Turnier-CSV verarbeiten
-    const tournamentRes = await fetch(blob.url);
-    const tournamentCsv = await tournamentRes.text();
-    const tournamentRows = tournamentCsv.trim().split('\n');
-
-    // Ergebnis-Zeilen aus Turnier-CSV extrahieren
-    const ergebnisRows = tournamentRows.filter(r => r.startsWith('Ergebnis;'));
-
-    for (const row of ergebnisRows) {
-      const parts = row.split(';');
-      if (parts.length < 7) continue;
-
-      const tischId = parts[1];
-      const datum = parts[2];
-      const spielername = parts[3];
-      const rawAvg = parts[4];
-      const rawSchnaepse = parts[5];
-
-      const avgVal = parseFloat(String(rawAvg).replace(',', '.')) || 0;
-      const schnaepseVal = parseInt(String(rawSchnaepse), 10) || 0;
-      const totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
-
-      // Turniermodus bestimmen
-      const tName = blob.pathname
-        .replace('tournament_', '')
-        .replace('.csv', '');
-      const gameMode = tischId === 'Final'
-        ? `Turnier Finale (${tName})`
-        : tischId === 'SecondChance'
-          ? `Turnier Second Chance (${tName})`
-          : `Turnier Vorrunde Tisch ${tischId} (${tName})`;
-
-      // CSV-Zeile im results.csv Format
-      const newLine = `${datum};${gameMode};${spielername};${rawAvg};${rawSchnaepse}`;
-
-      // Duplikate in CSV überspringen
-      if (!existingLines.has(newLine)) {
-        newLines.push(newLine);
-        existingLines.add(newLine);
-        migrated++;
-      } else {
-        skipped++;
-      }
-
-      // ── SUPABASE SYNC ──────────────────────────────────────────
-      const matchedProfile = profileMap.get(spielername.toLowerCase().trim());
-      if (matchedProfile) {
-        const sqlKey = `${matchedProfile.id}|${datum}|${gameMode}`;
-        if (!existingSqlSet.has(sqlKey)) {
-          try {
-            // A) Spiel in game_results Tabelle eintragen
-            const { error: insertErr } = await supabaseAdmin
-              .from('game_results')
-              .insert({
-                user_id: matchedProfile.id,
-                game_mode: gameMode,
-                date: datum,
-                avg: avgVal,
-                schnaepse: schnaepseVal,
-                total: totalVal,
-                created_at: new Date().toISOString()
-              });
-
-            if (!insertErr) {
-              existingSqlSet.add(sqlKey);
-
-              // B) Profil-Stats in profiles aktualisieren
-              const newGamesPlayed = (matchedProfile.games_played || 0) + 1;
-              const newTotalPoints = (matchedProfile.total_points || 0) + schnaepseVal;
-              const currentHigh = (matchedProfile.high_score !== null && matchedProfile.high_score !== undefined)
-                ? Number(matchedProfile.high_score)
-                : 999;
-              const newHighScore = (currentHigh === 0 || avgVal < currentHigh) ? avgVal : currentHigh;
-
-              await supabaseAdmin
-                .from('profiles')
-                .update({
-                  games_played: newGamesPlayed,
-                  total_points: newTotalPoints,
-                  high_score: newHighScore,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', matchedProfile.id);
-
-              // In-Memory Stats aktualisieren
-              matchedProfile.games_played = newGamesPlayed;
-              matchedProfile.total_points = newTotalPoints;
-              matchedProfile.high_score = newHighScore;
-
-              supabaseSynced++;
-            }
-          } catch (syncErr) {
-            console.warn(`Supabase Sync Fehler für Spieler "${spielername}":`, syncErr);
-          }
+          migrated += syncRes.syncedCount;
         }
       }
-    }
 
-    // 5. Neue Zeilen zur results.csv hinzufügen
-    if (newLines.length > 0) {
-      const updatedCsv = existingCsv.trimEnd() + '\n' + newLines.join('\n') + '\n';
-      await put('results.csv', updatedCsv, {
-        access: 'public',
-        token,
-        addRandomSuffix: false
+      if (fullConfig.config?.status === 'Beendet' || tables.find((t: any) => t.id === 'table_final')?.status === 'Abgeschlossen') {
+        await awardTournamentAchievementsInSupabase({
+          tournamentName: tourney.name,
+          config: fullConfig.config || {},
+          tables,
+          results,
+          date: results[0]?.date || new Date().toLocaleDateString('de-DE')
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `${migrated} Ergebnisse aus Turnier '${tournamentName}' in Supabase game_results übertragen.`,
+        migrated,
+        skipped,
+        supabaseSynced: migrated
       });
     }
 
-    return res.status(200).json({
-      message: `${migrated} Ergebnisse aus "${tournamentName}" übertragen (${supabaseSynced} mit Supabase-Profilen verknüpft), ${skipped} Duplikate übersprungen`,
-      migrated,
-      skipped,
-      supabaseSynced
-    });
+    // 2. Fallback: Falls noch in Legacy Blob gespeichert
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      try {
+        const { list } = await import('@vercel/blob');
+        const safeName = tournamentName.replace(/[^a-zA-Z0-9äöüÄÖÜß\-_]/g, '_');
+        const { blobs } = await list({ prefix: `tournament_${safeName}`, token });
+        const blob = blobs.find(b => b.pathname.includes(safeName));
+        if (blob) {
+          const tournamentRes = await fetch(blob.url);
+          const tournamentCsv = await tournamentRes.text();
+          const tournamentRows = tournamentCsv.trim().split('\n');
+          const ergebnisRows = tournamentRows.filter(r => r.startsWith('RESULT;') || r.startsWith('Ergebnis;'));
 
+          const resultsList: any[] = [];
+          for (const row of ergebnisRows) {
+            const parts = row.split(';');
+            if (parts.length < 6) continue;
+            let tischId = parts[1];
+            let spielername = row.startsWith('RESULT;') ? parts[2] : parts[3];
+            let rawRank = row.startsWith('RESULT;') ? parts[3] : parts[7] || parts[6] || '99';
+            let rawAvg = row.startsWith('RESULT;') ? parts[4] : parts[4];
+            let rawSchnaepse = row.startsWith('RESULT;') ? parts[5] : parts[5];
+            let datum = row.startsWith('RESULT;') ? parts[6] : parts[2] || new Date().toLocaleDateString('de-DE');
+
+            if (!spielername?.trim()) continue;
+            resultsList.push({
+              tableId: tischId,
+              playerName: spielername.trim(),
+              name: spielername.trim(),
+              rank: parseInt(rawRank, 10) || 99,
+              avg: rawAvg,
+              schnaepse: rawSchnaepse,
+              date: datum
+            });
+          }
+
+          const syncRes = await syncTournamentTableToSupabaseGameResults({
+            tournamentName,
+            tournamentTable: 'Archiv',
+            gameMode: `Turnier (${tournamentName})`,
+            date: resultsList[0]?.date || new Date().toLocaleDateString('de-DE'),
+            results: resultsList
+          });
+          migrated = syncRes.syncedCount;
+
+          return res.status(200).json({
+            success: true,
+            message: `${migrated} Ergebnisse aus Blob in Supabase game_results übertragen.`,
+            migrated,
+            skipped,
+            supabaseSynced: migrated
+          });
+        }
+      } catch (blobErr: any) {
+        console.warn('Fallback blob read error:', blobErr?.message);
+      }
+    }
+
+    return res.status(404).json({ error: `Turnier "${tournamentName}" nicht gefunden.` });
   } catch (err: any) {
     console.error('tournament migrate error:', err);
     return res.status(500).json({ error: err.message });
   }
 }
 
-async function handleSaveCsv(req: VercelRequest, res: VercelResponse) {
+async function handleMigrateToStaging(req: VercelRequest, res: VercelResponse) {
   try {
     const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) return res.status(500).json({ error: 'Token fehlt' });
+    if (!token) return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN fehlt' });
 
+    const body = getRequestBody(req);
+    const { clearExisting } = body || {};
+
+    // 1. Staging-Tabellen in Supabase (SQL) automatisiert anlegen (falls nicht vorhanden)
+    const createTablesSQL = `
+CREATE TABLE IF NOT EXISTS public.staging_results_csv (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  raw_line TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.staging_tournaments (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  tournament_name TEXT NOT NULL,
+  raw_line TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION public.exec_sql(sql text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  EXECUTE sql;
+END;
+$$;
+
+ALTER TABLE public.staging_results_csv ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.staging_tournaments ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'staging_results_csv' AND policyname = 'Allow service role all staging_results_csv'
+  ) THEN
+    CREATE POLICY "Allow service role all staging_results_csv" ON public.staging_results_csv FOR ALL TO service_role USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'staging_tournaments' AND policyname = 'Allow service role all staging_tournaments'
+  ) THEN
+    CREATE POLICY "Allow service role all staging_tournaments" ON public.staging_tournaments FOR ALL TO service_role USING (true);
+  END IF;
+END
+$$;
+`;
+
+    // A) Falls exec_sql RPC verfügbar ist, aufrufen:
+    try {
+      await supabaseAdmin.rpc('exec_sql', { sql: createTablesSQL });
+    } catch {
+      // ignore
+    }
+
+    // B) Falls DB-URL konfiguriert ist, direkt ausführen:
+    const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL;
+    if (dbUrl) {
+      try {
+        const { Client } = await import('pg');
+        const pgClient = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        await pgClient.connect();
+        await pgClient.query(createTablesSQL);
+        await pgClient.end();
+      } catch (pgErr) {
+        console.warn('Direct PG execution failed:', pgErr);
+      }
+    }
+
+    // C) Prüfen, ob beide Staging-Tabellen in Supabase existieren
+    const checkResults = await supabaseAdmin.from('staging_results_csv').select('id').limit(1);
+    const checkTournaments = await supabaseAdmin.from('staging_tournaments').select('id').limit(1);
+
+    const resultsTableMissing = checkResults.error && checkResults.error.code === 'PGRST205';
+    const tournamentsTableMissing = checkTournaments.error && checkTournaments.error.code === 'PGRST205';
+
+    if (resultsTableMissing || tournamentsTableMissing) {
+      return res.status(200).json({
+        success: false,
+        tablesMissing: true,
+        missingTables: [
+          ...(resultsTableMissing ? ['staging_results_csv'] : []),
+          ...(tournamentsTableMissing ? ['staging_tournaments'] : [])
+        ],
+        sql: createTablesSQL.trim(),
+        message: 'Die Staging-Tabellen existieren noch nicht in Supabase. Bitte führe das SQL-Skript im Supabase SQL Editor aus.'
+      });
+    }
+
+    // Falls clearExisting aktiviert ist: Vorherige Staging-Daten leeren
+    if (clearExisting) {
+      try {
+        await supabaseAdmin.from('staging_results_csv').delete().neq('id', 0);
+        await supabaseAdmin.from('staging_tournaments').delete().neq('id', 0);
+      } catch (clearErr) {
+        console.warn('Staging tables clearing error:', clearErr);
+      }
+    }
+
+    // 2. Einlesen & Übertragen aus Vercel Blob
+    const { list } = await import('@vercel/blob');
+
+    // 2.1 results.csv einlesen
+    let resultsCsvRowsInserted = 0;
+    const { blobs: resultsBlobs } = await list({ prefix: 'results', token });
+    const resultsBlob = resultsBlobs.find(b => b.pathname === 'results.csv' || b.pathname.endsWith('/results.csv'));
+
+    if (resultsBlob) {
+      const csvResponse = await fetch(resultsBlob.url);
+      const csvText = await csvResponse.text();
+      const rawLines = csvText.split(/\r?\n/);
+
+      // Datenzeilen filtern (Header überspringen, falls vorhanden)
+      const dataLines = rawLines.filter(l => {
+        const trimmed = l.trim();
+        if (!trimmed) return false;
+        if (trimmed.toLowerCase().startsWith('datum;') || trimmed.toLowerCase().startsWith('datum ')) return false;
+        return true;
+      });
+
+      if (dataLines.length > 0) {
+        const rowsToInsert = dataLines.map(line => ({
+          raw_line: line.trim(),
+          created_at: new Date().toISOString()
+        }));
+
+        const batchSize = 100;
+        for (let i = 0; i < rowsToInsert.length; i += batchSize) {
+          const chunk = rowsToInsert.slice(i, i + batchSize);
+          const { error: insertErr } = await supabaseAdmin
+            .from('staging_results_csv')
+            .insert(chunk);
+          if (insertErr) {
+            console.error('staging_results_csv insert error:', insertErr);
+            throw new Error(`Fehler beim Einfügen in staging_results_csv: ${insertErr.message}`);
+          }
+          resultsCsvRowsInserted += chunk.length;
+        }
+      }
+    }
+
+    // 2.2 Alle Turnier-Blobs (prefix: 'tournament_') einlesen
+    let tournamentRowsInserted = 0;
+    let tournamentsProcessedCount = 0;
+    const { blobs: allBlobs } = await list({ prefix: 'tournament_', token });
+    const tournamentBlobs = allBlobs.filter(b =>
+      (b.pathname.startsWith('tournament_') || b.pathname.includes('/tournament_')) &&
+      b.pathname.endsWith('.csv')
+    );
+
+    const tournamentRowsToInsert: Array<{ tournament_name: string; raw_line: string; created_at: string }> = [];
+
+    for (const blob of tournamentBlobs) {
+      try {
+        const tourneyRes = await fetch(blob.url);
+        if (!tourneyRes.ok) continue;
+        const text = await tourneyRes.text();
+        const lines = text.split(/\r?\n/);
+
+        // Turniernamen ermitteln
+        let tournamentName = blob.pathname
+          .replace(/^.*tournament_/, '')
+          .replace(/\.csv$/, '');
+
+        // Falls im Blob TOURNAMENT_NAME; vorhanden ist, bevorzugen
+        for (const line of lines) {
+          if (line.startsWith('TOURNAMENT_NAME;')) {
+            const parts = line.split(';');
+            if (parts[1]?.trim()) {
+              tournamentName = parts[1].trim();
+              break;
+            }
+          }
+        }
+
+        // Relevante Zeilen (RESULT; / Ergebnis;) filtern
+        const relevantLines = lines.filter(l => {
+          const trimmed = l.trim();
+          return trimmed.startsWith('RESULT;') || trimmed.startsWith('Ergebnis;');
+        });
+
+        for (const row of relevantLines) {
+          tournamentRowsToInsert.push({
+            tournament_name: tournamentName,
+            raw_line: row.trim(),
+            created_at: new Date().toISOString()
+          });
+        }
+        tournamentsProcessedCount++;
+      } catch (tourneyErr) {
+        console.error(`Fehler beim Lesen des Turniers ${blob.pathname}:`, tourneyErr);
+      }
+    }
+
+    if (tournamentRowsToInsert.length > 0) {
+      const batchSize = 100;
+      for (let i = 0; i < tournamentRowsToInsert.length; i += batchSize) {
+        const chunk = tournamentRowsToInsert.slice(i, i + batchSize);
+        const { error: insertErr } = await supabaseAdmin
+          .from('staging_tournaments')
+          .insert(chunk);
+        if (insertErr) {
+          console.error('staging_tournaments insert error:', insertErr);
+          throw new Error(`Fehler beim Einfügen in staging_tournaments: ${insertErr.message}`);
+        }
+        tournamentRowsInserted += chunk.length;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Erfolgreich übertragen: ${resultsCsvRowsInserted} Zeilen in staging_results_csv, ${tournamentRowsInserted} Zeilen aus ${tournamentsProcessedCount} Turnieren in staging_tournaments.`,
+      resultsCsvRows: resultsCsvRowsInserted,
+      tournamentRows: tournamentRowsInserted,
+      tournamentsProcessed: tournamentsProcessedCount,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (err: any) {
+    console.error('handleMigrateToStaging error:', err);
+    return res.status(500).json({ error: err.message || 'Fehler bei der Übertragung in Staging-Tabellen' });
+  }
+}
+
+async function handleSaveCsv(req: VercelRequest, res: VercelResponse) {
+  try {
+    await ensureCoreSchema();
     const body = getRequestBody(req);
     const { rows } = body || {};
     if (!rows || !Array.isArray(rows)) {
       return res.status(400).json({ error: 'rows erforderlich' });
     }
 
-    // CSV neu zusammenbauen
-    const header = 'Datum;Modus;Name;Avg;Schnaepse\n';
-    const dataRows = rows
-      .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum')
-      .map((row: string[]) => row.slice(0, 6).join(';'))
-      .join('\n');
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      try {
+        const { put } = await import('@vercel/blob');
+        const header = 'Datum;Modus;Name;Avg;Schnaepse\n';
+        const dataRows = rows
+          .filter((row: string[]) => row.length >= 5 && row[0] !== 'Datum')
+          .map((row: string[]) => row.slice(0, 6).join(';'))
+          .join('\n');
 
-    const updatedCsv = header + dataRows + '\n';
+        const updatedCsv = header + dataRows + '\n';
+        await put('results.csv', updatedCsv, {
+          access: 'public',
+          token,
+          addRandomSuffix: false,
+          allowOverwrite: true
+        });
+      } catch (blobErr: any) {
+        console.warn('handleSaveCsv blob backup warning:', blobErr?.message);
+      }
+    }
 
-    await put('results.csv', updatedCsv, {
-      access: 'public',
-      token,
-      addRandomSuffix: false
+    return res.status(200).json({
+      success: true,
+      message: 'Ergebnisse in Supabase SQL Tabelle public.game_results verwaltet.'
     });
-
-    return res.status(200).json({ message: 'CSV erfolgreich gespeichert' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -2248,6 +2915,7 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
 
   try {
+    await ensureCoreSchema();
     // ══════════════════════════════════════════
     // SCHRITT 0: VOLLSTÄNDIGES BACKUP ERSTELLEN
     // ══════════════════════════════════════════
@@ -2270,7 +2938,7 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
 
     const allAuthUsers = authUsersResult?.users || [];
 
-    // Backup als JSON in Blob speichern
+    // Backup als JSON in Supabase und optional Blob speichern
     const backupData = {
       timestamp: new Date().toISOString(),
       profiles: allProfiles || [],
@@ -2280,15 +2948,29 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
       auth_users_count: allAuthUsers.length
     };
 
-    const backupFilename = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    try {
+      await supabaseAdmin.from('database_backups').insert({
+        backup_type: 'repair_pre_backup',
+        data: backupData
+      });
+      fixes.push('💾 Vollständiges Datenbank-Backup in public.database_backups gesichert');
+    } catch (dbBackupErr: any) {
+      console.warn('database_backups insert error:', dbBackupErr?.message);
+    }
 
     if (token) {
-      await put(`backups/${backupFilename}`, JSON.stringify(backupData, null, 2), {
-        access: 'public',
-        token,
-        addRandomSuffix: false
-      });
-      fixes.push(`💾 Backup erstellt: backups/${backupFilename}`);
+      try {
+        const { put } = await import('@vercel/blob');
+        const backupFilename = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        await put(`backups/${backupFilename}`, JSON.stringify(backupData, null, 2), {
+          access: 'public',
+          token,
+          addRandomSuffix: false
+        });
+        fixes.push(`💾 Backup zusätzlich in Blob erstellt: backups/${backupFilename}`);
+      } catch (bErr: any) {
+        console.warn('Blob backup optional write warning:', bErr?.message);
+      }
     }
 
     report.push(`📋 Backup enthält: ${allProfiles?.length || 0} Profile, ${allGameResults?.length || 0} Ergebnisse, ${allAchievements?.length || 0} Achievements, ${allFriendships?.length || 0} Freundschaften`);
@@ -2425,16 +3107,16 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     if (fixedIncomplete > 0) fixes.push(`🔧 ${fixedIncomplete} unvollständige game_results repariert`);
     else report.push('✅ Alle game_results vollständig');
 
-    // Verwaiste game_results → in separaten Blob sichern statt löschen
+    // Verwaiste game_results → in database_backups sichern statt löschen
     const orphanResults = (freshResults || []).filter((r: any) => !authUserMap[r.user_id]);
     if (orphanResults.length > 0) {
-      if (token) {
-        const orphanBackup = `orphan_results_${Date.now()}.json`;
-        await put(`backups/${orphanBackup}`, JSON.stringify(orphanResults, null, 2), {
-          access: 'public', token, addRandomSuffix: false
+      try {
+        await supabaseAdmin.from('database_backups').insert({
+          backup_type: 'orphan_game_results',
+          data: orphanResults
         });
-        fixes.push(`💾 ${orphanResults.length} verwaiste game_results in ${orphanBackup} gesichert (nicht gelöscht)`);
-      }
+        fixes.push(`💾 ${orphanResults.length} verwaiste game_results in database_backups gesichert (nicht gelöscht)`);
+      } catch {}
       report.push(`⚠️ ${orphanResults.length} game_results ohne Auth User gefunden (gesichert, nicht gelöscht)`);
     } else {
       report.push('✅ Keine verwaisten game_results');
@@ -2468,13 +3150,14 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     }
 
     if (duplicatesToDelete.length > 0) {
-      // Duplikate zuerst sichern
-      if (token) {
-        await put(`backups/duplicate_achievements_${Date.now()}.json`,
-          JSON.stringify(duplicatesToDelete, null, 2),
-          { access: 'public', token, addRandomSuffix: false }
-        );
-      }
+      // Duplikate zuerst sichern in database_backups
+      try {
+        await supabaseAdmin.from('database_backups').insert({
+          backup_type: 'duplicate_achievements',
+          data: duplicatesToDelete
+        });
+      } catch {}
+
       // Dann löschen
       for (const dup of duplicatesToDelete) {
         const { error } = await supabaseAdmin.from('achievements').delete().eq('id', dup.id);
@@ -2488,13 +3171,13 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // Achievements ohne achievement_id sichern
     const invalidAchs = (freshAchs || []).filter((a: any) => !a.achievement_id?.trim());
     if (invalidAchs.length > 0) {
-      if (token) {
-        await put(`backups/invalid_achievements_${Date.now()}.json`,
-          JSON.stringify(invalidAchs, null, 2),
-          { access: 'public', token, addRandomSuffix: false }
-        );
-      }
-      report.push(`⚠️ ${invalidAchs.length} Achievements ohne ID gefunden und gesichert`);
+      try {
+        await supabaseAdmin.from('database_backups').insert({
+          backup_type: 'invalid_achievements',
+          data: invalidAchs
+        });
+      } catch {}
+      report.push(`⚠️ ${invalidAchs.length} Achievements ohne ID gefunden und in database_backups gesichert`);
     } else {
       report.push('✅ Alle Achievements haben IDs');
     }
@@ -2502,13 +3185,13 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // Verwaiste Achievements sichern
     const orphanAchs = (freshAchs || []).filter((a: any) => !authUserMap[a.user_id]);
     if (orphanAchs.length > 0) {
-      if (token) {
-        await put(`backups/orphan_achievements_${Date.now()}.json`,
-          JSON.stringify(orphanAchs, null, 2),
-          { access: 'public', token, addRandomSuffix: false }
-        );
-      }
-      report.push(`⚠️ ${orphanAchs.length} verwaiste Achievements gesichert (nicht gelöscht)`);
+      try {
+        await supabaseAdmin.from('database_backups').insert({
+          backup_type: 'orphan_achievements',
+          data: orphanAchs
+        });
+      } catch {}
+      report.push(`⚠️ ${orphanAchs.length} verwaiste Achievements in database_backups gesichert (nicht gelöscht)`);
     } else {
       report.push('✅ Keine verwaisten Achievements');
     }
@@ -2542,13 +3225,13 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
       (f: any) => !authUserMap[f.requester_id] || !authUserMap[f.receiver_id]
     );
     if (orphanFriends.length > 0) {
-      if (token) {
-        await put(`backups/orphan_friendships_${Date.now()}.json`,
-          JSON.stringify(orphanFriends, null, 2),
-          { access: 'public', token, addRandomSuffix: false }
-        );
-      }
-      report.push(`⚠️ ${orphanFriends.length} verwaiste Freundschaften gesichert (nicht gelöscht)`);
+      try {
+        await supabaseAdmin.from('database_backups').insert({
+          backup_type: 'orphan_friendships',
+          data: orphanFriends
+        });
+      } catch {}
+      report.push(`⚠️ ${orphanFriends.length} verwaiste Freundschaften in database_backups gesichert (nicht gelöscht)`);
     } else {
       report.push('✅ Keine verwaisten Freundschaften');
     }
@@ -2615,7 +3298,7 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // ══════════════════════════════════════════
     report.push('─────────────────────────────');
     report.push(`🔧 ${fixes.length} Reparaturen durchgeführt`);
-    report.push(`⚠️ Alle gesicherten Daten liegen in /backups/ im Blob Storage`);
+    report.push('💾 Alle gesicherten Daten liegen in der Supabase-Tabelle public.database_backups');
     if (errors.length > 0) report.push(`❌ ${errors.length} Fehler aufgetreten`);
 
     return res.status(200).json({

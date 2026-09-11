@@ -41,10 +41,7 @@ import PlayerBadges from './src/components/PlayerBadges';
 import ExpandableDates from './src/components/ExpandableDates';
 import VerticalText from './src/components/VerticalText';
 import GameTable from './src/components/GameTable';
-import SqlMigrationModal from './src/components/SqlMigrationModal';
-import TournamentMigrationModal from './src/components/TournamentMigrationModal';
-import StagingMigrationModal, { StagingMigrationResult } from './src/components/StagingMigrationModal';
-import CsvEditModal from './src/components/CsvEditModal';
+
 import AdminAchievementsModal from './src/components/AdminAchievementsModal';
 import ProfileModal from './src/components/ProfileModal';
 import FriendsModal from './src/components/FriendsModal';
@@ -458,6 +455,47 @@ const App: React.FC = () => {
     return undefined;
   };
 
+  // Ermittelt, ob ein Spieler ein Gast ist (kein registrierter / verknüpfter Account)
+  const isPlayerGuest = (playerNameOrId?: string, playerObj?: any): boolean => {
+    if (playerObj?.isGuest === true) return true;
+    if (playerObj?.isGuest === false) return false;
+    if (playerObj?.userId || playerObj?.user_id) return false;
+
+    if (!playerNameOrId) return true;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 1. Eingeloggter Benutzer
+    const currentUsername = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentEmail = (supabaseUser?.email || '').trim().toLowerCase();
+    if (supabaseUser?.id && (
+      (currentUsername && currentUsername === target) ||
+      (currentEmail && currentEmail === target) ||
+      playerNameOrId === supabaseUser.id
+    )) {
+      return false;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per ID
+    const directLink = playerAccountLinks[playerNameOrId];
+    if (directLink?.userId) return false;
+
+    // Verknüpfte Spieler-Accounts per Name oder User-ID
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked?.userId) return false;
+
+    // 3. Registrierte Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId ||
+           u.name?.trim().toLowerCase() === target ||
+           (u as any).username?.trim().toLowerCase() === target
+    );
+    if (matchUser?.id) return false;
+
+    return true;
+  };
+
   // Level-Lookup für Spieleranzeigen im gesamten System
   const getPlayerLevel = (playerNameOrId?: string): number => {
     if (!playerNameOrId) return 1;
@@ -571,45 +609,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Admin Migration States
-  const [showMigrateModal, setShowMigrateModal] = useState(false);
-  const [migrateProgress, setMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
-  const [migrateResult, setMigrateResult] = useState<{
-    success: boolean;
-    message: string;
-    details?: {
-      total_csv_rows: number;
-      migrated: number;
-      migrated_from_metadata: number;
-      skipped_no_account: number;
-      skipped_duplicate: number;
-      errors: number;
-      profiles_updated: number;
-      profiles_synced: number;
-    }
-  } | null>(null);
 
-  // Tournament Migration States
-  const [showTournamentMigrateModal, setShowTournamentMigrateModal] = useState(false);
-  const [tournamentMigrateProgress, setTournamentMigrateProgress] = useState<{ percent: number; message: string } | null>(null);
-  const [tournamentMigrateResult, setTournamentMigrateResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [availableTournaments, setAvailableTournaments] = useState<string[]>([]);
-  const [selectedTournament, setSelectedTournament] = useState<string>('');
-  const [tournamentMigrateStep, setTournamentMigrateStep] = useState<'select' | 'confirm' | 'running' | 'done'>('select');
-
-  // Staging Migration States
-  const [showStagingMigrateModal, setShowStagingMigrateModal] = useState(false);
-  const [stagingLoading, setStagingLoading] = useState(false);
-  const [stagingProgressMessage, setStagingProgressMessage] = useState<string | null>(null);
-  const [stagingResult, setStagingResult] = useState<StagingMigrationResult | null>(null);
-
-  // CSV Edit Modal States
-  const [showCsvEditModal, setShowCsvEditModal] = useState(false);
-  const [csvEditTab, setCsvEditTab] = useState<'standard' | 'speed' | 'team'>('standard');
-  const [csvEditRows, setCsvEditRows] = useState<string[][]>([]);
-  const [csvEditLoading, setCsvEditLoading] = useState(false);
-  const [csvEditSaving, setCsvEditSaving] = useState(false);
-  const [csvEditSuccess, setCsvEditSuccess] = useState<string | null>(null);
 
   // Achievements Admin Modal State
   const [showAdminAchievementsModal, setShowAdminAchievementsModal] = useState(false);
@@ -1289,12 +1289,7 @@ const App: React.FC = () => {
     return recordsSortDir === 'asc' ? valA - valB : valB - valA;
   });
 
-  // Admin Account Assign State
-  const [assignCsvName, setAssignCsvName] = useState('');
-  const [assignTargetUserId, setAssignTargetUserId] = useState('');
-  const [assignPreviewCount, setAssignPreviewCount] = useState<number | null>(null);
-  const [assignSubmitting, setAssignSubmitting] = useState(false);
-  const [assignMessage, setAssignMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
 
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAdminUsersView, setShowAdminUsersView] = useState(false);
@@ -1360,12 +1355,7 @@ const App: React.FC = () => {
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Standardspiel');
   const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Turnier'>('Alle');
-  const [showAdminOptionsModal, setShowAdminOptionsModal] = useState(false);
-  const [mergeOldName, setMergeOldName] = useState('');
-  const [mergeNewName, setMergeNewName] = useState('');
-  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
-  const [mergeSubmitting, setMergeSubmitting] = useState(false);
-  const [mergeMessage, setMergeMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [speedwiegenSizeTab, setSpeedwiegenSizeTab] = useState<'500ml' | '0,33L'>('500ml');
@@ -1496,37 +1486,6 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [qrExpiry]);
 
-  const loadCsvNames = async () => {
-    try {
-      const res = await fetch('/api/records');
-      const contentType = res.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Non-JSON: ${text.substring(0, 100)}`);
-      }
-      const json = await res.json();
-
-      // Alle eindeutigen Spielernamen aus CSV extrahieren
-      const allRows = json.data || [];
-      const uniqueNames = [...new Set(
-        allRows
-          .filter((row: string[]) => row[2] && row[2] !== 'Name')
-          .map((row: string[]) => row[2])
-      )].sort();
-
-      setCsvNames(uniqueNames as string[]);
-    } catch (err: any) {
-      console.error('CSV Namen laden Fehler:', err);
-      setCsvNamesError(err.message);
-    }
-  };
-
-  useEffect(() => {
-    if (showAdminPanel) {
-      loadCsvNames();
-    }
-  }, [showAdminPanel]);
-
   // Function to open Admin Panel and load users
   const openAdminPanel = async () => {
     setShowAdminPanel(true);
@@ -1601,210 +1560,6 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error('saveResultToSupabase error:', err);
       return false;
-    }
-  };
-
-  const handleMigrateToSQL = async () => {
-    setMigrateProgress({ percent: 10, message: 'Migration wird gestartet...' });
-    setMigrateResult(null);
-
-    try {
-      setMigrateProgress({ percent: 30, message: 'Lade CSV und vergleiche mit Accounts...' });
-
-      // Kein Body mehr nötig – Server lädt CSV und Accounts selbst
-      const migrateRes = await fetch('/api/admin/migrate-to-sql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}) // leerer Body
-      });
-
-      const contentType = migrateRes.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        const text = await migrateRes.text();
-        throw new Error(`Non-JSON Response: ${text.substring(0, 100)}`);
-      }
-
-      const migrateJson = await migrateRes.json();
-      if (!migrateRes.ok) throw new Error(migrateJson.error || 'Unbekannter Fehler');
-
-      setMigrateProgress({ percent: 100, message: 'Fertig!' });
-      setMigrateResult({
-        success: true,
-        message: `✅ ${migrateJson.message}`,
-        details: {
-          total_csv_rows: migrateJson.total_csv_rows || 0,
-          migrated: migrateJson.migrated || 0,
-          migrated_from_metadata: migrateJson.migrated_from_metadata || 0,
-          skipped_no_account: migrateJson.skipped_no_account || 0,
-          skipped_duplicate: migrateJson.skipped_duplicate || 0,
-          errors: migrateJson.errors || 0,
-          profiles_updated: migrateJson.profiles_updated || 0,
-          profiles_synced: migrateJson.profiles_synced || 0
-        }
-      });
-
-    } catch (err: any) {
-      setMigrateProgress(null);
-      setMigrateResult({
-        success: false,
-        message: `❌ Fehler: ${err.message}`
-      });
-    }
-  };
-
-  const handleMigrateToStaging = async (clearExisting: boolean = false) => {
-    setStagingLoading(true);
-    setStagingProgressMessage('Staging-Migration wird vorbereitet...');
-    setStagingResult(null);
-
-    try {
-      setStagingProgressMessage('Lese Vercel Blobs (results.csv & Turniere) & lade in Supabase Staging-Tabellen...');
-      const res = await fetch('/api/admin/migrate-to-staging', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clearExisting })
-      });
-
-      const contentType = res.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Server antwortete nicht mit JSON: ${text.substring(0, 100)}`);
-      }
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Fehler bei der Staging-Migration');
-      }
-
-      setStagingResult(data);
-      setShowStagingMigrateModal(true);
-    } catch (err: any) {
-      setStagingResult({
-        success: false,
-        message: `Fehler: ${err.message || 'Unbekannter Fehler'}`
-      });
-      setShowStagingMigrateModal(true);
-    } finally {
-      setStagingLoading(false);
-      setStagingProgressMessage(null);
-    }
-  };
-
-  const openStagingMigrationModal = () => {
-    setShowStagingMigrateModal(true);
-  };
-
-  const openTournamentMigrateModal = async () => {
-    setShowTournamentMigrateModal(true);
-    setTournamentMigrateStep('select');
-    setTournamentMigrateResult(null);
-    setTournamentMigrateProgress(null);
-    setSelectedTournament('');
-
-    try {
-      const res = await fetch('/api/tournament/list');
-      const json = await res.json();
-      const names = (json.tournaments || []).map((t: any) =>
-        t.name.replace('tournament_', '').replace('.csv', '')
-      );
-      setAvailableTournaments(names);
-    } catch (err) {
-      console.error('Turnierliste laden fehlgeschlagen:', err);
-      setAvailableTournaments([]);
-    }
-  };
-
-  const handleTournamentMigrateToCSV = async () => {
-    setTournamentMigrateStep('running');
-    setTournamentMigrateProgress({ percent: 20, message: `Lade Turnier "${selectedTournament}"...` });
-    setTournamentMigrateResult(null);
-
-    try {
-      const res = await fetch('/api/admin/migrate-tournament-to-csv', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tournamentName: selectedTournament })
-      });
-      const contentType = res.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        throw new Error('Non-JSON Response');
-      }
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-
-      setTournamentMigrateProgress({ percent: 100, message: 'Fertig!' });
-      setTournamentMigrateResult({
-        success: true,
-        message: `✅ ${json.message}`
-      });
-      setTournamentMigrateStep('done');
-    } catch (err: any) {
-      setTournamentMigrateProgress(null);
-      setTournamentMigrateResult({
-        success: false,
-        message: `❌ Fehler: ${err.message}`
-      });
-      setTournamentMigrateStep('done');
-    }
-  };
-
-  // CSV Editing Modal Functions
-  const openCsvEditModal = async () => {
-    setShowCsvEditModal(true);
-    setCsvEditLoading(true);
-    setCsvEditSuccess(null);
-    try {
-      const res = await fetch('/api/records');
-      const json = await res.json();
-      setCsvEditRows(json.data || []);
-    } catch (err) {
-      console.error('CSV laden fehlgeschlagen:', err);
-    } finally {
-      setCsvEditLoading(false);
-    }
-  };
-
-  const filteredCsvRows = csvEditRows.filter(row => {
-    if (row[0] === 'Datum' || row[2] === 'Name') return false;
-    const mode = row[1]?.toLowerCase() || '';
-    if (csvEditTab === 'standard') return mode.includes('standardspiel');
-    if (csvEditTab === 'speed') return mode.includes('speedwiegen');
-    if (csvEditTab === 'team') return mode.includes('teamwiegen');
-    return true;
-  });
-
-  const updateCsvCell = (rowIndex: number, colIndex: number, value: string) => {
-    setCsvEditRows(prev => {
-      const updated = prev.map(r => [...r]);
-      const originalIndex = csvEditRows.indexOf(filteredCsvRows[rowIndex]);
-      if (originalIndex >= 0) updated[originalIndex][colIndex] = value;
-      return updated;
-    });
-  };
-
-  const deleteCsvRow = (rowIndex: number) => {
-    const originalIndex = csvEditRows.indexOf(filteredCsvRows[rowIndex]);
-    if (originalIndex >= 0) {
-      setCsvEditRows(prev => prev.filter((_, i) => i !== originalIndex));
-    }
-  };
-
-  const saveCsvChanges = async () => {
-    setCsvEditSaving(true);
-    setCsvEditSuccess(null);
-    try {
-      const res = await fetch('/api/admin/save-csv', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: csvEditRows })
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Fehler beim Speichern');
-      setCsvEditSuccess('✅ CSV erfolgreich gespeichert!');
-    } catch (err: any) {
-      setCsvEditSuccess(`❌ Fehler: ${err.message}`);
-    } finally {
-      setCsvEditSaving(false);
     }
   };
 
@@ -4280,7 +4035,7 @@ const App: React.FC = () => {
                     <i className="fas fa-user"></i>
                   )}
                   <PlayerNameTag name={supabaseUser?.user_metadata?.username || 'Profil verwalten'} colorKey={userNameBgColor} className="px-1.5 py-0.5" />
-                  <PlayerLevelBadge level={userLevel} size="sm" />
+                  <PlayerLevelBadge level={userLevel} isGuest={!supabaseUser?.id} size="sm" />
                   {userTitle && <PlayerTitleBadge title={userTitle} size="sm" />}
                   {isAdmin && <span className="text-yellow-300">👑</span>}
                   {pendingRequests.length > 0 && (
@@ -5388,7 +5143,7 @@ const App: React.FC = () => {
                               <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>
                                 <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                                   <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} />
-                                  <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+                                  <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name, p)} size="sm" />
                                   {getPlayerTitle(p.name) && (
                                     <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                   )}
@@ -5405,72 +5160,77 @@ const App: React.FC = () => {
                );
              })()}
 
-             {/* RUNDEN-XP & LEVEL-FORTSCHRITT */}
-             {players.length > 0 && (
-               <div className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl space-y-4`}>
-                 <div className="flex items-center justify-between">
-                   <h3 className="text-lg font-black uppercase flex items-center space-x-2">
-                     <span className="text-amber-400 text-xl">⭐</span>
-                     <span>Erfahrung &amp; Level-Fortschritt</span>
-                   </h3>
-                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-500">
-                     +XP Runde
-                   </span>
-                 </div>
+             {/* RUNDEN-XP & LEVEL-FORTSCHRITT (Nur für registrierte Nutzer, komplett ausgeblendet für Gäste) */}
+             {(() => {
+               const registeredPlayers = players.filter(p => !isPlayerGuest(p.name, p));
+               if (registeredPlayers.length === 0) return null;
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   {players.map((p, idx) => {
-                     const pAvg = calculateAverageDistance(p.id, rounds);
-                     const isWinner = idx === 0 && !p.isDisqualified;
-                     const gameXp = roundPlayerXp[p.name]?.xpEarned ?? calculateGameXp({
-                       avg: pAvg,
-                       schnaepse: p.schnaepse,
-                       isWinner,
-                       disqualified: p.isDisqualified
-                     }).totalXp;
+               return (
+                 <div className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl space-y-4`}>
+                   <div className="flex items-center justify-between">
+                     <h3 className="text-lg font-black uppercase flex items-center space-x-2">
+                       <span className="text-amber-400 text-xl">⭐</span>
+                       <span>Erfahrung &amp; Level-Fortschritt</span>
+                     </h3>
+                     <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-500">
+                       +XP Runde
+                     </span>
+                   </div>
 
-                     const pLevel = roundPlayerXp[p.name]?.newLevel ?? getPlayerLevel(p.name);
-                     const pTotalXp = roundPlayerXp[p.name]?.newXp ?? getPlayerXp(p.name);
-                     const levelInfo = calculateLevelFromXp(pTotalXp);
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     {registeredPlayers.map((p, idx) => {
+                       const pAvg = calculateAverageDistance(p.id, rounds);
+                       const isWinner = idx === 0 && !p.isDisqualified;
+                       const gameXp = roundPlayerXp[p.name]?.xpEarned ?? calculateGameXp({
+                         avg: pAvg,
+                         schnaepse: p.schnaepse,
+                         isWinner,
+                         disqualified: p.isDisqualified
+                       }).totalXp;
 
-                     return (
-                       <div
-                         key={p.id}
-                         className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'} space-y-3 shadow-sm`}
-                       >
-                         <div className="flex items-center justify-between flex-wrap gap-2">
-                           <div className="flex items-center space-x-2">
-                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} className="font-black text-sm" />
-                             <PlayerLevelBadge level={pLevel} size="sm" />
-                             {getPlayerTitle(p.name) && (
-                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
-                             )}
+                       const pLevel = roundPlayerXp[p.name]?.newLevel ?? getPlayerLevel(p.name);
+                       const pTotalXp = roundPlayerXp[p.name]?.newXp ?? getPlayerXp(p.name);
+                       const levelInfo = calculateLevelFromXp(pTotalXp);
+
+                       return (
+                         <div
+                           key={p.id}
+                           className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'} space-y-3 shadow-sm`}
+                         >
+                           <div className="flex items-center justify-between flex-wrap gap-2">
+                             <div className="flex items-center space-x-2">
+                               <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} className="font-black text-sm" />
+                               <PlayerLevelBadge level={pLevel} isGuest={false} size="sm" />
+                               {getPlayerTitle(p.name) && (
+                                 <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
+                               )}
+                             </div>
+                             <div className="flex items-center space-x-1 font-black text-emerald-500 text-sm bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                               <span>+{gameXp}</span>
+                               <span className="text-[10px]">XP</span>
+                             </div>
                            </div>
-                           <div className="flex items-center space-x-1 font-black text-emerald-500 text-sm bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
-                             <span>+{gameXp}</span>
-                             <span className="text-[10px]">XP</span>
+
+                           {/* Level Fortschrittsbalken */}
+                           <div className="space-y-1.5">
+                             <div className="flex justify-between text-[11px] font-bold opacity-70">
+                               <span>Level {levelInfo.level} ({levelInfo.title})</span>
+                               <span>{levelInfo.currentLevelXp} / {levelInfo.neededForNextLevel} XP ({levelInfo.progressPercent}%)</span>
+                             </div>
+                             <div className="w-full h-2.5 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+                               <div
+                                 className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-1000"
+                                 style={{ width: `${levelInfo.progressPercent}%` }}
+                               />
+                             </div>
                            </div>
                          </div>
-
-                         {/* Level Fortschrittsbalken */}
-                         <div className="space-y-1.5">
-                           <div className="flex justify-between text-[11px] font-bold opacity-70">
-                             <span>Level {levelInfo.level} ({levelInfo.title})</span>
-                             <span>{levelInfo.currentLevelXp} / {levelInfo.neededForNextLevel} XP ({levelInfo.progressPercent}%)</span>
-                           </div>
-                           <div className="w-full h-2.5 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
-                             <div
-                               className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-1000"
-                               style={{ width: `${levelInfo.progressPercent}%` }}
-                             />
-                           </div>
-                         </div>
-                       </div>
-                     );
-                   })}
+                       );
+                     })}
+                   </div>
                  </div>
-               </div>
-             )}
+               );
+             })()}
 
              {teams.length > 0 ? (
                <div ref={roundsAreaRef} className={`p-6 rounded-3xl ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl w-full`}>
@@ -6084,15 +5844,7 @@ const App: React.FC = () => {
                 <i className="fas fa-trophy mr-3 text-yellow-500"></i>Rekorde & Statistiken
               </h3>
               <div className="flex items-center space-x-2">
-                {(SHOW_OPTIONS_BUTTON || isAdmin) && (
-                  <button
-                    onClick={() => { setShowAdminOptionsModal(true); setMergeMessage(null); }}
-                    className="px-3 py-1.5 rounded-xl border border-gray-500/30 text-xs font-bold hover:bg-black/10 flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <i className="fas fa-cog text-gray-400"></i>
-                    <span>Optionen {isAdmin && '👑'}</span>
-                  </button>
-                )}
+
                 <button 
                   onClick={() => { setShowRecords(false); setRecordsData(null); }}
                   className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
@@ -6773,7 +6525,7 @@ const App: React.FC = () => {
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Ø pro Spiel)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                         <PlayerNameTag name={topAvgSchnaepse.name} colorKey={getPlayerNameBgColor(topAvgSchnaepse.name)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topAvgSchnaepse.name)} size="sm" />
+                                        <PlayerLevelBadge level={getPlayerLevel(topAvgSchnaepse.name)} isGuest={isPlayerGuest(topAvgSchnaepse.name)} size="sm" />
 
                                         {getPlayerTitle(topAvgSchnaepse.name) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topAvgSchnaepse.name)} size="sm" />
@@ -6792,7 +6544,7 @@ const App: React.FC = () => {
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Rekord-Einzelspiel (Schnäpse)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                         <PlayerNameTag name={topSingle.playerName} colorKey={getPlayerNameBgColor(topSingle.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingle.playerName)} size="sm" />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingle.playerName)} isGuest={isPlayerGuest(topSingle.playerName)} size="sm" />
 
                                         {getPlayerTitle(topSingle.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingle.playerName)} size="sm" />
@@ -6847,7 +6599,7 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
 
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
@@ -6871,7 +6623,7 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
 
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
@@ -6911,7 +6663,7 @@ const App: React.FC = () => {
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Präzisions-Meister (Ø Gesamt)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                         <PlayerNameTag name={topCareerAvg.name} colorKey={getPlayerNameBgColor(topCareerAvg.name)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topCareerAvg.name)} size="sm" />
+                                        <PlayerLevelBadge level={getPlayerLevel(topCareerAvg.name)} isGuest={isPlayerGuest(topCareerAvg.name)} size="sm" />
 
                                         {getPlayerTitle(topCareerAvg.name) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topCareerAvg.name)} size="sm" />
@@ -6930,7 +6682,7 @@ const App: React.FC = () => {
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                         <PlayerNameTag name={topSingleAvg.playerName} colorKey={getPlayerNameBgColor(topSingleAvg.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingleAvg.playerName)} size="sm" />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingleAvg.playerName)} isGuest={isPlayerGuest(topSingleAvg.playerName)} size="sm" />
 
                                         {getPlayerTitle(topSingleAvg.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingleAvg.playerName)} size="sm" />
@@ -6985,7 +6737,7 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
 
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
@@ -7009,7 +6761,7 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
 
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
@@ -7053,7 +6805,7 @@ const App: React.FC = () => {
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                         <PlayerNameTag name={topSingleTotal.playerName} colorKey={getPlayerNameBgColor(topSingleTotal.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingleTotal.playerName)} size="sm" />
+                                        <PlayerLevelBadge level={getPlayerLevel(topSingleTotal.playerName)} isGuest={isPlayerGuest(topSingleTotal.playerName)} size="sm" />
 
                                         {getPlayerTitle(topSingleTotal.playerName) && (
                                           <PlayerTitleBadge title={getPlayerTitle(topSingleTotal.playerName)} size="sm" />
@@ -7074,7 +6826,7 @@ const App: React.FC = () => {
                                         <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
                                         <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
                                           <PlayerNameTag name={topCareerAverageTotal.name} colorKey={getPlayerNameBgColor(topCareerAverageTotal.name)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(topCareerAverageTotal.name)} size="sm" />
+                                          <PlayerLevelBadge level={getPlayerLevel(topCareerAverageTotal.name)} isGuest={isPlayerGuest(topCareerAverageTotal.name)} size="sm" />
 
                                           {getPlayerTitle(topCareerAverageTotal.name) && (
                                             <PlayerTitleBadge title={getPlayerTitle(topCareerAverageTotal.name)} size="sm" />
@@ -7132,7 +6884,7 @@ const App: React.FC = () => {
                                               className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                             >
                                               <span>{p.name}</span>
-                                              <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+                                              <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
 
                                               {getPlayerTitle(p.name) && (
                                                 <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
@@ -7157,7 +6909,7 @@ const App: React.FC = () => {
                                             className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                           >
                                             <span>{p.playerName}</span>
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
 
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
@@ -7245,7 +6997,7 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black text-sm flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.playerName}</span>
-                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
 
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
@@ -7278,7 +7030,7 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.name}</span>
-                                      <PlayerLevelBadge level={getPlayerLevel(p.name)} size="sm" />
+                                      <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
 
                                       {getPlayerTitle(p.name) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
@@ -7312,7 +7064,7 @@ const App: React.FC = () => {
                                     <span className="font-black text-xs opacity-50">#{idx + 1}</span>
                                     <span className="font-black flex items-center space-x-1.5 flex-wrap">
                                       <span>{p.playerName}</span>
-                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} size="sm" />
+                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
 
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
@@ -7367,7 +7119,7 @@ const App: React.FC = () => {
                                           className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
                                         >
                                           <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} size="sm" />
+                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} isGuest={isPlayerGuest(item.playerName)} size="sm" />
 
                                           {getPlayerTitle(item.playerName) && (
                                             <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
@@ -7377,7 +7129,7 @@ const App: React.FC = () => {
                                       ) : (
                                         <span className="inline-flex items-center space-x-1.5 flex-wrap">
                                           <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} size="sm" />
+                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} isGuest={isPlayerGuest(item.playerName)} size="sm" />
 
                                           {getPlayerTitle(item.playerName) && (
                                             <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
@@ -7429,7 +7181,7 @@ const App: React.FC = () => {
               <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 flex-wrap gap-y-1" style={{ color: BRAND_COLOR }}>
                 <span>Historie:</span>
                 <PlayerNameTag name={selectedPlayerForDetails} colorKey={getPlayerNameBgColor(selectedPlayerForDetails)} className="px-2 py-0.5" />
-                <PlayerLevelBadge level={getPlayerLevel(selectedPlayerForDetails)} size="md" />
+                <PlayerLevelBadge level={getPlayerLevel(selectedPlayerForDetails)} isGuest={isPlayerGuest(selectedPlayerForDetails)} size="md" />
 
                 {getPlayerTitle(selectedPlayerForDetails) && (
                   <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
@@ -7477,154 +7229,6 @@ const App: React.FC = () => {
             >
               Schließen
             </button>
-          </div>
-        </div>
-      )}
-
-      {showAdminOptionsModal && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 ${
-            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
-          }`}>
-            <div className="flex items-center justify-between border-b pb-4 border-gray-500/20">
-              <h3 className="text-xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
-                <i className="fas fa-cog mr-3 text-xl"></i>
-                <span>Optionen / Namen zusammenführen</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowAdminOptionsModal(false)}
-                className="text-lg opacity-50 hover:opacity-100 p-2 rounded-full focus:outline-none"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-
-            <p className="text-xs opacity-70 leading-relaxed">
-              Führe zwei Spielernamen oder Teamnamen in allen bisher gespeicherten CSV-Einträgen zusammen. Alle Achievements und Statistiken von <strong>Alter Name</strong> werden auf <strong>Neuer Name</strong> übertragen.
-            </p>
-
-            {mergeMessage && (
-              <div className={`p-3 rounded-xl border text-xs font-bold ${
-                mergeMessage.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-red-500/10 border-red-500/30 text-red-500'
-              }`}>
-                {mergeMessage.text}
-              </div>
-            )}
-
-            {(() => {
-              const allNamesFromRecords = new Set<string>();
-              if (recordsData) {
-                recordsData.slice(1).forEach(row => {
-                  if (row && row[2] && row[2].trim()) {
-                    allNamesFromRecords.add(row[2].trim());
-                  }
-                });
-              }
-              const sortedAllNames = Array.from(allNamesFromRecords).sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
-
-              return (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Alter Name (wird ersetzt):</label>
-                    <select
-                      value={mergeOldName}
-                      onChange={e => setMergeOldName(e.target.value)}
-                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                    >
-                      <option value="">-- Alter Name wählen --</option>
-                      {sortedAllNames.map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Neuer Zielname:</label>
-                    <input
-                      type="text"
-                      value={mergeNewName}
-                      onChange={e => setMergeNewName(e.target.value)}
-                      placeholder="Neuen oder bestehenden Namen eingeben..."
-                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                    />
-                    <div className="mt-2 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                      {sortedAllNames.map(n => (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => setMergeNewName(n)}
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-gray-500/20 hover:bg-gray-500/30 font-semibold"
-                        >
-                          {n}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    {!showMergeConfirm ? (
-                      <button
-                        type="button"
-                        disabled={!mergeOldName.trim() || !mergeNewName.trim() || mergeOldName.trim() === mergeNewName.trim()}
-                        onClick={() => setShowMergeConfirm(true)}
-                        className="w-full py-3.5 rounded-2xl text-white font-black shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{ backgroundColor: BRAND_COLOR }}
-                      >
-                        Namen zusammenführen
-                      </button>
-                    ) : (
-                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3">
-                        <p className="text-xs font-bold text-amber-500 text-center">
-                          Bist du sicher? Alle Einträge für "{mergeOldName}" werden in "{mergeNewName}" umbenannt.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={mergeSubmitting}
-                            onClick={async () => {
-                              setMergeSubmitting(true);
-                              setMergeMessage(null);
-                              try {
-                                const res = await fetch('/api/admin/rename', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ oldName: mergeOldName.trim(), newName: mergeNewName.trim() })
-                                });
-                                const json = await res.json();
-                                if (res.ok) {
-                                  setMergeMessage({ type: 'success', text: json.message || 'Erfolgreich zusammengeführt!' });
-                                  setShowMergeConfirm(false);
-                                  setMergeOldName('');
-                                  setMergeNewName('');
-                                  fetchRecords();
-                                } else {
-                                  setMergeMessage({ type: 'error', text: json.error || 'Fehler beim Zusammenführen.' });
-                                }
-                              } catch (err: any) {
-                                setMergeMessage({ type: 'error', text: 'Netzwerkfehler.' });
-                              } finally {
-                                setMergeSubmitting(false);
-                              }
-                            }}
-                            className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-black text-xs uppercase shadow-md flex items-center justify-center"
-                          >
-                            {mergeSubmitting ? <i className="fas fa-spinner animate-spin"></i> : 'Ja, Zusammenführen'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowMergeConfirm(false)}
-                            className="px-4 py-3 rounded-xl border border-gray-500/30 text-xs font-bold"
-                          >
-                            Abbrechen
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         </div>
       )}
@@ -9325,92 +8929,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => { setShowAdminPanel(false); setShowAdminOptionsModal(true); setMergeMessage(null); }}
-                className="w-full p-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
-              >
-                <div className="flex items-center space-x-3">
-                  <i className="fas fa-compress-alt text-lg"></i>
-                  <span>Optionen / Namen zusammenführen</span>
-                </div>
-                <i className="fas fa-chevron-right opacity-60"></i>
-              </button>
-
-              <button
-                type="button"
-                onClick={openCsvEditModal}
-                className="w-full p-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer"
-              >
-                <div className="flex items-center space-x-3">
-                  <i className="fas fa-file-csv text-lg"></i>
-                  <span>CSV direkt bearbeiten / anzeigen</span>
-                </div>
-                <i className="fas fa-chevron-right opacity-60"></i>
-              </button>
-
-              {/* 🗄️ Sektion: Datenbank & Migration */}
-              <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-indigo-400">
-                  <i className="fas fa-database"></i>
-                  <span>Datenbank &amp; Migration</span>
-                </h4>
-
-                <div className="space-y-2.5">
-                  {/* Neuer Button: Turnier- & Ergebnisdaten in Staging-Tabellen laden */}
-                  <button
-                    type="button"
-                    disabled={stagingLoading}
-                    onClick={() => handleMigrateToStaging(false)}
-                    className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95 disabled:opacity-50"
-                    style={{ backgroundColor: '#2563EB' }}
-                  >
-                    <div className="flex items-center space-x-3">
-                      {stagingLoading ? (
-                        <i className="fas fa-spinner fa-spin text-lg"></i>
-                      ) : (
-                        <i className="fas fa-layer-group text-lg"></i>
-                      )}
-                      <div className="text-left">
-                        <div className="font-black">Turnier- &amp; Ergebnisdaten in Staging-Tabellen laden</div>
-                        <div className="text-[11px] opacity-75 font-normal">results.csv &amp; Turnierdaten nach Supabase übertragen</div>
-                      </div>
-                    </div>
-                    {stagingLoading ? (
-                      <span className="text-[11px] font-mono opacity-80 uppercase">Lädt...</span>
-                    ) : (
-                      <i className="fas fa-chevron-right opacity-60"></i>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowMigrateModal(true)}
-                    className="w-full p-3.5 rounded-xl text-white font-bold text-xs flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
-                    style={{ backgroundColor: '#7C3AED' }}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <i className="fas fa-database text-base"></i>
-                      <span>Ergebnisse in SQL übertragen</span>
-                    </div>
-                    <i className="fas fa-chevron-right opacity-60"></i>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={openTournamentMigrateModal}
-                    className="w-full p-3.5 rounded-xl text-white font-black text-xs flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
-                    style={{ backgroundColor: '#059669' }}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <i className="fas fa-trophy text-base"></i>
-                      <span>Turnierergebnisse in CSV übertragen</span>
-                    </div>
-                    <i className="fas fa-chevron-right opacity-60"></i>
-                  </button>
-                </div>
-              </div>
-
+              {/* 1. 🏆 Achievements verwalten */}
               <button
                 type="button"
                 onClick={() => {
@@ -9430,6 +8949,7 @@ const App: React.FC = () => {
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
+              {/* 2. 🎖️ Spielertitel & Level verwalten */}
               <button
                 type="button"
                 onClick={() => {
@@ -9449,6 +8969,7 @@ const App: React.FC = () => {
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
+              {/* 3. 👥 Alle Nutzer anzeigen */}
               <button
                 type="button"
                 onClick={() => setShowAdminUsersView(prev => !prev)}
@@ -9456,13 +8977,13 @@ const App: React.FC = () => {
               >
                 <div className="flex items-center space-x-3">
                   <i className="fas fa-users text-lg"></i>
-                  <span>Alle Nutzer anzeigen</span>
+                  <span>Alle Nutzer anzeigen ({clerkUsers.length})</span>
                 </div>
                 <i className={`fas ${showAdminUsersView ? 'fa-chevron-up' : 'fa-chevron-down'} opacity-60`}></i>
               </button>
 
               {showAdminUsersView && (
-                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-2 text-xs animate-in fade-in`}>
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3 text-xs animate-in fade-in`}>
                   <div className="flex justify-between items-center font-bold border-b pb-2 border-gray-500/20">
                     <span>Eingeloggt als:</span>
                     <span className="text-indigo-400">{user?.firstName || user?.emailAddresses?.[0]?.emailAddress || user?.username}</span>
@@ -9475,170 +8996,73 @@ const App: React.FC = () => {
                     <span>Rolle:</span>
                     <span className="font-bold text-red-500">👑 Admin</span>
                   </div>
-                  <div className="text-[10px] opacity-60 pt-2 border-t border-gray-500/20">
-                    Hinweis: Nutzerverwaltung &amp; Admin-Rollen werden im Supabase Dashboard verwaltet (user_metadata: &#123; "role": "admin" &#125;).
-                  </div>
-                </div>
-              )}
 
-              {/* CSV-Daten Account zuordnen */}
-              <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-                <h4 className="font-black text-xs uppercase tracking-wider opacity-80 flex items-center space-x-2 text-indigo-400">
-                  <i className="fas fa-link"></i>
-                  <span>CSV-Daten einem Account zuordnen</span>
-                </h4>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">CSV-Name wählen:</label>
-                    <select
-                      value={assignCsvName}
-                      onChange={e => {
-                        setAssignCsvName(e.target.value);
-                        setAssignPreviewCount(null);
-                        setAssignMessage(null);
-                      }}
-                      className={`w-full p-2.5 rounded-xl border-2 font-bold text-xs ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                    >
-                      <option value="">CSV-Eintrag wählen...</option>
-                      {csvNames.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
+                  {/* Registrierte Nutzer Liste */}
+                  <div className="pt-2 border-t border-gray-500/20">
+                    <div className="font-bold uppercase tracking-wider text-[11px] opacity-70 mb-2 flex justify-between items-center">
+                      <span>Registrierte Nutzer</span>
+                      <span className="text-[10px] font-mono opacity-80">{clerkUsers.length} gesamt</span>
+                    </div>
 
-                    {csvNamesError && (
-                      <p className="text-xs text-red-500 font-bold mt-1">❌ {csvNamesError}</p>
-                    )}
-
-                    {csvNames.length === 0 && !csvNamesError && (
-                      <p className="text-xs text-amber-500 font-bold mt-1">
-                        ⚠️ Keine CSV-Einträge gefunden
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold opacity-60 uppercase mb-1">Account wählen:</label>
-                    <select
-                      value={assignTargetUserId}
-                      onChange={e => {
-                        setAssignTargetUserId(e.target.value);
-                        setAssignMessage(null);
-                      }}
-                      className={`w-full p-2.5 rounded-xl border-2 font-bold text-xs ${
-                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'
-                      }`}
-                    >
-                      <option value="">
-                        {adminUsersLoading
-                          ? 'Lade Accounts...'
-                          : clerkUsers.length === 0
-                            ? 'Keine Accounts gefunden'
-                            : 'Ziel-Account wählen...'}
-                      </option>
-                      {clerkUsers.map(u => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} {u.email ? `(${u.email})` : ''}
-                        </option>
-                      ))}
-                    </select>
-
-                    {adminUsersError && (
-                      <p className="text-xs text-red-500 font-bold mt-1">
+                    {adminUsersLoading ? (
+                      <div className="flex items-center justify-center py-4 space-x-2 opacity-60">
+                        <i className="fas fa-spinner fa-spin"></i>
+                        <span>Lade Nutzer...</span>
+                      </div>
+                    ) : adminUsersError ? (
+                      <div className="text-red-400 text-xs py-2">
                         ❌ {adminUsersError}
-                      </p>
-                    )}
-
-                    {!adminUsersLoading && clerkUsers.length === 0 && !adminUsersError && (
-                      <div className="flex items-center space-x-2 mt-1">
-                        <p className="text-xs text-amber-500 font-bold">
-                          ⚠️ Keine Accounts geladen.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={openAdminPanel}
-                          className="text-xs font-bold underline cursor-pointer"
-                          style={{ color: BRAND_COLOR }}
-                        >
-                          Erneut laden
-                        </button>
+                      </div>
+                    ) : clerkUsers.length === 0 ? (
+                      <div className="text-center py-3 opacity-60 text-xs">
+                        Keine registrierten Nutzer gefunden.
+                      </div>
+                    ) : (
+                      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                        {clerkUsers.map(u => (
+                          <div
+                            key={u.id}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                              darkMode ? 'bg-slate-800/80 border-slate-700/60' : 'bg-white border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs text-white shrink-0 shadow-sm" style={{ backgroundColor: BRAND_COLOR }}>
+                                {u.imageUrl ? (
+                                  <img src={u.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                                ) : (
+                                  (u.name || u.username || 'U').charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold truncate text-xs flex items-center gap-1.5">
+                                  <span>{u.name || u.username}</span>
+                                  {u.role === 'admin' && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-black border border-red-500/30">
+                                      ADMIN
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] opacity-60 truncate">
+                                  {u.email || `@${u.username || 'user'}`}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="font-bold text-[11px] text-amber-400">
+                                Lv. {u.level || 1}
+                              </div>
+                              <div className="text-[10px] opacity-60">
+                                {u.xp || 0} XP
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
-
-                  {assignPreviewCount !== null && (
-                    <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold">
-                      📊 Es wurden {assignPreviewCount} Einträge in der CSV für "{assignCsvName}" gefunden.
-                    </div>
-                  )}
-
-                  {assignMessage && (
-                    <div className={`p-3 rounded-xl text-xs font-bold ${assignMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
-                      {assignMessage.text}
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={!assignCsvName}
-                      onClick={() => {
-                        if (!assignCsvName || !recordsData) return;
-                        const targetName = assignCsvName.trim().toLowerCase();
-                        const matchingRows = recordsData.slice(1).filter(row => String(row[2] || '').trim().toLowerCase() === targetName);
-                        setAssignPreviewCount(matchingRows.length);
-                      }}
-                      className="flex-1 py-2.5 rounded-xl border-2 font-bold text-xs uppercase cursor-pointer hover:bg-white/5 active:scale-95 disabled:opacity-40"
-                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
-                    >
-                      Vorschau
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!assignCsvName || !assignTargetUserId || assignSubmitting}
-                      onClick={async () => {
-                        const { data: { user } } = await supabase.auth.getUser();
-                        const currentUserId = user?.id || supabaseUser?.id;
-                        if (!assignCsvName || !assignTargetUserId || !currentUserId) return;
-                        setAssignSubmitting(true);
-                        setAssignMessage(null);
-                        try {
-                          const res = await fetch('/api/admin/assign-to-account', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              requesterUserId: currentUserId,
-                              csvName: assignCsvName,
-                              targetUserId: assignTargetUserId
-                            })
-                          });
-                          const json = await res.json();
-                          if (res.ok) {
-                            setAssignMessage({ type: 'success', text: json.message || 'Zuordnung erfolgreich!' });
-                            setAssignPreviewCount(null);
-                            setAssignCsvName('');
-                            setAssignTargetUserId('');
-                            fetchRecords();
-                          } else {
-                            setAssignMessage({ type: 'error', text: json.error || 'Fehler bei der Zuordnung.' });
-                          }
-                        } catch (err: any) {
-                          setAssignMessage({ type: 'error', text: err.message || 'Verbindungsfehler' });
-                        } finally {
-                          setAssignSubmitting(false);
-                        }
-                      }}
-                      className={`flex-1 py-2.5 rounded-xl text-white font-bold text-xs uppercase cursor-pointer active:scale-95 shadow ${
-                        !assignCsvName || !assignTargetUserId || assignSubmitting ? 'opacity-50 cursor-not-allowed bg-gray-600' : 'hover:brightness-110'
-                      }`}
-                      style={{ backgroundColor: (assignCsvName && assignTargetUserId && !assignSubmitting) ? BRAND_COLOR : undefined }}
-                    >
-                      {assignSubmitting ? <i className="fas fa-spinner animate-spin"></i> : 'Zuordnen'}
-                    </button>
-                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <button
@@ -9681,6 +9105,7 @@ const App: React.FC = () => {
         setShowProfileModal={setShowProfileModal}
         supabaseUser={supabaseUser}
         currentUserId={supabaseUser?.id}
+        isGuest={!supabaseUser?.id}
         darkMode={darkMode}
         isAdmin={isAdmin}
         profileTab={profileTab}
@@ -9739,63 +9164,6 @@ const App: React.FC = () => {
         supabaseUser={supabaseUser}
         darkMode={darkMode}
         brandColor={BRAND_COLOR}
-      />
-
-      {/* 📦 STAGING MIGRATION MODAL */}
-      <StagingMigrationModal
-        isOpen={showStagingMigrateModal}
-        onClose={() => setShowStagingMigrateModal(false)}
-        darkMode={darkMode}
-        isLoading={stagingLoading}
-        progressMessage={stagingProgressMessage}
-        result={stagingResult}
-        onStartMigration={handleMigrateToStaging}
-      />
-
-      {/* 🗄️ SQL MIGRATION MODAL */}
-      <SqlMigrationModal
-        showMigrateModal={showMigrateModal}
-        setShowMigrateModal={setShowMigrateModal}
-        darkMode={darkMode}
-        migrateProgress={migrateProgress}
-        setMigrateProgress={setMigrateProgress}
-        migrateResult={migrateResult}
-        setMigrateResult={setMigrateResult}
-        handleMigrateToSQL={handleMigrateToSQL}
-      />
-
-      {/* 🏆 TOURNAMENT MIGRATION MODAL */}
-      <TournamentMigrationModal
-        showTournamentMigrateModal={showTournamentMigrateModal}
-        setShowTournamentMigrateModal={setShowTournamentMigrateModal}
-        darkMode={darkMode}
-        tournamentMigrateStep={tournamentMigrateStep}
-        setTournamentMigrateStep={setTournamentMigrateStep}
-        availableTournaments={availableTournaments}
-        selectedTournament={selectedTournament}
-        setSelectedTournament={setSelectedTournament}
-        handleTournamentMigrateToCSV={handleTournamentMigrateToCSV}
-        tournamentMigrateProgress={tournamentMigrateProgress}
-        setTournamentMigrateProgress={setTournamentMigrateProgress}
-        tournamentMigrateResult={tournamentMigrateResult}
-        setTournamentMigrateResult={setTournamentMigrateResult}
-      />
-
-      {/* 📋 CSV EDIT MODAL */}
-      <CsvEditModal
-        showCsvEditModal={showCsvEditModal}
-        setShowCsvEditModal={setShowCsvEditModal}
-        darkMode={darkMode}
-        csvEditTab={csvEditTab}
-        setCsvEditTab={setCsvEditTab}
-        csvEditRows={csvEditRows}
-        csvEditLoading={csvEditLoading}
-        filteredCsvRows={filteredCsvRows}
-        updateCsvCell={updateCsvCell}
-        deleteCsvRow={deleteCsvRow}
-        csvEditSuccess={csvEditSuccess}
-        csvEditSaving={csvEditSaving}
-        saveCsvChanges={saveCsvChanges}
       />
 
       {/* 🏆 ACHIEVEMENTS ADMIN MODAL */}

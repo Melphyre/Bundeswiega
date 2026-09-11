@@ -1,5 +1,5 @@
 
-import { Round, Player } from './types';
+import { Round, Player } from './types.js';
 
 export const SPECIAL_NUMBERS = [555, 444, 333, 222, 111, 99, 88, 77, 66, 55, 44, 33, 22, 11];
 

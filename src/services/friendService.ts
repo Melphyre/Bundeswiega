@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { supabase, getAvatarUrl } from '../supabaseClient';
 import { Friend, PendingFriendRequest } from '../../types';
 
 export interface FetchFriendsResult {
@@ -78,7 +78,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
         return {
           id: r.receiver_id,
           name: p?.username || p?.email || 'Unbekannt',
-          imageUrl: p?.avatar_url || '',
+          imageUrl: getAvatarUrl(p?.avatar_url),
           friendshipId: r.id,
           title: (p as any)?.title || (p as any)?.selected_title || undefined,
           level: Number((p as any)?.level) || 1,
@@ -90,7 +90,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
         return {
           id: r.requester_id,
           name: p?.username || p?.email || 'Unbekannt',
-          imageUrl: p?.avatar_url || '',
+          imageUrl: getAvatarUrl(p?.avatar_url),
           friendshipId: r.id,
           title: (p as any)?.title || (p as any)?.selected_title || undefined,
           level: Number((p as any)?.level) || 1,

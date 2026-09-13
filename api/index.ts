@@ -1,3 +1,5 @@
+import express from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
@@ -208,96 +210,70 @@ function getRequestQuery(req: VercelRequest): Record<string, string> {
   return queryObj;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+const app = express();
+app.use(express.json({ limit: '10mb' }));
+
+// Global CORS & Content-Type Header Middleware
+app.use((req, res, next) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
+  next();
+});
 
-  const rawUrl = req.url || '';
-  const pathName = rawUrl.split('?')[0] || '';
+// ── Records ──────────────────────────────────────
+app.get(['/api/records', '/records'], (req, res) => handleRecords(req as any, res as any));
 
-  try {
-    // ── Records ──────────────────────────────────────
-    if (pathName === '/api/records' && req.method === 'GET') {
-      return await handleRecords(req, res);
-    }
+// ── Upload ───────────────────────────────────────
+app.post(['/api/upload', '/upload'], (req, res) => handleUpload(req as any, res as any));
 
-    // ── Upload ───────────────────────────────────────
-    if (pathName === '/api/upload' && req.method === 'POST') {
-      return await handleUpload(req, res);
-    }
+// ── Users ────────────────────────────────────────
+app.get(['/api/users/list', '/users/list'], (req, res) => handleUsersList(req as any, res as any));
+app.post(['/api/users/save-game-result', '/users/save-game-result'], (req, res) => handleSaveGameResult(req as any, res as any));
+app.post(['/api/users/update-title', '/users/update-title'], (req, res) => handleUpdateTitle(req as any, res as any));
+app.post(['/api/users/update-name-bg', '/users/update-name-bg'], (req, res) => handleUpdateNameBg(req as any, res as any));
+app.post(['/api/users/save-result', '/users/save-result'], (req, res) => handleSaveResult(req as any, res as any));
+app.post(['/api/users/update-privacy', '/users/update-privacy'], (req, res) => handleUpdatePrivacy(req as any, res as any));
+app.post(['/api/users/delete', '/users/delete'], (req, res) => handleDeleteUser(req as any, res as any));
+app.get(['/api/users/find-by-username', '/users/find-by-username'], (req, res) => handleFindByUsername(req as any, res as any));
+app.get(['/api/users/check-username', '/users/check-username'], (req, res) => handleCheckUsername(req as any, res as any));
+app.get(['/api/users/public-records', '/users/public-records'], (req, res) => handlePublicRecords(req as any, res as any));
+app.get(['/api/users/profile-data', '/users/profile-data'], (req, res) => handleGetProfileData(req as any, res as any));
+app.post(['/api/users/evaluate-quests', '/users/evaluate-quests'], (req, res) => handleEvaluateQuests(req as any, res as any));
 
-    // ── Users ────────────────────────────────────────
-    if (pathName === '/api/users/list' && req.method === 'GET') {
-      return await handleUsersList(req, res);
-    }
-    if (pathName === '/api/users/save-game-result' && req.method === 'POST') {
-      return await handleSaveGameResult(req, res);
-    }
-    if (pathName === '/api/users/update-title' && req.method === 'POST') {
-      return await handleUpdateTitle(req, res);
-    }
-    if (pathName === '/api/users/update-name-bg' && req.method === 'POST') {
-      return await handleUpdateNameBg(req, res);
-    }
-    if (pathName === '/api/users/save-result' && req.method === 'POST') {
-      return await handleSaveResult(req, res);
-    }
-    if (pathName === '/api/users/update-privacy' && req.method === 'POST') {
-      return await handleUpdatePrivacy(req, res);
-    }
-    if (pathName === '/api/users/delete' && req.method === 'POST') {
-      return await handleDeleteUser(req, res);
-    }
-    if (pathName === '/api/users/find-by-username' && req.method === 'GET') {
-      return await handleFindByUsername(req, res);
-    }
-    if (pathName === '/api/users/check-username' && req.method === 'GET') {
-      return await handleCheckUsername(req, res);
-    }
-    if (pathName === '/api/users/public-records' && req.method === 'GET') {
-      return await handlePublicRecords(req, res);
-    }
-    if (pathName === '/api/users/profile-data' && req.method === 'GET') {
-      return await handleGetProfileData(req, res);
-    }
-    if (pathName === '/api/users/evaluate-quests' && req.method === 'POST') {
-      return await handleEvaluateQuests(req, res);
-    }
+// ── Admin ────────────────────────────────────────
+app.post(['/api/admin/set-role', '/admin/set-role'], (req, res) => handleAdminSetRole(req as any, res as any));
+app.post(['/api/admin/repair-database', '/admin/repair-database'], (req, res) => handleRepairDatabase(req as any, res as any));
 
-    // ── Admin ────────────────────────────────────────
-    if (pathName === '/api/admin/set-role' && req.method === 'POST') {
-      return await handleAdminSetRole(req, res);
-    }
-    if (pathName === '/api/admin/repair-database' && req.method === 'POST') {
-      return await handleRepairDatabase(req, res);
-    }
+// ── Tournament ───────────────────────────────────
+app.get(['/api/tournament/list', '/tournament/list'], (req, res) => handleTournamentList(req as any, res as any));
+app.get(['/api/tournament/get', '/tournament/get'], (req, res) => handleTournamentGet(req as any, res as any));
+app.post(['/api/tournament/save', '/tournament/save'], (req, res) => handleTournamentSave(req as any, res as any));
+app.post(['/api/tournament/delete', '/tournament/delete'], (req, res) => handleTournamentDelete(req as any, res as any));
 
-    // ── Tournament ───────────────────────────────────
-    if (pathName === '/api/tournament/list' && req.method === 'GET') {
-      return await handleTournamentList(req, res);
-    }
-    if (pathName === '/api/tournament/get' && req.method === 'GET') {
-      return await handleTournamentGet(req, res);
-    }
-    if (pathName === '/api/tournament/save' && req.method === 'POST') {
-      return await handleTournamentSave(req, res);
-    }
-    if (pathName === '/api/tournament/delete' && req.method === 'POST') {
-      return await handleTournamentDelete(req, res);
-    }
+// Fallback für unbegrenzte/unbekannte Routen
+app.use((req, res) => {
+  res.status(404).json({ error: `Route ${req.originalUrl || req.url} not found` });
+});
 
-    return res.status(404).json({ error: `Route nicht gefunden: ${pathName}` });
-  } catch (err: any) {
-    console.error('API Error:', err);
-    return res.status(500).json({ error: err.message || 'Interner Fehler' });
+// Express global error middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled API Error in Express app:', err);
+  if (!res.headersSent) {
+    res.setHeader('Content-Type', 'application/json');
+    res.status(500).json({
+      error: 'Internal Server Error',
+      details: err?.message || 'Unknown error'
+    });
   }
-}
+});
+
+export default app;
 
 // ════════════════════════════════════════════════
 // HANDLER FUNKTIONEN
@@ -1169,15 +1145,20 @@ async function safeDbQuery<T = any>(queryBuilder: any, fallback: T = [] as any):
   }
 }
 
-async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
+async function handleGetProfileData(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');
   try {
     const query = getRequestQuery(req);
-    const userId = (query.userId || '').trim();
+    const userId = (query.userId || (req.query && req.query.userId) || '').trim();
 
     if (!userId) {
-      return res.status(400).json({ error: 'userId ist erforderlich.' });
+      return res.status(400).json({ error: 'userId parameter is required' });
     }
+
+    // 1. Quests im Hintergrund/Asynchron anstoßen (blockiert die Response nicht!)
+    processQuestsForUser(userId, supabaseAdmin).catch((err: any) => 
+      console.error('Async Quest Evaluation Error:', err)
+    );
 
     if (!isSupabaseConfigured()) {
       return res.status(200).json({
@@ -1185,25 +1166,18 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
         gameResults: [],
         achievements: [],
         questProgress: [],
-        userTitles: []
+        quests: [],
+        userTitles: [],
+        titles: []
       });
     }
 
-    // Stelle sicher, dass Tabellen & Spalten existieren
-    try {
-      await ensureCoreSchema();
-    } catch (schemaErr) {
-      console.warn('ensureCoreSchema in handleGetProfileData warning:', schemaErr);
-    }
+    // Stelle sicher, dass Tabellen & Spalten existieren (defensiv im Hintergrund)
+    ensureCoreSchema().catch((schemaErr: any) => {
+      console.warn('ensureCoreSchema in handleGetProfileData warning:', schemaErr?.message);
+    });
 
-    // Quests auswerten, damit bestehende Profilbilder oder Fortschritte nachträglich als erledigt erkannt werden
-    try {
-      await processQuestsForUser(userId, supabaseAdmin);
-    } catch (qErr: any) {
-      console.warn('Profile quest evaluation error:', qErr?.message);
-    }
-
-    // Sichere Abfragen mit individuellem Catch für jede Tabelle
+    // 2. Bestehende Profile-, Quest- und Titel-Daten laden
     const [profileRes, resultsRes, teamRes, achRes, questRes, titlesRes] = await Promise.all([
       safeDbQuery(
         supabaseAdmin
@@ -1245,7 +1219,7 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       safeDbQuery(
         supabaseAdmin
           .from('user_titles')
-          .select('title')
+          .select('*')
           .eq('user_id', userId),
         []
       )
@@ -1253,7 +1227,10 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
 
     if (profileRes?.error && profileRes.error.code && profileRes.error.code !== 'PGRST116') {
       console.error('profileRes error:', profileRes.error);
-      return res.status(500).json({ error: profileRes.error.message || 'Fehler beim Laden des Profils' });
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        details: profileRes.error.message || 'Fehler beim Laden des Profils'
+      });
     }
 
     let profile = profileRes?.data || null;
@@ -1295,26 +1272,26 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
     }
 
     const achievements = Array.isArray(achRes?.data) ? achRes.data : [];
-    const questProgress = Array.isArray(questRes?.data) ? questRes.data : [];
-    const userTitles = Array.isArray(titlesRes?.data) ? titlesRes.data.map((t: any) => t.title).filter(Boolean) : [];
+    const quests = Array.isArray(questRes?.data) ? questRes.data : [];
+    const titles = Array.isArray(titlesRes?.data) ? titlesRes.data : [];
+    const userTitles = titles.map((t: any) => typeof t === 'string' ? t : t.title).filter(Boolean);
 
+    // 3. Valides JSON zurückgeben (enthält sowohl quests/titles als auch questProgress/userTitles)
     return res.status(200).json({
       profile,
       gameResults,
       achievements,
-      questProgress,
-      userTitles
+      questProgress: quests,
+      quests,
+      userTitles,
+      titles
     });
-  } catch (err: any) {
-    console.error('handleGetProfileData error:', err);
+  } catch (error: any) {
+    console.error('API Error /api/users/profile-data:', error);
     res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({
-      error: err?.message || 'Interner Fehler beim Laden der Profildaten',
-      profile: null,
-      gameResults: [],
-      achievements: [],
-      questProgress: [],
-      userTitles: []
+      error: 'Internal Server Error',
+      details: error?.message || 'Unknown error'
     });
   }
 }

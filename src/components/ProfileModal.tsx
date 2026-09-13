@@ -155,15 +155,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.questProgress)) {
-          setQuestProgresses(data.questProgress);
+        const incomingQuests = Array.isArray(data.questProgress) ? data.questProgress : (Array.isArray(data.quests) ? data.quests : []);
+        if (incomingQuests.length > 0) {
+          setQuestProgresses(incomingQuests);
         }
-        if (Array.isArray(data.userTitles)) {
-          setUserTitles(data.userTitles);
+        const incomingTitles = Array.isArray(data.userTitles) ? data.userTitles : (Array.isArray(data.titles) ? data.titles : []);
+        if (incomingTitles.length > 0) {
+          setUserTitles(incomingTitles);
+        }
+      } else {
+        // Fallback direkt auf Supabase
+        const { data: qpData } = await supabase.from('user_quest_progress').select('*').eq('user_id', effectiveUserId);
+        if (Array.isArray(qpData) && qpData.length > 0) {
+          setQuestProgresses(qpData);
         }
       }
     } catch (e) {
       console.warn('Could not load quest progress:', e);
+      try {
+        const { data: qpData } = await supabase.from('user_quest_progress').select('*').eq('user_id', effectiveUserId);
+        if (Array.isArray(qpData) && qpData.length > 0) {
+          setQuestProgresses(qpData);
+        }
+      } catch {
+        // ignore
+      }
     } finally {
       setLoadingQuests(false);
     }
@@ -504,6 +520,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         .from('profiles')
         .update({ avatar_url: url.trim() })
         .eq('id', userId);
+
+      // Sofort optimistisch die Profilbild-Quest im State auf erledigt setzen, damit kein Reload nötig ist
+      if (url.trim() && !url.includes('unknown.svg')) {
+        setQuestProgresses(prev => {
+          const existing = prev.find(p => p.quest_id === 'l1_profile_pic');
+          if (existing) {
+            return prev.map(p => p.quest_id === 'l1_profile_pic' ? { ...p, current_progress: 1, is_completed: true } : p);
+          }
+          return [...prev, { quest_id: 'l1_profile_pic', current_progress: 1, is_completed: true }];
+        });
+      }
 
       // Quests direkt im Frontend sowie über den Backend-Endpoint auswerten
       try {

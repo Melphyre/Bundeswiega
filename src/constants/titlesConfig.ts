@@ -113,6 +113,36 @@ export const PLAYER_TITLES: PlayerTitle[] = [
     conditionText: 'Standard bei Registrierung (Level 1)',
     requiredLevel: 1,
     isUnlocked: () => true
+  },
+  {
+    id: 'scharfschuetze',
+    name: 'Scharfschütze',
+    description: 'Quest-Belohnung: Durchschnitt unter 2,5 Gramm',
+    icon: '🎯',
+    badgeBg: 'bg-teal-500/10 dark:bg-teal-500/20',
+    textColor: 'text-teal-700 dark:text-teal-300',
+    borderColor: 'border-teal-500/30',
+    category: 'praezision',
+    conditionText: 'Quest: In einem Spiel einen Durchschnitt unter 2,5 Gramm',
+    isUnlocked: (p) => {
+      const titles = (p as any)?.unlockedTitles || (p as any)?.userTitles || [];
+      return titles.includes('Scharfschütze') || p?.title === 'Scharfschütze';
+    }
+  },
+  {
+    id: 'jungfrau',
+    name: 'Jungfrau',
+    description: 'Quest-Belohnung: In einem Standardspiel 0 Schnäpse',
+    icon: '😇',
+    badgeBg: 'bg-sky-500/10 dark:bg-sky-500/20',
+    textColor: 'text-sky-700 dark:text-sky-300',
+    borderColor: 'border-sky-500/30',
+    category: 'schnaepse',
+    conditionText: 'Quest: In einem Standardspiel 0 Schnäpse',
+    isUnlocked: (p) => {
+      const titles = (p as any)?.unlockedTitles || (p as any)?.userTitles || [];
+      return titles.includes('Jungfrau') || p?.title === 'Jungfrau';
+    }
   }
 ];
 
@@ -126,6 +156,26 @@ export const DEFAULT_TITLE: PlayerTitle = PLAYER_TITLES[0];
  */
 export const getUnlockedTitles = (profile: ProfileData | null | undefined): PlayerTitle[] => {
   const titles = PLAYER_TITLES.filter(title => title.isUnlocked(profile || {}));
+
+  // Falls in userTitles benutzerdefinierte / dynamische Titel existieren, die nicht in PLAYER_TITLES sind
+  const extraTitles = ((profile as any)?.unlockedTitles || (profile as any)?.userTitles || []) as string[];
+  for (const extra of extraTitles) {
+    if (!titles.some(t => t.name.toLowerCase() === extra.toLowerCase())) {
+      titles.push({
+        id: extra.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+        name: extra,
+        description: 'Freigeschalteter Quest-Titel',
+        icon: '🎖️',
+        badgeBg: 'bg-amber-500/10 dark:bg-amber-500/20',
+        textColor: 'text-amber-700 dark:text-amber-300',
+        borderColor: 'border-amber-500/30',
+        category: 'special',
+        conditionText: 'Quest abgeschlossen',
+        isUnlocked: () => true
+      });
+    }
+  }
+
   // Garantiere, dass mindestens Neuling vorhanden ist
   if (titles.length === 0 && PLAYER_TITLES.length > 0) {
     return [PLAYER_TITLES[0]];

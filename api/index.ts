@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { calculateGameXp, calculateLevelFromXp, getLevelFromXP } from '../src/utils/levelSystem.js';
 import { checkTournamentAchievements, MASTER_ACHIEVEMENTS_DEFINITIONS } from '../src/achievementsData.js';
+import { processQuestsForUser } from '../src/utils/questEvaluator.js';
 
 let rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
 if (rawSupabaseUrl.includes('.supabase.com')) {
@@ -109,6 +110,27 @@ CREATE TABLE IF NOT EXISTS public.teamwiegen_players (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS public.user_quest_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  quest_id TEXT NOT NULL,
+  current_progress NUMERIC NOT NULL DEFAULT 0,
+  is_completed BOOLEAN NOT NULL DEFAULT false,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, quest_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_quest_progress_user ON public.user_quest_progress(user_id);
+
+CREATE TABLE IF NOT EXISTS public.user_titles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, title)
+);
+CREATE INDEX IF NOT EXISTS idx_user_titles_user ON public.user_titles(user_id);
 
 CREATE TABLE IF NOT EXISTS public.database_backups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -239,6 +261,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (pathName === '/api/users/profile-data' && req.method === 'GET') {
       return await handleGetProfileData(req, res);
+    }
+    if (pathName === '/api/users/evaluate-quests' && req.method === 'POST') {
+      return await handleEvaluateQuests(req, res);
     }
 
     // ── Admin ────────────────────────────────────────
@@ -538,6 +563,12 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           targetProfile.games_played = newGamesPlayed;
           targetProfile.total_points = newTotalPoints;
           targetProfile.high_score = newHighScore;
+
+          try {
+            await processQuestsForUser(targetUserId, supabaseAdmin);
+          } catch (qErr: any) {
+            console.warn(`Quest evaluation warning for user ${targetUserId}:`, qErr?.message);
+          }
         } catch (profErr: any) {
           console.warn(`Profile stats update warning for user ${targetUserId}:`, profErr.message);
         }
@@ -886,6 +917,12 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       })
       .eq('id', userId);
 
+    try {
+      await processQuestsForUser(userId, supabaseAdmin);
+    } catch (qErr: any) {
+      console.warn(`Quest evaluation warning for user ${userId}:`, qErr?.message);
+    }
+
     return res.status(200).json({
       message: 'Ergebnis gespeichert',
       resultId: insertedResult?.id,
@@ -1086,11 +1123,19 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({
         profile: null,
         gameResults: [],
-        achievements: []
+        achievements: [],
+        questProgress: [],
+        userTitles: []
       });
     }
 
-    const [profileRes, resultsRes, teamRes, achRes] = await Promise.all([
+    try {
+      await processQuestsForUser(userId, supabaseAdmin);
+    } catch (qErr: any) {
+      console.warn('Profile quest evaluation error:', qErr?.message);
+    }
+
+    const [profileRes, resultsRes, teamRes, achRes, questRes, titlesRes] = await Promise.all([
       supabaseAdmin
         .from('profiles')
         .select('*')
@@ -1108,6 +1153,14 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       supabaseAdmin
         .from('achievements')
         .select('*')
+        .eq('user_id', userId),
+      supabaseAdmin
+        .from('user_quest_progress')
+        .select('*')
+        .eq('user_id', userId),
+      supabaseAdmin
+        .from('user_titles')
+        .select('title')
         .eq('user_id', userId)
     ]);
 
@@ -1133,19 +1186,61 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
     }
 
     const achievements = Array.isArray(achRes?.data) ? achRes.data : [];
+    const questProgress = Array.isArray(questRes?.data) ? questRes.data : [];
+    const userTitles = Array.isArray(titlesRes?.data) ? titlesRes.data.map((t: any) => t.title).filter(Boolean) : [];
 
     return res.status(200).json({
       profile,
       gameResults,
-      achievements
+      achievements,
+      questProgress,
+      userTitles
     });
   } catch (err: any) {
     console.error('handleGetProfileData error:', err);
     return res.status(200).json({
       profile: null,
       gameResults: [],
-      achievements: []
+      achievements: [],
+      questProgress: [],
+      userTitles: []
     });
+  }
+}
+
+async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
+  try {
+    const body = getRequestBody(req);
+    const userId = body?.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId ist erforderlich.' });
+    }
+
+    if (!isSupabaseConfigured()) {
+      return res.status(200).json({ success: true, questProgress: [], userTitles: [] });
+    }
+
+    await processQuestsForUser(userId, supabaseAdmin);
+
+    const [questRes, titlesRes] = await Promise.all([
+      supabaseAdmin
+        .from('user_quest_progress')
+        .select('*')
+        .eq('user_id', userId),
+      supabaseAdmin
+        .from('user_titles')
+        .select('title')
+        .eq('user_id', userId)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      questProgress: questRes?.data || [],
+      userTitles: (titlesRes?.data || []).map((t: any) => t.title).filter(Boolean)
+    });
+  } catch (err: any) {
+    console.error('handleEvaluateQuests error:', err);
+    return res.status(500).json({ error: err.message || 'Fehler bei Quest-Auswertung' });
   }
 }
 

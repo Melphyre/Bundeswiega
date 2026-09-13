@@ -30,6 +30,8 @@ export interface GameXpParams {
   avg?: number;
   schnaepse?: number;
   isWinner?: boolean;
+  rank?: number; // 1 = 1. Platz, 2 = 2. Platz
+  tournamentRank?: number; // 1 = 1. Platz Finaltable, 2 = 2. Platz, 3 = 3. Platz
   isSpeedMode?: boolean;
   speedLevels?: number;
   timeSeconds?: number;
@@ -356,64 +358,61 @@ export const getTitleForLevel = (_level: number): string => {
 export const calculateGameXp = (params: GameXpParams): GameXpResult => {
   const items: XpBreakdownItem[] = [];
 
+  // 1. Disqualifikation: Keine XP
   if (params.disqualified) {
-    items.push({ label: 'Teilnahme (Disqualifiziert)', xp: 15, icon: '💀' });
-    return { totalXp: 15, items };
+    items.push({ label: 'Disqualifiziert', xp: 0, icon: '💀' });
+    return { totalXp: 0, items };
   }
 
-  // 1. Basis-XP für das Beenden eines Spiels
-  items.push({ label: 'Spiel abgeschlossen', xp: 50, icon: '🎮' });
+  // 2. Special-Mode: Speedwiegen (Gibt nur pauschal 3 XP, keine weiteren Boni)
+  if (params.isSpeedMode) {
+    items.push({ label: 'Speedwiegen abgeschlossen', xp: 3, icon: '⏱️' });
+    return { totalXp: 3, items };
+  }
 
-  // 2. Präzisions-Bonus (anhand des Durchschnitts in Gramm)
+  // 3. Basis-XP für das Beenden eines normalen Spiels
+  items.push({ label: 'Spiel abgeschlossen', xp: 5, icon: '🎮' });
+
+  // 4. Präzisions-Bonus (anhand des Durchschnitts in Gramm)
   if (params.avg !== undefined && params.avg !== null) {
     const avg = Number(params.avg);
     if (avg <= 0.5) {
-      items.push({ label: 'Göttliche Präzision (Ø ≤ 0,5g)', xp: 100, icon: '🎯' });
+      items.push({ label: 'Göttliche Präzision (Ø ≤ 0,5g)', xp: 10, icon: '🎯' });
     } else if (avg <= 1.0) {
-      items.push({ label: 'Scharfschützen-Auge (Ø ≤ 1,0g)', xp: 65, icon: '🏹' });
+      items.push({ label: 'Scharfschütze (Ø ≤ 1,0g)', xp: 8, icon: '🏹' });
     } else if (avg <= 2.0) {
-      items.push({ label: 'Meisterhafte Genauigkeit (Ø ≤ 2,0g)', xp: 40, icon: '⚡' });
+      items.push({ label: 'Meisterhafte Genauigkeit (Ø ≤ 2,0g)', xp: 5, icon: '⚡' });
     } else if (avg <= 3.5) {
-      items.push({ label: 'Gutes Händchen (Ø ≤ 3,5g)', xp: 25, icon: '✨' });
+      items.push({ label: 'Gutes Händchen (Ø ≤ 3,5g)', xp: 3, icon: '✨' });
     } else if (avg <= 5.0) {
-      items.push({ label: 'Solide Leistung (Ø ≤ 5,0g)', xp: 10, icon: '👍' });
+      items.push({ label: 'Solide Leistung (Ø ≤ 5,0g)', xp: 1, icon: '👍' });
     }
   }
 
-  // 3. Schnäpse / Fehler-Vermeidung
+  // 5. Schnäpse / Fehler-Vermeidung (Keine Boni für getrunkene Schnäpse!)
   if (params.schnaepse !== undefined && params.schnaepse !== null) {
     const schnaepse = Number(params.schnaepse);
     if (schnaepse === 0) {
-      items.push({ label: 'Fehlerfreie Runde (0 Schnäpse)', xp: 45, icon: '🛡️' });
+      items.push({ label: 'Fehlerfreie Runde (0 Schnäpse)', xp: 5, icon: '🛡️' });
     } else if (schnaepse <= 2) {
-      items.push({ label: 'Wenig Strafen (≤ 2 Schnäpse)', xp: 20, icon: '🍺' });
-    } else {
-      const penaltyXp = Math.min(30, schnaepse * 5);
-      items.push({ label: `Trinkfestigkeit (${schnaepse} Schnäpse)`, xp: penaltyXp, icon: '🥃' });
+      items.push({ label: 'Wenig Strafen (≤ 2 Schnäpse)', xp: 3, icon: '🍺' });
     }
   }
 
-  // 4. Tagessieg / 1. Platz
-  if (params.isWinner) {
-    items.push({ label: 'Tagessieg / 1. Platz', xp: 50, icon: '🏆' });
+  // 6. Platzierung im normalen Spiel
+  if (params.rank === 1 || params.isWinner) {
+    items.push({ label: '1. Platz / Sieg', xp: 2, icon: '🏆' });
+  } else if (params.rank === 2) {
+    items.push({ label: '2. Platz', xp: 1, icon: '🥈' });
   }
 
-  // 5. Speedwiegen-Bonus
-  if (params.isSpeedMode) {
-    const levels = params.speedLevels || 3;
-    items.push({ label: `Speedwiegen abgeschlossen (${levels} Stufen)`, xp: 25 + levels * 10, icon: '⏱️' });
-    if (params.timeSeconds && params.timeSeconds < 30) {
-      items.push({ label: 'Blitz-Geschwindigkeit (< 30s)', xp: 35, icon: '🚀' });
-    }
-  }
-
-  // 6. Freigeschaltete Achievements
-  if (params.achievementsCount && params.achievementsCount > 0) {
-    items.push({
-      label: `${params.achievementsCount} Errungenschaft${params.achievementsCount > 1 ? 'en' : ''} erzielt`,
-      xp: params.achievementsCount * 30,
-      icon: '🎖️'
-    });
+  // 7. Turnier-Ergebnisse am Finaltable
+  if (params.tournamentRank === 1) {
+    items.push({ label: '1. Platz am Finaltable', xp: 10, icon: '🥇' });
+  } else if (params.tournamentRank === 2) {
+    items.push({ label: '2. Platz am Finaltable', xp: 5, icon: '🥈' });
+  } else if (params.tournamentRank === 3) {
+    items.push({ label: '3. Platz am Finaltable', xp: 3, icon: '🥉' });
   }
 
   const totalXp = items.reduce((sum, item) => sum + item.xp, 0);

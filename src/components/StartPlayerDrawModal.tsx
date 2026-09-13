@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Player } from '../../types';
 import { PLAYER_COLORS, BRAND_COLOR } from '../constants';
 import PlayerTitleBadge from './PlayerTitleBadge';
+import PlayerAvatar from './PlayerAvatar';
 
 interface StartPlayerDrawModalProps {
   isOpen: boolean;
@@ -78,7 +79,7 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
   const rawTitle = getPlayerTitle
     ? (getPlayerTitle(currentDisplayPlayer.id, currentDisplayPlayer) || getPlayerTitle(currentDisplayPlayer.name, currentDisplayPlayer))
     : currentDisplayPlayer.title;
-  const playerTitle = rawTitle || 'Neuling';
+  const playerTitle = rawTitle || undefined;
 
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
@@ -129,23 +130,11 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
               background: `linear-gradient(135deg, ${playerColor}, #f59e0b)`
             }}
           >
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={currentDisplayPlayer.name}
-                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-white dark:border-slate-900 shadow-inner"
-                onError={e => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <div
-                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-white text-3xl sm:text-4xl font-black border-4 border-white dark:border-slate-900 shadow-inner"
-                style={{ backgroundColor: playerColor }}
-              >
-                {currentDisplayPlayer.name?.charAt(0)?.toUpperCase() || '?'}
-              </div>
-            )}
+            <PlayerAvatar
+              url={avatarUrl}
+              name={currentDisplayPlayer.name}
+              className="w-24 h-24 sm:w-28 sm:h-28 border-4 border-white dark:border-slate-900 shadow-inner"
+            />
 
             {!isSpinning && (
               <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 text-white flex items-center justify-center text-sm font-black shadow-md animate-in zoom-in">
@@ -156,14 +145,16 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
         </div>
 
         {/* Title Badge right above player name */}
-        <div className="my-2 min-h-[26px] flex items-center justify-center">
-          <PlayerTitleBadge
-            title={playerTitle}
-            size="md"
-            showIcon={true}
-            className={`transition-all duration-300 shadow-sm ${isSpinning ? 'opacity-70' : 'opacity-100 scale-105'}`}
-          />
-        </div>
+        {playerTitle && (
+          <div className="my-2 min-h-[26px] flex items-center justify-center">
+            <PlayerTitleBadge
+              title={playerTitle}
+              size="md"
+              showIcon={true}
+              className={`transition-all duration-300 shadow-sm ${isSpinning ? 'opacity-70' : 'opacity-100 scale-105'}`}
+            />
+          </div>
+        )}
 
         {/* Player Name */}
         <h3

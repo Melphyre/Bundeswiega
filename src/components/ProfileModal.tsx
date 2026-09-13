@@ -8,6 +8,7 @@ import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { calculateLevelFromXp } from '../utils/levelSystem';
 import { NAME_TAG_COLORS, getNameTagOption } from '../constants/nameTagConfig';
 import { PlayerNameTag } from './PlayerNameTag';
+import { PlayerAvatar } from './PlayerAvatar';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -322,13 +323,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   }, [joinQrExpiry, showJoinQrModal]);
 
   useEffect(() => {
-    if (supabaseUser?.user_metadata?.title) {
-      setSelectedTitle(supabaseUser.user_metadata.title);
+    const rawTitle = supabaseUser?.user_metadata?.title;
+    if (rawTitle !== undefined) {
+      const trimmed = typeof rawTitle === 'string' ? rawTitle.trim() : '';
+      setSelectedTitle(trimmed && trimmed !== 'none' && trimmed.toLowerCase() !== 'kein titel' ? trimmed : '');
     } else if (supabaseUser?.id) {
       const stored = localStorage.getItem(`bundeswiega_user_title_${supabaseUser.id}`);
-      setSelectedTitle(stored || 'Neuling');
+      const trimmed = typeof stored === 'string' ? stored.trim() : '';
+      setSelectedTitle(trimmed && trimmed !== 'none' && trimmed.toLowerCase() !== 'kein titel' ? trimmed : '');
     } else {
-      setSelectedTitle('Neuling');
+      setSelectedTitle('');
     }
 
     const bg = supabaseUser?.user_metadata?.name_bg_color || (profileStats as any)?.name_bg_color;
@@ -348,14 +352,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     const userId = supabaseUser?.id;
     if (!userId) return;
 
-    setSelectedTitle(newTitle);
+    const cleanTitle = newTitle.trim();
+    setSelectedTitle(cleanTitle);
     setTitleLoading(true);
     setTitleMessage(null);
 
     try {
       // 1. In Supabase Auth Metadaten speichern (auth.updateUser)
       const { error: authErr } = await supabase.auth.updateUser({
-        data: { title: newTitle }
+        data: { title: cleanTitle }
       });
       if (authErr) throw authErr;
 
@@ -363,7 +368,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       try {
         await supabase
           .from('profiles')
-          .update({ title: newTitle })
+          .update({ title: cleanTitle, selected_title: cleanTitle })
           .eq('id', userId);
       } catch (dbErr) {
         console.warn('profiles.title update warn:', dbErr);
@@ -371,7 +376,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
       // 3. Im localStorage speichern
       try {
-        localStorage.setItem(`bundeswiega_user_title_${userId}`, newTitle);
+        localStorage.setItem(`bundeswiega_user_title_${userId}`, cleanTitle);
       } catch {
         // ignore
       }
@@ -381,13 +386,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         await fetch('/api/users/update-title', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, title: newTitle })
+          body: JSON.stringify({ userId, title: cleanTitle })
         });
       } catch {
         // ignore
       }
 
-      setTitleMessage(`✅ Titel "${newTitle}" erfolgreich ausgerüstet!`);
+      setTitleMessage(cleanTitle ? `✅ Titel "${cleanTitle}" erfolgreich ausgerüstet!` : '✅ Titel ausgeschaltet! Es wird kein Titel mehr angezeigt.');
       if (refreshUserData) await refreshUserData();
     } catch (e: any) {
       console.error('Fehler beim Aktualisieren des Titels:', e);
@@ -628,21 +633,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between p-5 md:p-6 pb-4 border-b border-gray-500/20 flex-shrink-0">
             <div className="flex items-center space-x-3">
-              {currentAvatarUrl ? (
-                <img
-                  src={currentAvatarUrl}
-                  alt="Avatar"
-                  className="w-10 h-10 rounded-full object-cover border-2 shadow-sm"
-                  style={{ borderColor: BRAND_COLOR }}
-                />
-              ) : (
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-white font-black shadow-sm"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  <i className="fas fa-user"></i>
-                </div>
-              )}
+              <PlayerAvatar
+                url={currentAvatarUrl}
+                name={supabaseUser?.user_metadata?.username || 'Avatar'}
+                className="w-10 h-10 border-2 shadow-sm"
+                style={{ borderColor: BRAND_COLOR }}
+              />
               <div>
                 <h3 className="text-lg md:text-xl font-black flex items-center space-x-2 flex-wrap gap-y-1">
                   <PlayerNameTag
@@ -735,13 +731,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <span>Profilbild (Avatar)</span>
                   </h4>
                   <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {currentAvatarUrl ? (
-                      <img src={currentAvatarUrl} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 shadow" style={{ borderColor: BRAND_COLOR }} />
-                    ) : (
-                      <div className="w-20 h-20 rounded-full flex items-center justify-center text-white text-2xl font-black shadow" style={{ backgroundColor: BRAND_COLOR }}>
-                        <i className="fas fa-user"></i>
-                      </div>
-                    )}
+                    <PlayerAvatar
+                      url={currentAvatarUrl}
+                      name={profileUsername || 'Avatar'}
+                      className="w-20 h-20 border-2 shadow"
+                      style={{ borderColor: BRAND_COLOR }}
+                    />
                     <div className="flex-1 space-y-2 w-full">
                       <div className="flex flex-wrap gap-2 items-center">
                         <label className="px-4 py-2 rounded-xl text-xs font-bold bg-[#238183] text-white cursor-pointer hover:opacity-90">
@@ -797,13 +792,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
                       <div className="space-y-2">
                         <select
-                          value={selectedTitle || 'Neuling'}
+                          value={selectedTitle || ''}
                           onChange={(e) => handleTitleChange(e.target.value)}
                           disabled={titleLoading}
                           className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
                             darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
                           }`}
                         >
+                          <option value="">🚫 Kein Titel (Titel ausschalten)</option>
                           {unlockedTitles.map((t) => (
                             <option key={t.id} value={t.name}>
                               {t.icon} {t.name} ({t.description})
@@ -815,7 +811,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           <span>
                             Freigeschaltet: <strong className="text-emerald-500">{unlockedTitles.length}</strong> von {PLAYER_TITLES.length} Titeln
                           </span>
-                          <span>{titleLoading ? 'Speichere Titel...' : 'Wird in Ranglisten & Profil angezeigt'}</span>
+                          <span>{titleLoading ? 'Speichere Titel...' : (selectedTitle ? 'Wird in Ranglisten & Profil angezeigt' : 'Kein Titel aktiv')}</span>
                         </div>
                       </div>
 
@@ -1084,6 +1080,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         <div key={g.id || idx} className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${darkMode ? 'bg-slate-800/40 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
                           <div>
                             <div className="text-sm font-black">{g.game_mode || 'Standard'}</div>
+                            {g.tournament_name && (
+                              <div className="text-xs text-amber-500 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
+                                <span>🏆</span>
+                                <span>Turnier: {g.tournament_name}{g.tournament_table ? ` (${g.tournament_table})` : ''}</span>
+                              </div>
+                            )}
                             <div className="text-[10px] opacity-50">{g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}</div>
                           </div>
                           <div className="text-right space-x-3">
@@ -1211,13 +1213,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       {friends.map(f => (
                         <div key={f.id} className={`p-3 rounded-xl border flex items-center justify-between ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex items-center space-x-3">
-                            {f.imageUrl ? (
-                              <img src={f.imageUrl} alt={f.name} className="w-8 h-8 rounded-full object-cover" />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-[#238183] text-white flex items-center justify-center font-bold text-xs">
-                                {f.name.charAt(0).toUpperCase()}
-                              </div>
-                            )}
+                            <PlayerAvatar
+                              url={f.imageUrl}
+                              name={f.name}
+                              className="w-8 h-8"
+                            />
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-bold text-sm">{f.name}</span>
                               <PlayerLevelBadge level={f.level || 1} size="sm" />
@@ -1511,11 +1511,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
               {/* Player info */}
               <div className="flex items-center space-x-2">
-                {currentAvatarUrl ? (
-                  <img src={currentAvatarUrl} alt="Avatar" className="w-6 h-6 rounded-full object-cover" />
-                ) : (
-                  <i className="fas fa-user-circle text-base"></i>
-                )}
+                <PlayerAvatar
+                  url={currentAvatarUrl}
+                  name={profileUsername || 'Avatar'}
+                  className="w-6 h-6"
+                />
                 <PlayerNameTag
                   name={profileUsername || 'Spieler'}
                   colorKey={selectedNameBgColor}

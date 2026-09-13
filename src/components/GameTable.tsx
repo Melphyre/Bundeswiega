@@ -3,6 +3,7 @@ import { Player, Round } from '../../types';
 import { PLAYER_COLORS } from '../constants';
 import VerticalText from './VerticalText';
 import PlayerTitleBadge from './PlayerTitleBadge';
+import PlayerAvatar from './PlayerAvatar';
 
 interface GameTableProps {
   showInputs?: boolean;
@@ -36,41 +37,31 @@ export const GameTable: React.FC<GameTableProps> = ({
             {players.map((p, idx) => {
               const accountLink = playerAccountLinks?.[p.id];
               const avatarUrl = p.imageUrl || accountLink?.imageUrl;
-              const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || 'Neuling';
+              const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || undefined;
               const resolvedNameBg = (getPlayerNameBgColor ? (getPlayerNameBgColor(p.id, p) || getPlayerNameBgColor(p.name, p)) : undefined) || p.name_bg_color || accountLink?.name_bg_color;
 
               return (
                 <th key={p.id} className="text-center p-1 align-top">
                   <div className="flex flex-col items-center space-y-1.5 min-w-[56px] max-w-[96px] mx-auto">
-                    {/* Spielertitel über dem Profilbild */}
-                    <div className="flex justify-center w-full min-h-[20px] items-center">
-                      <PlayerTitleBadge
-                        title={resolvedTitle}
-                        size="sm"
-                        showIcon={true}
-                        className="text-[9px] py-0.5 px-1.5 max-w-[85px] justify-center shadow-xs"
-                      />
-                    </div>
-
-                    {/* Profilbild / Avatar */}
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={p.name}
-                        className="w-8 h-8 rounded-full object-cover border-2 flex-shrink-0 shadow-sm"
-                        style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
-                        onError={e => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-black flex-shrink-0 shadow-sm"
-                        style={{ backgroundColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
-                      >
-                        {p.name?.charAt(0)?.toUpperCase() || '?'}
+                    {/* Spielertitel über dem Profilbild (nur wenn belegt) */}
+                    {resolvedTitle && (
+                      <div className="flex justify-center w-full min-h-[20px] items-center">
+                        <PlayerTitleBadge
+                          title={resolvedTitle}
+                          size="sm"
+                          showIcon={true}
+                          className="text-[9px] py-0.5 px-1.5 max-w-[85px] justify-center shadow-xs"
+                        />
                       </div>
                     )}
+
+                    {/* Profilbild / Avatar (mit unknown.svg Fallback und onError) */}
+                    <PlayerAvatar
+                      url={avatarUrl}
+                      name={p.name}
+                      className="w-8 h-8 border-2 flex-shrink-0 shadow-sm"
+                      style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
+                    />
                     <VerticalText text={p.name} colorKey={resolvedNameBg} />
                   </div>
                 </th>

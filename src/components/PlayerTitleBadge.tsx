@@ -14,10 +14,23 @@ export const PlayerTitleBadge: React.FC<PlayerTitleBadgeProps> = ({
   showIcon = true,
   size = 'sm'
 }) => {
-  if (!title || !title.trim()) return null;
+  if (!title || typeof title !== 'string') return null;
+  const trimmed = title.trim();
+  const lower = trimmed.toLowerCase();
+  if (
+    !trimmed ||
+    lower === 'none' ||
+    lower === 'kein titel' ||
+    lower === 'kein_titel' ||
+    lower === 'keiner' ||
+    lower === 'null' ||
+    lower === 'undefined'
+  ) {
+    return null;
+  }
 
-  const titleObj = findTitle(title);
-  const displayName = titleObj ? titleObj.name : title.trim();
+  const titleObj = findTitle(trimmed);
+  const displayName = titleObj ? titleObj.name : trimmed;
   const icon = titleObj?.icon || '🏷️';
   const badgeBg = titleObj?.badgeBg || 'bg-amber-500/15 dark:bg-amber-500/25';
   const textColor = titleObj?.textColor || 'text-amber-800 dark:text-amber-300';

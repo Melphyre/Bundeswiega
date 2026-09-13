@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Friend, PendingFriendRequest } from '../../types';
 import { PlayerTitleBadge } from './PlayerTitleBadge';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
+import { PlayerAvatar } from './PlayerAvatar';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest,
@@ -373,21 +374,12 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
-                      {f.imageUrl ? (
-                        <img
-                          src={f.imageUrl}
-                          alt={f.name}
-                          className="w-10 h-10 rounded-full object-cover border-2 flex-shrink-0"
-                          style={{ borderColor: brandColor }}
-                        />
-                      ) : (
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-black shadow flex-shrink-0"
-                          style={{ backgroundColor: brandColor }}
-                        >
-                          {f.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
+                      <PlayerAvatar
+                        url={f.imageUrl}
+                        name={f.name}
+                        className="w-10 h-10 border-2 flex-shrink-0"
+                        style={{ borderColor: brandColor }}
+                      />
                       <div className="min-w-0">
                         <div className="font-black text-xs truncate flex items-center gap-1.5 flex-wrap">
                           <span>{f.name}</span>

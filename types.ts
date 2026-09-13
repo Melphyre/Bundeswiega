@@ -119,6 +119,8 @@ export interface ParsedRecord {
   levels?: number;
   time_seconds?: number;
   total?: number;
+  tournament_name?: string;
+  tournament_table?: string;
   achievements?: Array<{
     id: string;
     title: string;

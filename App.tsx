@@ -57,6 +57,7 @@ import { calculateLevelFromXp, calculateGameXp, getTitleForLevel } from './src/u
 import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
+import { PlayerAvatar } from './src/components/PlayerAvatar';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest as apiSendFriendRequest,
@@ -330,7 +331,7 @@ const App: React.FC = () => {
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
-  const [userTitle, setUserTitle] = useState<string>('Neuling');
+  const [userTitle, setUserTitle] = useState<string>('');
   const [userNameBgColor, setUserNameBgColor] = useState<string>('none');
   const [userLevel, setUserLevel] = useState<number>(1);
   const [userXp, setUserXp] = useState<number>(0);
@@ -342,31 +343,41 @@ const App: React.FC = () => {
   const [roundPlayerXp, setRoundPlayerXp] = useState<Record<string, { xpEarned: number; newLevel: number; newXp: number; levelUp?: boolean; xpBreakdown?: any }>>({});
   const [unlockedTitleToast, setUnlockedTitleToast] = useState<PlayerTitle | null>(null);
 
-  // Titel-Lookup für Spieleranzeigen im gesamten System
+  // Hilfsfunktion: Prüft, ob ein Titel tatsächlich vergeben und aktiv ist
+  const isValidTitle = (t?: string | null): boolean => {
+    if (!t || typeof t !== 'string') return false;
+    const trimmed = t.trim().toLowerCase();
+    return !!trimmed && trimmed !== 'none' && trimmed !== 'kein titel' && trimmed !== 'kein_titel' && trimmed !== 'keiner' && trimmed !== 'null' && trimmed !== 'undefined';
+  };
+
+  // Titel-Lookup für Spieleranzeigen im gesamten System (liefert undefined wenn nicht belegt oder ausgeschaltet)
   const getPlayerTitle = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
-    if (playerObj?.title) return playerObj.title;
+    if (playerObj?.title && isValidTitle(playerObj.title)) return playerObj.title.trim();
     if (!playerNameOrId) return undefined;
     const target = playerNameOrId.trim().toLowerCase();
 
     // 0. Direkter Match in players-Liste
     const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
-    if (foundInPlayers?.title) return foundInPlayers.title;
+    if (foundInPlayers?.title && isValidTitle(foundInPlayers.title)) return foundInPlayers.title.trim();
 
     // 1. Eingeloggter Benutzer
     const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
     const currentId = supabaseUser?.id;
     if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
-      return userTitle || supabaseUser?.user_metadata?.title || 'Neuling';
+      if (isValidTitle(userTitle)) return userTitle.trim();
+      const metaTitle = supabaseUser?.user_metadata?.title;
+      if (isValidTitle(metaTitle)) return metaTitle.trim();
+      return undefined;
     }
 
     // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
     const directLinked = playerAccountLinks[playerNameOrId];
     if (directLinked) {
       const match = clerkUsers.find(u => u.id === directLinked.userId);
-      if (match?.title) return match.title;
+      if (match?.title && isValidTitle(match.title)) return match.title.trim();
       try {
         const stored = localStorage.getItem(`bundeswiega_user_title_${directLinked.userId}`);
-        if (stored) return stored;
+        if (stored && isValidTitle(stored)) return stored.trim();
       } catch {}
     }
 
@@ -375,10 +386,10 @@ const App: React.FC = () => {
     );
     if (linked) {
       const match = clerkUsers.find(u => u.id === linked.userId);
-      if (match?.title) return match.title;
+      if (match?.title && isValidTitle(match.title)) return match.title.trim();
       try {
         const stored = localStorage.getItem(`bundeswiega_user_title_${linked.userId}`);
-        if (stored) return stored;
+        if (stored && isValidTitle(stored)) return stored.trim();
       } catch {}
     }
 
@@ -386,12 +397,12 @@ const App: React.FC = () => {
     const matchUser = clerkUsers.find(
       u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
-    if (matchUser?.title) return matchUser.title;
+    if (matchUser?.title && isValidTitle(matchUser.title)) return matchUser.title.trim();
 
     // 4. LocalStorage Fallback (falls lokal abgespeichert)
     try {
       const stored = localStorage.getItem(`bundeswiega_user_title_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_title_${target}`);
-      if (stored) return stored;
+      if (stored && isValidTitle(stored)) return stored.trim();
     } catch {}
 
     return undefined;
@@ -721,7 +732,8 @@ const App: React.FC = () => {
         if (prof.username) {
           setProfileUsername(prof.username);
         }
-        const activeTitle = prof.selected_title || prof.title || supabaseUser?.user_metadata?.title || 'Neuling';
+        const rawTitle = prof.selected_title ?? prof.title ?? supabaseUser?.user_metadata?.title ?? '';
+        const activeTitle = isValidTitle(rawTitle) ? rawTitle.trim() : '';
         setUserTitle(activeTitle);
         const activeNameBg = prof.name_bg_color || supabaseUser?.user_metadata?.name_bg_color || localStorage.getItem(`bundeswiega_user_name_bg_${currentUserId}`) || 'none';
         setUserNameBgColor(activeNameBg);
@@ -1415,12 +1427,12 @@ const App: React.FC = () => {
   // Tournament Participant Management States
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [tableCustomNames, setTableCustomNames] = useState<Record<string, string>>({});
-  const [participantNamesText, setParticipantNamesText] = useState<string>('');
-  const [participantsDistribution, setParticipantsDistribution] = useState<Record<string, string[]>>({});
+  const [guestNameInput, setGuestNameInput] = useState<string>('');
+  const [selectedAccountName, setSelectedAccountName] = useState<string>('');
+  const [participantsList, setParticipantsList] = useState<string[]>([]);
+  const [registeredProfiles, setRegisteredProfiles] = useState<Array<{ id: string; username: string }>>([]);
   const [isSavingParticipants, setIsSavingParticipants] = useState<boolean>(false);
   const [participantsSaveError, setParticipantsSaveError] = useState<string | null>(null);
-  const [participantSaveState, setParticipantSaveState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [participantSaveMessage, setParticipantSaveMessage] = useState<string>('');
 
   // Screenshot States
   const [showScreenshotNotice, setShowScreenshotNotice] = useState(false);
@@ -1520,6 +1532,8 @@ const App: React.FC = () => {
       levels?: number;
       time_seconds?: number;
       team_name?: string;
+      tournament_name?: string;
+      tournament_table?: string;
     },
     achievements: any[]
   ) => {
@@ -2079,39 +2093,55 @@ const App: React.FC = () => {
     autoSaveAccounts();
   }, [gameState]);
 
-  const saveTournamentParticipants = async () => {
+  const handleAssignAndSaveParticipants = async () => {
     const currentTournamentName = selectedTournamentName || activeTournamentData?.config?.name;
     if (!currentTournamentName) return;
 
-    setParticipantSaveState('loading');
-    setParticipantSaveMessage('Spielerzuteilung wird gespeichert...');
+    let currentList = [...participantsList];
+    const pendingGuest = guestNameInput.trim();
+    const pendingAccount = selectedAccountName.trim();
+    if (pendingGuest && !currentList.includes(pendingGuest)) {
+      currentList.push(pendingGuest);
+    }
+    if (pendingAccount && !currentList.includes(pendingAccount)) {
+      currentList.push(pendingAccount);
+    }
+
+    if (currentList.length === 0) {
+      setParticipantsSaveError('Bitte füge mindestens einen Teilnehmer zur Liste hinzu.');
+      return;
+    }
+
+    const vorrundeTables = (activeTournamentData?.tables || []).filter(
+      (t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final"
+    );
+
+    if (vorrundeTables.length === 0) {
+      setParticipantsSaveError('Keine Vorrundentische gefunden.');
+      return;
+    }
+
+    const tableIds = vorrundeTables.map((t: any) => t.id);
+    const newDistribution = distributePlayers(currentList, tableIds);
+
+    const updatedTablesPayload = (activeTournamentData?.tables || []).map((t: any, idx: number) => {
+      if (t.id === 'table_second_chance' || t.id === 'table_final') return t;
+      const custom = tableCustomNames[t.id] || '';
+      const formattedName = formatTableName(idx + 1, custom);
+      const playersList = newDistribution[t.id] || [];
+      return {
+        ...t,
+        id: t.id,
+        name: formattedName,
+        players: playersList,
+        color: t.color
+      };
+    });
+
+    setIsSavingParticipants(true);
+    setParticipantsSaveError(null);
 
     try {
-      const getRes = await fetch(
-        `/api/tournament/get?name=${encodeURIComponent(currentTournamentName)}`
-      );
-      const contentType = getRes.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        const text = await getRes.text();
-        throw new Error(`API returned non-JSON: ${text.substring(0, 100)}`);
-      }
-      const getJson = await getRes.json();
-      if (!getRes.ok) throw new Error(getJson.error || 'Fehler beim Laden');
-
-      const updatedTablesPayload = (activeTournamentData?.tables || []).map((t: any, idx: number) => {
-        if (t.id === 'table_second_chance' || t.id === 'table_final') return t;
-        const custom = tableCustomNames[t.id] || '';
-        const formattedName = formatTableName(idx + 1, custom);
-        const playersList = participantsDistribution[t.id] || [];
-        return {
-          ...t,
-          id: t.id,
-          name: formattedName,
-          players: playersList,
-          color: t.color
-        };
-      });
-
       const saveRes = await fetch('/api/tournament/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2131,14 +2161,27 @@ const App: React.FC = () => {
       const saveJson = await saveRes.json();
       if (!saveRes.ok) throw new Error(saveJson.error || 'Fehler beim Speichern');
 
-      setParticipantSaveState('success');
-      setParticipantSaveMessage('✅ Spielerzuteilung gespeichert! Seite wird neu geladen...');
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+      // Update local tournament state immediately
+      setActiveTournamentData((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tables: updatedTablesPayload
+        };
+      });
+
+      // Synchronize in background without blocking or reloading
+      fetchTournamentsList().catch(() => {});
+      openTournamentDetail(currentTournamentName).catch(() => {});
+
+      // Close modal cleanly - NO window.location.reload()!
+      setShowParticipantsModal(false);
+      setGuestNameInput('');
+      setSelectedAccountName('');
     } catch (err: any) {
-      setParticipantSaveState('error');
-      setParticipantSaveMessage(`❌ Fehler: ${err.message}`);
+      setParticipantsSaveError(err.message || 'Fehler beim Speichern der Zuweisung.');
+    } finally {
+      setIsSavingParticipants(false);
     }
   };
 
@@ -2472,38 +2515,70 @@ const App: React.FC = () => {
     const vorrundeTables = allTables.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
 
     const initCustomNames: Record<string, string> = {};
-    const initDistribution: Record<string, string[]> = {};
-    const allExistingNamesSet = new Set<string>();
+    const existingPlayers: string[] = [];
 
     vorrundeTables.forEach((t: any, idx: number) => {
       initCustomNames[t.id] = extractCustomName(t.name, idx + 1);
-      initDistribution[t.id] = t.players || [];
-      (t.players || []).forEach((p: string) => allExistingNamesSet.add(p));
+      if (Array.isArray(t.players)) {
+        t.players.forEach((p: string) => {
+          if (p && p.trim()) existingPlayers.push(p.trim());
+        });
+      }
     });
 
     setTableCustomNames(initCustomNames);
-    setParticipantsDistribution(initDistribution);
-    setParticipantNamesText(Array.from(allExistingNamesSet).join('\n'));
+    setParticipantsList(existingPlayers);
+    setGuestNameInput('');
+    setSelectedAccountName('');
     setParticipantsSaveError(null);
+
+    // Refresh profiles from Supabase profiles
+    if (isSupabaseConfigured()) {
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, username, email')
+            .order('username');
+          if (!error && data && data.length > 0) {
+            const list = data
+              .map(p => ({
+                id: p.id,
+                username: (p.username || p.email || '').trim()
+              }))
+              .filter(p => p.username.length > 0);
+            setRegisteredProfiles(list);
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
+
     setShowParticipantsModal(true);
   };
 
-  const handleShuffleAndDistribute = () => {
-    if (!activeTournamentData) return;
-    const vorrundeTables = (activeTournamentData.tables || []).filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final");
-    const rawNames = participantNamesText.split('\n').map(n => n.trim()).filter(Boolean);
-    if (rawNames.length === 0) {
-      setParticipantsSaveError('Bitte gib mindestens einen Teilnehmernamen ein.');
+  const handleAddParticipant = () => {
+    setParticipantsSaveError(null);
+    const guest = guestNameInput.trim();
+    const account = selectedAccountName.trim();
+
+    const toAdd: string[] = [];
+    if (guest) toAdd.push(guest);
+    if (account && account !== guest) toAdd.push(account);
+
+    if (toAdd.length === 0) {
+      setParticipantsSaveError('Bitte gib einen Gastnamen ein oder wähle einen Account aus.');
       return;
     }
-    setParticipantsSaveError(null);
-    const tableIds = vorrundeTables.map((t: any) => t.id);
-    const newDist = distributePlayers(rawNames, tableIds);
-    setParticipantsDistribution(newDist);
+
+    setParticipantsList(prev => [...prev, ...toAdd]);
+    setGuestNameInput('');
+    setSelectedAccountName('');
   };
 
-  const handleSaveParticipants = async () => {
-    await saveTournamentParticipants();
+  const handleRemoveParticipant = (indexToRemove: number) => {
+    setParticipantsList(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const openSecondChanceModal = (scTable: any) => {
@@ -3914,7 +3989,9 @@ const App: React.FC = () => {
                 r.avg?.toString() || '0',
                 r.schnaepse?.toString() || '0',
                 r.total?.toString() || '0',
-                entryAchs.length > 0 ? JSON.stringify(entryAchs) : ''
+                entryAchs.length > 0 ? JSON.stringify(entryAchs) : '',
+                r.tournament_name || '',
+                r.tournament_table || ''
               ];
             });
         } catch (supaErr: any) {
@@ -3930,7 +4007,7 @@ const App: React.FC = () => {
         !supabaseUsernames.has(row[2]?.toLowerCase()?.trim())
       );
 
-      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements"];
+      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements", "Turnier", "Tisch"];
       const combinedData = [headerRow, ...filteredCsvRows, ...supabaseRows];
       setRecordsData(combinedData);
 
@@ -4029,11 +4106,11 @@ const App: React.FC = () => {
                   className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
                   style={{ backgroundColor: BRAND_COLOR }}
                 >
-                  {supabaseUser?.user_metadata?.avatar_url ? (
-                    <img src={supabaseUser.user_metadata.avatar_url} className="w-5 h-5 rounded-full object-cover" alt="User avatar" />
-                  ) : (
-                    <i className="fas fa-user"></i>
-                  )}
+                  <PlayerAvatar
+                    url={supabaseUser?.user_metadata?.avatar_url}
+                    name={supabaseUser?.user_metadata?.username || 'Mein Profil'}
+                    className="w-5 h-5"
+                  />
                   <PlayerNameTag name={supabaseUser?.user_metadata?.username || 'Profil verwalten'} colorKey={userNameBgColor} className="px-1.5 py-0.5" />
                   <PlayerLevelBadge level={userLevel} isGuest={!supabaseUser?.id} size="sm" />
                   {userTitle && <PlayerTitleBadge title={userTitle} size="sm" />}
@@ -4093,7 +4170,7 @@ const App: React.FC = () => {
                     <span className="absolute top-1/2 -right-4 -translate-y-1/2 text-yellow-200 text-xs animate-twinkle" style={{ animationDuration: '2.5s', animationDelay: '1.1s' }}>✦</span>
                   </div>
                   <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 relative z-10 cursor-pointer" style={{ backgroundColor: GOLD_COLOR }}>
-                    <i className="fas fa-trophy text-amber-300"></i><span>Rekorde</span>
+                    <i className="fas fa-trophy text-amber-300"></i><span>Championswieg Tabelle</span>
                   </button>
                 </div>
               )}
@@ -4302,20 +4379,19 @@ const App: React.FC = () => {
               if (!currentAnnouncer) return null;
               const announcerAccount = playerAccountLinks?.[currentAnnouncer.id];
               const announcerAvatar = currentAnnouncer.imageUrl || announcerAccount?.imageUrl;
-              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || 'Neuling';
+              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || undefined;
               const pIdx = players.indexOf(currentAnnouncer);
               const col = PLAYER_COLORS[(pIdx >= 0 ? pIdx : 0) % PLAYER_COLORS.length];
 
               return (
                 <div className="mb-6 p-3.5 rounded-2xl border-2 font-black text-sm flex flex-col items-center justify-center space-y-2 shadow-sm" style={{ borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}12` }}>
                   <div className="flex items-center gap-2 flex-wrap justify-center">
-                    {announcerAvatar ? (
-                      <img src={announcerAvatar} alt={currentAnnouncer.name} className="w-8 h-8 rounded-full object-cover border-2 shadow-xs" style={{ borderColor: col }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shadow-xs" style={{ backgroundColor: col }}>
-                        {currentAnnouncer.name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                    )}
+                    <PlayerAvatar
+                      url={announcerAvatar}
+                      name={currentAnnouncer.name}
+                      className="w-8 h-8 border-2 shadow-xs"
+                      style={{ borderColor: col }}
+                    />
                     <PlayerNameTag name={currentAnnouncer.name} colorKey={getPlayerNameBgColor(currentAnnouncer.id, currentAnnouncer)} className="text-base font-black px-2 py-0.5" />
                     <PlayerTitleBadge title={announcerTitle} size="sm" />
                   </div>
@@ -4502,20 +4578,19 @@ const App: React.FC = () => {
               if (!currentAnnouncer) return null;
               const announcerAccount = playerAccountLinks?.[currentAnnouncer.id];
               const announcerAvatar = currentAnnouncer.imageUrl || announcerAccount?.imageUrl;
-              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || 'Neuling';
+              const announcerTitle = (getPlayerTitle ? (getPlayerTitle(currentAnnouncer.id, currentAnnouncer) || getPlayerTitle(currentAnnouncer.name, currentAnnouncer)) : undefined) || currentAnnouncer.title || undefined;
               const pIdx = players.indexOf(currentAnnouncer);
               const col = PLAYER_COLORS[(pIdx >= 0 ? pIdx : 0) % PLAYER_COLORS.length];
 
               return (
                 <div className="mb-6 p-3.5 rounded-2xl border-2 font-black text-sm flex flex-col items-center justify-center space-y-2 shadow-sm" style={{ borderColor: BRAND_COLOR, backgroundColor: `${BRAND_COLOR}12` }}>
                   <div className="flex items-center gap-2 flex-wrap justify-center">
-                    {announcerAvatar ? (
-                      <img src={announcerAvatar} alt={currentAnnouncer.name} className="w-8 h-8 rounded-full object-cover border-2 shadow-xs" style={{ borderColor: col }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black shadow-xs" style={{ backgroundColor: col }}>
-                        {currentAnnouncer.name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                    )}
+                    <PlayerAvatar
+                      url={announcerAvatar}
+                      name={currentAnnouncer.name}
+                      className="w-8 h-8 border-2 shadow-xs"
+                      style={{ borderColor: col }}
+                    />
                     <PlayerNameTag name={currentAnnouncer.name} colorKey={getPlayerNameBgColor(currentAnnouncer.id, currentAnnouncer)} className="text-base font-black px-2 py-0.5" />
                     <PlayerTitleBadge title={announcerTitle} size="sm" />
                   </div>
@@ -6477,7 +6552,16 @@ const App: React.FC = () => {
                                                 const totalScore = item.avg + item.schnaepse;
                                                 return (
                                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
-                                                    <td className="py-3 font-semibold text-gray-400">{item.date}</td>
+                                                    <td className="py-3 font-semibold text-gray-400">
+                                                      <div>{item.date}</div>
+                                                      {item.tournament_name && (
+                                                        <div className="mt-0.5">
+                                                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                                            [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
+                                                          </span>
+                                                        </div>
+                                                      )}
+                                                    </td>
                                                     <td className="py-3 text-center text-emerald-500 font-bold pr-4">{item.avg.toFixed(2)}g</td>
                                                     <td className="py-3 text-center text-indigo-400 font-bold pr-4">{item.schnaepse}</td>
                                                     <td className="py-3 text-right font-black" style={{ color: BRAND_COLOR }}>
@@ -6937,11 +7021,18 @@ const App: React.FC = () => {
 
                   // Default view for other modes (Speedwiegen, Teamwiegen)
                   // Let's find personal record of every player (best single-game average)
-                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string; levels?: number }> = {};
+                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string; levels?: number; tournament_name?: string; tournament_table?: string }> = {};
                   filtered.forEach(item => {
                     const existing = personalBests[item.playerName];
                     if (!existing || item.avg < existing.avg) {
-                      personalBests[item.playerName] = { avg: item.avg, schnaepse: item.schnaepse, date: item.date, levels: item.levels };
+                      personalBests[item.playerName] = {
+                        avg: item.avg,
+                        schnaepse: item.schnaepse,
+                        date: item.date,
+                        levels: item.levels,
+                        tournament_name: item.tournament_name,
+                        tournament_table: item.tournament_table
+                      };
                     }
                   });
 
@@ -7009,6 +7100,11 @@ const App: React.FC = () => {
                                     <span className="block text-[10px] opacity-60">
                                       (Ø {p.avg.toFixed(1)}g + {p.schnaepse.toFixed(1)}s{p.levels !== undefined ? ` • ${p.levels} Stufen` : ''} • {p.date})
                                     </span>
+                                    {p.tournament_name && (
+                                      <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                        [{p.tournament_name}{p.tournament_table ? ` - ${p.tournament_table}` : ''}]
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -7042,6 +7138,11 @@ const App: React.FC = () => {
                                     <span className="block text-[8px] opacity-40">
                                       {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
                                     </span>
+                                    {p.tournament_name && (
+                                      <span className="inline-block mt-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                        [{p.tournament_name}{p.tournament_table ? ` - ${p.tournament_table}` : ''}]
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -7078,6 +7179,11 @@ const App: React.FC = () => {
                                     <span className="block text-[8px] opacity-40">
                                       {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
                                     </span>
+                                    {p.tournament_name && (
+                                      <span className="inline-block mt-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                        [{p.tournament_name}{p.tournament_table ? ` - ${p.tournament_table}` : ''}]
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -7111,7 +7217,16 @@ const App: React.FC = () => {
                                   : filtered;
                                 return displayList.slice(0, 50).map((item, idx) => (
                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
-                                    <td className="py-2 opacity-75 font-semibold">{item.date}</td>
+                                    <td className="py-2 opacity-75 font-semibold">
+                                      <div>{item.date}</div>
+                                      {item.tournament_name && (
+                                        <div className="mt-0.5">
+                                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                            [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
+                                          </span>
+                                        </div>
+                                      )}
+                                    </td>
                                     <td className="py-2 font-black">
                                       {activeRecordsTab === 'Standardspiel' ? (
                                         <button 
@@ -7209,6 +7324,13 @@ const App: React.FC = () => {
                   <div key={idx} className={`p-4 rounded-xl border flex justify-between items-center ${darkMode ? 'bg-slate-900/60 border-white/5' : 'bg-black/5 border-black/5'}`}>
                     <div>
                       <p className="font-bold text-sm">{item.date}</p>
+                      {item.tournament_name && (
+                        <div className="mt-0.5">
+                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                            [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
+                          </span>
+                        </div>
+                      )}
                       <p className="text-[10px] opacity-60">
                         {normalizeGameMode(item.game_mode || item.gameMode)}
                       </p>
@@ -8563,7 +8685,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between p-6 pb-4 border-b border-[#238183]/20 flex-shrink-0">
               <h3 className="text-xl font-black uppercase flex items-center tracking-tight text-[#238183]">
                 <i className="fas fa-users mr-2.5"></i>
-                <span>Teilnehmer hinzufügen & mischen</span>
+                <span>Teilnehmer & Tischzuweisung</span>
               </h3>
               <button
                 type="button"
@@ -8610,80 +8732,133 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Bereich 2: Teilnehmer eingeben */}
-              <div className="space-y-3">
+              {/* Bereich 2: Teilnehmer hinzufügen */}
+              <div className="space-y-3 pt-2 border-t border-[#238183]/20">
                 <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
                   <i className="fas fa-user-plus text-xs"></i>
-                  <span>2. Teilnehmer eingeben (ein Name pro Zeile)</span>
+                  <span>2. Teilnehmer hinzufügen</span>
                 </h4>
-                <textarea
-                  rows={5}
-                  value={participantNamesText}
-                  onChange={e => setParticipantNamesText(e.target.value)}
-                  placeholder="Max&#10;Anna&#10;Lukas&#10;Sophie"
-                  className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Gastname Eingabefeld */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 flex items-center gap-1">
+                      <i className="fas fa-user text-[10px]"></i>
+                      <span>Gastspieler</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={guestNameInput}
+                      onChange={e => setGuestNameInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddParticipant();
+                        }
+                      }}
+                      placeholder="Gastname eingeben"
+                      className={`w-full p-2.5 rounded-xl border-2 text-xs font-bold transition-colors focus:outline-none focus:border-[#238183] ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Dropdown-Auswahl aller registrierten Account-Namen */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 flex items-center gap-1">
+                      <i className="fas fa-id-badge text-[10px]"></i>
+                      <span>Account auswählen</span>
+                    </label>
+                    <select
+                      value={selectedAccountName}
+                      onChange={e => setSelectedAccountName(e.target.value)}
+                      className={`w-full p-2.5 rounded-xl border-2 text-xs font-bold transition-colors focus:outline-none focus:border-[#238183] cursor-pointer ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                      }`}
+                    >
+                      <option value="">-- Registrierter Account --</option>
+                      {(registeredProfiles.length > 0
+                        ? registeredProfiles
+                        : clerkUsers
+                            .map(u => ({ id: u.id, username: (u as any).username || u.name || '' }))
+                            .filter(u => u.username)
+                      ).map(u => (
+                        <option key={u.id} value={u.username}>
+                          {u.username}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Button Teilnehmer hinzufügen */}
                 <div>
                   <button
                     type="button"
-                    onClick={handleShuffleAndDistribute}
+                    onClick={handleAddParticipant}
                     className="w-full py-2.5 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
                     style={{ backgroundColor: '#238183' }}
                   >
-                    <span>🎲 Mischen & Verteilen</span>
+                    <i className="fas fa-user-plus text-xs"></i>
+                    <span>Teilnehmer hinzufügen</span>
                   </button>
                 </div>
-              </div>
 
-              {/* Bereich 3: Vorschau Tische & Teilnehmer */}
-              <div className="space-y-3 pt-2 border-t border-[#238183]/20">
-                <h4 className="text-xs font-black uppercase tracking-wider text-[#238183] flex items-center space-x-1.5">
-                  <i className="fas fa-table text-xs"></i>
-                  <span>3. Vorschau der Tischverteilung</span>
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {activeTournamentData?.tables?.filter((t: any) => t.id.startsWith("table_") && t.id !== "table_second_chance" && t.id !== "table_final").map((t: any, idx: number) => {
-                    const tblColor = t.color || TOURNAMENT_TABLE_COLORS[idx % TOURNAMENT_TABLE_COLORS.length];
-                    const custom = tableCustomNames[t.id] || '';
-                    const fullTableName = formatTableName(idx + 1, custom);
-                    const list = participantsDistribution[t.id] || [];
+                {/* Teilnehmer-Liste / Chips */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black uppercase tracking-wider opacity-75 flex items-center gap-1.5">
+                      <i className="fas fa-users text-[#238183]"></i>
+                      <span>Teilnehmerliste ({participantsList.length})</span>
+                    </span>
+                    {participantsList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setParticipantsList([])}
+                        className="text-[10px] font-bold text-red-500 hover:text-red-400 hover:underline cursor-pointer"
+                      >
+                        Alle entfernen
+                      </button>
+                    )}
+                  </div>
 
-                    return (
-                      <div key={t.id} className={`p-3.5 rounded-2xl border ${darkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="px-2.5 py-0.5 rounded-full text-white text-[11px] font-black" style={{ backgroundColor: tblColor }}>
-                            {fullTableName}
+                  {participantsList.length === 0 ? (
+                    <div className={`p-4 rounded-xl border border-dashed text-center text-xs font-semibold ${
+                      darkMode ? 'border-slate-700 bg-slate-800/30 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
+                    }`}>
+                      <i className="fas fa-user-friends text-lg mb-1 opacity-40 block"></i>
+                      <span>Noch keine Teilnehmer in der Liste.</span>
+                      <span className="block text-[10px] opacity-70 mt-0.5">Trage Gastnamen ein oder wähle Accounts aus und klicke auf "Teilnehmer hinzufügen".</span>
+                    </div>
+                  ) : (
+                    <div className={`p-3 rounded-xl border max-h-56 overflow-y-auto ${
+                      darkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-gray-50 border-gray-200'
+                    }`}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {participantsList.map((name, pIdx) => (
+                          <span
+                            key={`${name}-${pIdx}`}
+                            className={`inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-bold border shadow-xs ${
+                              darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-gray-200 text-gray-800'
+                            }`}
+                          >
+                            <span>{name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveParticipant(pIdx)}
+                              className="w-4 h-4 rounded-full flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-red-500/20 hover:text-red-500 cursor-pointer transition-colors"
+                              title={`${name} entfernen`}
+                              aria-label={`${name} entfernen`}
+                            >
+                              <i className="fas fa-times text-[10px]"></i>
+                            </button>
                           </span>
-                          <span className="text-[10px] font-mono opacity-60 font-bold">{list.length} Spieler</span>
-                        </div>
-                        {list.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {list.map((pName, pIdx) => (
-                              <span key={pIdx} className="px-2 py-0.5 rounded-lg bg-black/10 dark:bg-white/10 text-[11px] font-bold">
-                                {pName}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] opacity-40 italic">Keine Spieler zugewiesen</p>
-                        )}
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {participantSaveMessage && (
-                <div className={`p-3 rounded-xl text-xs font-bold text-center my-2 ${
-                  participantSaveState === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                  participantSaveState === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                  'bg-[#238183]/20 text-[#238183] border border-[#238183]/30'
-                }`}>
-                  {participantSaveMessage}
-                </div>
-              )}
             </div>
 
             <div className="flex-shrink-0 p-6 pt-3 border-t border-[#238183]/20 flex gap-3">
@@ -8699,16 +8874,19 @@ const App: React.FC = () => {
               <button
                 type="button"
                 disabled={isSavingParticipants}
-                onClick={handleSaveParticipants}
+                onClick={handleAssignAndSaveParticipants}
                 className="flex-1 py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
                 style={{ backgroundColor: '#238183' }}
               >
                 {isSavingParticipants ? (
-                  <i className="fas fa-spinner animate-spin"></i>
+                  <>
+                    <i className="fas fa-spinner animate-spin"></i>
+                    <span>Wird zugewiesen...</span>
+                  </>
                 ) : (
                   <>
-                    <i className="fas fa-save"></i>
-                    <span>Speichern</span>
+                    <i className="fas fa-random"></i>
+                    <span>Teilnehmer den Tischen zuweisen</span>
                   </>
                 )}
               </button>
@@ -9027,13 +9205,11 @@ const App: React.FC = () => {
                             }`}
                           >
                             <div className="flex items-center space-x-2.5 min-w-0">
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs text-white shrink-0 shadow-sm" style={{ backgroundColor: BRAND_COLOR }}>
-                                {u.imageUrl ? (
-                                  <img src={u.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                                ) : (
-                                  (u.name || u.username || 'U').charAt(0).toUpperCase()
-                                )}
-                              </div>
+                              <PlayerAvatar
+                                url={u.imageUrl}
+                                name={u.name || u.username || 'Benutzer'}
+                                className="w-8 h-8 shrink-0 shadow-sm"
+                              />
                               <div className="min-w-0">
                                 <div className="font-bold truncate text-xs flex items-center gap-1.5">
                                   <span>{u.name || u.username}</span>

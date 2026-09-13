@@ -13,8 +13,31 @@ if (rawUrl.includes('.supabase.com')) {
   }
 }
 
-const supabaseUrl = rawUrl;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabaseUrl = rawUrl;
+export const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Fallback Standard-Profilbild, wenn keines eingestellt ist oder es um einen Gast ohne Account geht
+export const DEFAULT_AVATAR_URL = 'https://gzfeauqvpnjowyfbavwl.supabase.co/storage/v1/object/public/avatars/unknown.svg.svg';
+
+/**
+ * Gibt die URL des Profilbildes zurück oder unknown.svg als Fallback, falls null, undefined oder leer.
+ */
+export function getAvatarUrl(url?: string | null): string {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return DEFAULT_AVATAR_URL;
+  }
+  return url.trim();
+}
+
+/**
+ * Handler für das onError-Event bei Avatar <img>-Tags, um automatisch auf unknown.svg zurückzufallen.
+ */
+export function handleAvatarError(e: { currentTarget?: { src?: string } | null } | Event) {
+  const target = (e as any)?.currentTarget || (e as any)?.target;
+  if (target && target.src !== DEFAULT_AVATAR_URL) {
+    target.src = DEFAULT_AVATAR_URL;
+  }
+}
 
 // Validierung
 if (!supabaseUrl || !supabaseUrl.includes('supabase.co')) {

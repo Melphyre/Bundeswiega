@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS public.tournaments (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tournaments_name_unique_idx ON public.tournaments (name);
 
+CREATE TABLE IF NOT EXISTS public.teamwiegen_players (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID REFERENCES public.game_results(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.database_backups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   backup_type TEXT NOT NULL,
@@ -143,6 +150,9 @@ const supabaseAdmin = createClient(
 );
 
 function getRequestBody(req: VercelRequest): any {
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
   if (typeof req.body === 'string') {
     try {
       return JSON.parse(req.body);
@@ -272,9 +282,12 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ data: [] });
     }
 
-    // Load results, profiles, achievements directly from Supabase
+    // 1. Alle teamwiegen_players(user_id) verknüpften IDs abfragen
     const [resultsRes, profilesRes, achRes] = await Promise.all([
-      supabaseAdmin.from('game_results').select('*').order('created_at', { ascending: false }),
+      supabaseAdmin
+        .from('game_results')
+        .select('*, teamwiegen_players(user_id)')
+        .order('created_at', { ascending: false }),
       supabaseAdmin.from('profiles').select('*'),
       supabaseAdmin.from('achievements').select('*')
     ]);
@@ -295,8 +308,14 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
     const rows = safeResults
       .filter(r => {
         if (!r) return false;
-        if (r.user_id) {
-          const profile = profileMap[r.user_id];
+
+        // Alle relevanten User-IDs dieses Eintrags sammeln (direkte ID + alle aus teamwiegen_players)
+        const teamUserIds = (r.teamwiegen_players || []).map((tp: any) => tp.user_id).filter(Boolean);
+        const effectiveUserIds = r.user_id ? Array.from(new Set([r.user_id, ...teamUserIds])) : teamUserIds;
+
+        // Falls ein verknüpfter Spieler seine Records verbergen möchte, das Ergebnis nicht anzeigen
+        for (const uId of effectiveUserIds) {
+          const profile = profileMap[uId];
           if (profile) {
             if (profile.show_records === false) return false;
             const mode = (r.game_mode || '').toLowerCase();
@@ -308,14 +327,18 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
         return true;
       })
       .map(r => {
-        const profile = r.user_id ? profileMap[r.user_id] : null;
-        const playerName = profile?.username || r.player_name || (r.is_guest ? 'Gast' : 'Unbekannt');
+        const teamUserIds = (r.teamwiegen_players || []).map((tp: any) => tp.user_id).filter(Boolean);
+        const effectiveUserIds = r.user_id ? Array.from(new Set([r.user_id, ...teamUserIds])) : teamUserIds;
+        const mainUserId = effectiveUserIds[0] || null;
+
+        // Der eingegebene Teamname/Spielername bleibt unverändert erhalten
+        const playerName = r.team_name || r.player_name || (r.is_guest ? 'Gast' : 'Unbekannt');
         const canonicalMode = r.game_mode || 'Standardspiel';
 
         const entryAchs = safeAchs
           .filter(a => {
             if (!a) return false;
-            const matchUser = r.user_id ? a.user_id === r.user_id : (a.player_name === playerName || a.is_guest);
+            const matchUser = mainUserId ? effectiveUserIds.includes(a.user_id) : (a.player_name === playerName || a.is_guest);
             const matchDate = a.date === r.date;
             return matchUser && matchDate && (a.game_mode === canonicalMode || !a.game_mode);
           })
@@ -359,7 +382,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const body = getRequestBody(req);
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || getRequestBody(req));
   const { gameMode, results, date, achievements } = body;
 
   if (!gameMode || !results || !Array.isArray(results) || !date) {
@@ -373,19 +396,19 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Supabase ist nicht konfiguriert.' });
     }
 
-    // Load registered user profiles for matching
     const { data: profiles } = await supabaseAdmin
       .from('profiles')
       .select('id, username, games_played, total_points, high_score, xp, level');
 
     const profileMap = new Map<string, any>();
     (profiles || []).forEach((p: any) => {
-      if (p.username) {
+      if (p?.username) {
         profileMap.set(p.username.toLowerCase().trim(), p);
       }
     });
 
     const isSpeedMode = gameMode.toLowerCase().includes('speed');
+    const isTeamwiegen = gameMode.toLowerCase().includes('teamwiegen');
     const TOGETHER_ACHIEVEMENT_IDS = ['twins', 'doppelganger', 'mirror_number', 'shadow', 'equilibrium'];
 
     let savedResultsCount = 0;
@@ -425,8 +448,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
         total = Math.round((avg + schnaepse) * 100) / 100;
       }
 
-      // Insert into public.game_results
-      const { error: insertErr } = await supabaseAdmin
+      const { data: insertedGame, error: insertErr } = await supabaseAdmin
         .from('game_results')
         .insert({
           user_id: isGuest ? null : userId,
@@ -442,16 +464,43 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           team_name: item.team_name || null,
           tournament_name: item.tournament_name || null,
           tournament_table: item.tournament_table || null
-        });
+        })
+        .select('id')
+        .single();
 
       if (insertErr) {
         console.error(`game_results insert error for ${playerName}:`, insertErr.message);
       } else {
         savedResultsCount++;
+
+        const teamUserIds: string[] = Array.isArray(item.userIds) && item.userIds.length > 0
+          ? item.userIds
+          : (userId ? [userId] : []);
+
+        if (isTeamwiegen && insertedGame?.id && teamUserIds.length > 0) {
+          const teamPlayerInserts = teamUserIds.map((uId: string) => ({
+            game_id: insertedGame.id,
+            user_id: uId
+          }));
+
+          const { error: teamPlayerErr } = await supabaseAdmin
+            .from('teamwiegen_players')
+            .insert(teamPlayerInserts);
+
+          if (teamPlayerErr) {
+            console.error(`teamwiegen_players insert error for ${playerName}:`, teamPlayerErr.message);
+          }
+        }
       }
 
-      // If registered user, update profiles stats and XP
-      if (!isGuest && matchedProfile) {
+      const teamUserIdsForXp: string[] = Array.isArray(item.userIds) && item.userIds.length > 0
+        ? item.userIds
+        : (userId ? [userId] : []);
+
+      for (const targetUserId of teamUserIdsForXp) {
+        const targetProfile = (profiles || []).find((p: any) => p.id === targetUserId);
+        if (!targetProfile) continue;
+
         try {
           const xpResult = calculateGameXp({
             avg,
@@ -462,13 +511,13 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           });
           const earnedXp = xpResult.totalXp;
 
-          const currentXp = Number(matchedProfile.xp) || 0;
+          const currentXp = Number(targetProfile.xp) || 0;
           const newXp = currentXp + earnedXp;
-          const newLevel = getLevelFromXP(newXp);
-          const newGamesPlayed = (Number(matchedProfile.games_played) || 0) + 1;
-          const newTotalPoints = (Number(matchedProfile.total_points) || 0) + (isSpeedMode ? (timeSeconds || 0) : schnaepse);
-          const currentHigh = (matchedProfile.high_score !== null && matchedProfile.high_score !== undefined)
-            ? Number(matchedProfile.high_score)
+          const newLevel = calculateLevelFromXp(newXp).level;
+          const newGamesPlayed = (Number(targetProfile.games_played) || 0) + 1;
+          const newTotalPoints = (Number(targetProfile.total_points) || 0) + (isSpeedMode ? (timeSeconds || 0) : schnaepse);
+          const currentHigh = (targetProfile.high_score !== null && targetProfile.high_score !== undefined)
+            ? Number(targetProfile.high_score)
             : 999;
           const newHighScore = (currentHigh === 0 || avg < currentHigh) ? avg : currentHigh;
 
@@ -482,24 +531,23 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
               high_score: newHighScore,
               updated_at: new Date().toISOString()
             })
-            .eq('id', userId);
+            .eq('id', targetUserId);
 
-          matchedProfile.xp = newXp;
-          matchedProfile.level = newLevel;
-          matchedProfile.games_played = newGamesPlayed;
-          matchedProfile.total_points = newTotalPoints;
-          matchedProfile.high_score = newHighScore;
+          targetProfile.xp = newXp;
+          targetProfile.level = newLevel;
+          targetProfile.games_played = newGamesPlayed;
+          targetProfile.total_points = newTotalPoints;
+          targetProfile.high_score = newHighScore;
         } catch (profErr: any) {
-          console.warn('Profile stats update warning:', profErr.message);
+          console.warn(`Profile stats update warning for user ${targetUserId}:`, profErr.message);
         }
       }
 
-      // Handle achievements for this player
       const rawPlayerAch = item.achievements && item.achievements.length > 0
         ? item.achievements
         : (achievements && Array.isArray(achievements)
-            ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.some((eb: string) => eb.toLowerCase() === rawName.toLowerCase()))
-            : []);
+          ? achievements.filter((a: any) => a.earnedBy && Array.isArray(a.earnedBy) && a.earnedBy.some((eb: string) => eb.toLowerCase() === rawName.toLowerCase()))
+          : []);
 
       for (const a of rawPlayerAch) {
         if (!a.id) continue;
@@ -510,7 +558,6 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
 
         const earnedWith = Array.isArray(a.earnedBy) && a.earnedBy.length > 0 ? a.earnedBy : [playerName];
 
-        // Duplicate check
         let dupeQuery = supabaseAdmin
           .from('achievements')
           .select('id')
@@ -518,7 +565,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           .eq('date', date);
 
         if (isGuest) {
-          dupeQuery = dupeQuery.eq('player_name', playerName).eq('is_guest', true);
+          dupeQuery = dupeQuery.eq('player_name', playerName).is('user_id', null);
         } else {
           dupeQuery = dupeQuery.eq('user_id', userId);
         }
@@ -731,6 +778,27 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
 
     console.log('game_results gespeichert:', insertedResult?.id);
 
+// Bei Teamwiegen alle verknüpften Spieler in teamwiegen_players eintragen
+  const isTeamwiegen = (gameResult.game_mode || '').toLowerCase().includes('teamwiegen');
+  const teamUserIds: string[] = Array.isArray(gameResult.userIds) && gameResult.userIds.length > 0
+    ? gameResult.userIds
+    : [userId];
+
+  if (isTeamwiegen && insertedResult?.id && teamUserIds.length > 0) {
+    const teamPlayerInserts = teamUserIds.map((uId: string) => ({
+      game_id: insertedResult.id,
+      user_id: uId
+    }));
+
+    const { error: teamPlayerErr } = await supabaseAdmin
+      .from('teamwiegen_players')
+      .insert(teamPlayerInserts);
+
+    if (teamPlayerErr) {
+      console.error('teamwiegen_players insert error in handleSaveGameResult:', teamPlayerErr.message);
+    }
+  }
+  
     // Achievements speichern
     let achSaved = 0;
     if (achievementsList?.length > 0) {
@@ -1022,7 +1090,7 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const [profileRes, resultsRes, achRes] = await Promise.all([
+    const [profileRes, resultsRes, teamRes, achRes] = await Promise.all([
       supabaseAdmin
         .from('profiles')
         .select('*')
@@ -1034,13 +1102,36 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
         .eq('user_id', userId)
         .order('created_at', { ascending: false }),
       supabaseAdmin
+        .from('teamwiegen_players')
+        .select('game_id')
+        .eq('user_id', userId),
+      supabaseAdmin
         .from('achievements')
         .select('*')
         .eq('user_id', userId)
     ]);
 
     const profile = profileRes?.data || null;
-    const gameResults = Array.isArray(resultsRes?.data) ? resultsRes.data : [];
+    let gameResults = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
+
+    const teamGameIds = (teamRes?.data || []).map((t: any) => t.game_id).filter(Boolean);
+    if (teamGameIds.length > 0) {
+      const { data: teamGames } = await supabaseAdmin
+        .from('game_results')
+        .select('*')
+        .in('id', teamGameIds);
+      if (Array.isArray(teamGames) && teamGames.length > 0) {
+        const existingIds = new Set(gameResults.map(g => g.id));
+        for (const tg of teamGames) {
+          if (!existingIds.has(tg.id)) {
+            gameResults.push(tg);
+            existingIds.add(tg.id);
+          }
+        }
+        gameResults.sort((a, b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime());
+      }
+    }
+
     const achievements = Array.isArray(achRes?.data) ? achRes.data : [];
 
     return res.status(200).json({

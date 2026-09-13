@@ -9,6 +9,7 @@ import { calculateLevelFromXp } from '../utils/levelSystem';
 import { NAME_TAG_COLORS, getNameTagOption } from '../constants/nameTagConfig';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
+import { QuestList, QuestProgress } from './QuestList';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -141,6 +142,37 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       ? supabaseUser
       : supabaseUser?.id) ||
     '';
+
+  const [questProgresses, setQuestProgresses] = useState<QuestProgress[]>([]);
+  const [userTitles, setUserTitles] = useState<string[]>([]);
+  const [loadingQuests, setLoadingQuests] = useState(false);
+
+  const loadQuestProgress = useCallback(async () => {
+    if (!effectiveUserId) return;
+    try {
+      setLoadingQuests(true);
+      const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.questProgress)) {
+          setQuestProgresses(data.questProgress);
+        }
+        if (Array.isArray(data.userTitles)) {
+          setUserTitles(data.userTitles);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load quest progress:', e);
+    } finally {
+      setLoadingQuests(false);
+    }
+  }, [effectiveUserId]);
+
+  useEffect(() => {
+    if (showProfileModal && effectiveUserId) {
+      loadQuestProgress();
+    }
+  }, [showProfileModal, effectiveUserId, loadQuestProgress]);
 
   const [localFriends, setLocalFriends] = useState<Friend[]>(propFriends || []);
   const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>(propPendingRequests || []);
@@ -471,6 +503,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         .from('profiles')
         .update({ avatar_url: url.trim() })
         .eq('id', userId);
+
+      // Quests auswerten nach Avatar-Änderung
+      try {
+        await fetch('/api/users/evaluate-quests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+        });
+        await loadQuestProgress();
+      } catch (qErr) {
+        console.warn('Quest evaluation after avatar update warning:', qErr);
+      }
 
       setAvatarMessage('✅ Profilbild erfolgreich aktualisiert!');
       if (refreshUserData) await refreshUserData();
@@ -978,24 +1022,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           <span>Noch {Math.max(0, levelInfo.neededForNextLevel - levelInfo.currentLevelXp)} XP nötig</span>
                         </div>
                       </div>
-
-                      {/* Nächster Meilenstein / Belohnung */}
-                      {levelInfo.nextReward && (
-                        <div className={`p-3 rounded-xl border flex items-center space-x-3 text-xs ${
-                          darkMode ? 'bg-slate-900/50 border-slate-700' : 'bg-white border-gray-200'
-                        }`}>
-                          <div className="text-xl">{levelInfo.nextReward.title ? '👑' : '🎁'}</div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-[10px] uppercase font-black tracking-wider opacity-60 block">
-                              Nächste Belohnung (Stufe {levelInfo.nextReward.level}):
-                            </span>
-                            <span className="font-bold text-teal-600 dark:text-teal-400 truncate block">
-                              {levelInfo.nextReward.title ? `Titel "${levelInfo.nextReward.title}"` : levelInfo.nextReward.badge}
-                            </span>
-                          </div>
-                        </div>
-                      )}
                     </div>
+                  );
+                })()}
+
+                {/* 🎯 Level Aufgaben & Quests */}
+                {(() => {
+                  const stats = extractProfileStats(profileStats);
+                  const currentXp = stats.xp;
+                  const levelInfo = calculateLevelFromXp(currentXp);
+                  return (
+                    <QuestList
+                      userLevel={levelInfo.level}
+                      questProgresses={questProgresses}
+                    />
                   );
                 })()}
               </div>

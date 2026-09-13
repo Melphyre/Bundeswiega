@@ -2,6 +2,7 @@ import { Player, ParsedRecord } from '../types';
 import { TOGETHER_ACHIEVEMENT_IDS } from '../utils';
 export { MASTER_ACHIEVEMENTS_DEFINITIONS } from './achievementsData';
 export * from './constants/titlesConfig';
+export { DEFAULT_AVATAR_URL, getAvatarUrl, handleAvatarError } from './supabaseClient';
 
 export const LOGO_URL = "https://github.com/Melphyre/Bundeswiega/blob/main/Bundeswiega.png?raw=true";
 export const INSTAGRAM_URL = "https://www.instagram.com/bundeswiega/";
@@ -271,6 +272,13 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
       }
     }
 
+    const tourneyName = (row[7] !== undefined && row[7] !== null && String(row[7]).trim() !== '')
+      ? String(row[7]).trim()
+      : (typeof row === 'object' && !Array.isArray(row) && (row as any).tournament_name ? String((row as any).tournament_name).trim() : undefined);
+    const tourneyTable = (row[8] !== undefined && row[8] !== null && String(row[8]).trim() !== '')
+      ? String(row[8]).trim()
+      : (typeof row === 'object' && !Array.isArray(row) && (row as any).tournament_table ? String((row as any).tournament_table).trim() : undefined);
+
     if (dateVal && playerName) {
       const canonicalMode = normalizeGameMode(rawGameMode);
       list.push({
@@ -281,6 +289,8 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
         avg: avgVal,
         schnaepse: schnaepseVal,
         levels: levelsVal,
+        tournament_name: tourneyName || undefined,
+        tournament_table: tourneyTable || undefined,
         achievements: achievementsVal,
       });
     }

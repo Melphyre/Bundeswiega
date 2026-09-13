@@ -18,6 +18,15 @@ if (rawSupabaseUrl.includes('.supabase.com')) {
 const supabaseUrl = rawSupabaseUrl;
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
 
+const DEFAULT_AVATAR_URL = 'https://gzfeauqvpnjowyfbavwl.supabase.co/storage/v1/object/public/avatars/unknown.svg.svg';
+
+function getAvatarUrl(url?: string | null): string {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return DEFAULT_AVATAR_URL;
+  }
+  return url.trim();
+}
+
 const isSupabaseConfigured = () => {
   return (
     !!supabaseUrl &&
@@ -331,11 +340,13 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
           String(r.avg ?? 0),
           schnaepseOrTime,
           String(r.total ?? 0),
-          entryAchs.length > 0 ? encodeURIComponent(JSON.stringify(entryAchs)) : ''
+          entryAchs.length > 0 ? encodeURIComponent(JSON.stringify(entryAchs)) : '',
+          r.tournament_name || '',
+          r.tournament_table || ''
         ];
       });
 
-    const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements'];
+    const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch'];
     return res.status(200).json({ data: [header, ...rows] });
   } catch (error: any) {
     console.error("Error in records handler:", error);
@@ -428,7 +439,9 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           time_seconds: timeSeconds,
           total,
           levels: item.levels !== undefined ? Number(item.levels) : null,
-          team_name: item.team_name || null
+          team_name: item.team_name || null,
+          tournament_name: item.tournament_name || null,
+          tournament_table: item.tournament_table || null
         });
 
       if (insertErr) {
@@ -569,7 +582,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
         username: p.username || '',
         email: p.email || '',
         role: p.role || 'user',
-        imageUrl: p.avatar_url || '',
+        imageUrl: getAvatarUrl(p.avatar_url),
         title: p.title || '',
         level: Number(p.level) || 1,
         xp: Number(p.xp) || 0,
@@ -590,7 +603,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       username: u.user_metadata?.username || '',
       email: u.email || '',
       role: u.user_metadata?.role || 'user',
-      imageUrl: u.user_metadata?.avatar_url || '',
+      imageUrl: getAvatarUrl(u.user_metadata?.avatar_url),
       title: u.user_metadata?.title || '',
       name_bg_color: u.user_metadata?.name_bg_color || 'none'
     }));
@@ -662,7 +675,7 @@ async function handleUpdateTitle(req: VercelRequest, res: VercelResponse) {
     try {
       await supabaseAdmin
         .from('profiles')
-        .update({ title: title || '' })
+        .update({ title: title || '', selected_title: title || '' })
         .eq('id', userId);
     } catch (profErr: any) {
       console.warn('Profile title column update warning:', profErr?.message);
@@ -704,7 +717,9 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         total,
         levels: gameResult.levels || null,
         time_seconds: gameResult.time_seconds || null,
-        team_name: gameResult.team_name || null
+        team_name: gameResult.team_name || null,
+        tournament_name: gameResult.tournament_name || null,
+        tournament_table: gameResult.tournament_table || null
       })
       .select()
       .single();
@@ -977,6 +992,8 @@ async function handlePublicRecords(req: VercelRequest, res: VercelResponse) {
           schnaepse: entry.schnaepse || 0,
           levels: entry.levels,
           achievements: achievements,
+          tournament_name: entry.tournament_name || undefined,
+          tournament_table: entry.tournament_table || undefined,
           source: 'account'
         });
       });

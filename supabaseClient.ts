@@ -1,7 +1,11 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-let rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const env: any = (typeof import.meta !== 'undefined' && (import.meta as any)?.env)
+  ? (import.meta as any).env
+  : (typeof process !== 'undefined' && process.env ? process.env : {});
+
+let rawUrl = (env.VITE_SUPABASE_URL || '').trim();
 
 // Automatische Korrektur: Falls .supabase.com statt .supabase.co oder reine Projekt-ID angegeben wurde
 if (rawUrl.includes('.supabase.com')) {
@@ -14,7 +18,7 @@ if (rawUrl.includes('.supabase.com')) {
 }
 
 export const supabaseUrl = rawUrl;
-export const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabaseKey = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
 
 // Fallback Standard-Profilbild, wenn keines eingestellt ist oder es um einen Gast ohne Account geht
 export const DEFAULT_AVATAR_URL = 'https://gzfeauqvpnjowyfbavwl.supabase.co/storage/v1/object/public/avatars/unknown.svg.svg';
@@ -68,13 +72,15 @@ export const supabase = createClient(
   }
 );
 
-// Test beim Start
-supabase.from('profiles').select('id').limit(1).then(({ error }) => {
-  if (error) {
-    console.error('❌ Supabase Test fehlgeschlagen:', error.message);
-  } else {
-    console.log('✅ Supabase Verbindung OK');
-  }
-});
+// Test beim Start (nur im Browser)
+if (typeof window !== 'undefined' && isSupabaseConfigured()) {
+  supabase.from('profiles').select('id').limit(1).then(({ error }) => {
+    if (error) {
+      console.error('❌ Supabase Test fehlgeschlagen:', error.message);
+    } else {
+      console.log('✅ Supabase Verbindung OK');
+    }
+  });
+}
 
 

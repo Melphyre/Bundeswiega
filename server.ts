@@ -22,16 +22,25 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Forward all /api/* requests to the single API handler in api/index.ts
-app.all("/api/*all", (req, res) => {
-  return apiHandler(req as any, res as any);
-});
+// Forward all /api and /api/* requests to the single API handler in api/index.ts
+const handleApiRoute = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    await apiHandler(req as any, res as any);
+  } catch (err) {
+    next(err);
+  }
+};
+
+app.all("/api", handleApiRoute);
+app.all("/api/*all", handleApiRoute);
 
 // Express global error middleware for API routes to guarantee JSON error response
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("Unhandled API error:", err);
-  res.setHeader("Content-Type", "application/json");
-  res.status(500).json({ error: err?.message || "Internal server error" });
+  if (!res.headersSent) {
+    res.setHeader("Content-Type", "application/json");
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  }
 });
 
 // Serve frontend assets

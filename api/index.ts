@@ -93,6 +93,10 @@ ALTER TABLE public.achievements ALTER COLUMN user_id DROP NOT NULL;
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS selected_title TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name_bg_color TEXT DEFAULT 'none';
 
 CREATE TABLE IF NOT EXISTS public.tournaments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -642,26 +646,58 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleUsersList(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
   try {
     if (!isSupabaseConfigured()) {
       return res.status(200).json({ users: [] });
     }
 
-    // Aus profiles Tabelle laden (hat username und title korrekt gespeichert)
-    const { data: profiles, error } = await supabaseAdmin
-      .from('profiles')
-      .select('id, username, email, avatar_url, role, title, level, xp, name_bg_color')
-      .order('username');
+    try {
+      await ensureCoreSchema();
+    } catch {
+      // ignore
+    }
 
-    if (!error && profiles && profiles.length > 0) {
+    // Aus profiles Tabelle laden (hat username und title korrekt gespeichert)
+    let profiles: any[] | null = null;
+    let profError: any = null;
+
+    try {
+      const pRes = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, email, avatar_url, role, title, level, xp, name_bg_color')
+        .order('username');
+      profiles = pRes.data;
+      profError = pRes.error;
+    } catch (e) {
+      profError = e;
+    }
+
+    // Fallback: Falls eine Spalte fehlt (z. B. avatar_url oder name_bg_color), mit select('*') abfragen
+    if (profError || !profiles) {
+      try {
+        const fallbackRes = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .order('username');
+        if (fallbackRes.data && Array.isArray(fallbackRes.data)) {
+          profiles = fallbackRes.data;
+          profError = null;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!profError && profiles && profiles.length > 0) {
       const userList = profiles.map((p: any) => ({
         id: p.id,
         name: p.username || p.email || 'Unbekannt',
         username: p.username || '',
         email: p.email || '',
         role: p.role || 'user',
-        imageUrl: getAvatarUrl(p.avatar_url),
-        title: p.title || '',
+        imageUrl: getAvatarUrl(p.avatar_url || p.image_url),
+        title: p.title || p.selected_title || '',
         level: Number(p.level) || 1,
         xp: Number(p.xp) || 0,
         name_bg_color: p.name_bg_color || 'none'
@@ -670,25 +706,39 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     }
 
     // Fallback auf auth.admin.listUsers()
-    const { data, error: authError } = await supabaseAdmin.auth.admin.listUsers();
-    if (authError || !data?.users) {
-      return res.status(200).json({ users: [] });
+    let authData: any = null;
+    let authError: any = null;
+    try {
+      const aRes = await supabaseAdmin.auth.admin.listUsers();
+      authData = aRes.data;
+      authError = aRes.error;
+    } catch (e) {
+      authError = e;
     }
 
-    const userList = data.users.map((u: any) => ({
-      id: u.id,
-      name: u.user_metadata?.username || u.email || 'Unbekannt',
-      username: u.user_metadata?.username || '',
-      email: u.email || '',
-      role: u.user_metadata?.role || 'user',
-      imageUrl: getAvatarUrl(u.user_metadata?.avatar_url),
-      title: u.user_metadata?.title || '',
-      name_bg_color: u.user_metadata?.name_bg_color || 'none'
-    }));
+    if (authError) {
+      console.error('handleUsersList auth error:', authError);
+      return res.status(500).json({ error: authError.message || 'Fehler beim Laden der Benutzerliste', users: [] });
+    }
 
-    return res.status(200).json({ users: userList });
+    if (authData?.users) {
+      const userList = authData.users.map((u: any) => ({
+        id: u.id,
+        name: u.user_metadata?.username || u.email || 'Unbekannt',
+        username: u.user_metadata?.username || '',
+        email: u.email || '',
+        role: u.user_metadata?.role || 'user',
+        imageUrl: getAvatarUrl(u.user_metadata?.avatar_url),
+        title: u.user_metadata?.title || '',
+        name_bg_color: u.user_metadata?.name_bg_color || 'none'
+      }));
+      return res.status(200).json({ users: userList });
+    }
+
+    return res.status(200).json({ users: [] });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message, users: [] });
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(500).json({ error: err?.message || 'Interner Serverfehler beim Laden der Benutzerliste', users: [] });
   }
 }
 
@@ -1110,7 +1160,17 @@ async function handlePublicRecords(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+async function safeDbQuery<T = any>(queryBuilder: any, fallback: T = [] as any): Promise<{ data: T; error: any }> {
+  try {
+    const res = await queryBuilder;
+    return { data: (res?.data ?? fallback) as T, error: res?.error ?? null };
+  } catch (err: any) {
+    return { data: fallback, error: err };
+  }
+}
+
 async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
   try {
     const query = getRequestQuery(req);
     const userId = (query.userId || '').trim();
@@ -1129,59 +1189,108 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // Stelle sicher, dass Tabellen & Spalten existieren
+    try {
+      await ensureCoreSchema();
+    } catch (schemaErr) {
+      console.warn('ensureCoreSchema in handleGetProfileData warning:', schemaErr);
+    }
+
+    // Quests auswerten, damit bestehende Profilbilder oder Fortschritte nachträglich als erledigt erkannt werden
     try {
       await processQuestsForUser(userId, supabaseAdmin);
     } catch (qErr: any) {
       console.warn('Profile quest evaluation error:', qErr?.message);
     }
 
+    // Sichere Abfragen mit individuellem Catch für jede Tabelle
     const [profileRes, resultsRes, teamRes, achRes, questRes, titlesRes] = await Promise.all([
-      supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle(),
-      supabaseAdmin
-        .from('game_results')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false }),
-      supabaseAdmin
-        .from('teamwiegen_players')
-        .select('game_id')
-        .eq('user_id', userId),
-      supabaseAdmin
-        .from('achievements')
-        .select('*')
-        .eq('user_id', userId),
-      supabaseAdmin
-        .from('user_quest_progress')
-        .select('*')
-        .eq('user_id', userId),
-      supabaseAdmin
-        .from('user_titles')
-        .select('title')
-        .eq('user_id', userId)
+      safeDbQuery(
+        supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle(),
+        null
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('game_results')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
+        []
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('teamwiegen_players')
+          .select('game_id')
+          .eq('user_id', userId),
+        []
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('achievements')
+          .select('*')
+          .eq('user_id', userId),
+        []
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('user_quest_progress')
+          .select('*')
+          .eq('user_id', userId),
+        []
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('user_titles')
+          .select('title')
+          .eq('user_id', userId),
+        []
+      )
     ]);
 
-    const profile = profileRes?.data || null;
+    if (profileRes?.error && profileRes.error.code && profileRes.error.code !== 'PGRST116') {
+      console.error('profileRes error:', profileRes.error);
+      return res.status(500).json({ error: profileRes.error.message || 'Fehler beim Laden des Profils' });
+    }
+
+    let profile = profileRes?.data || null;
+
+    // Falls avatar_url im Profile fehlt, versuche auth.users Metadaten
+    if (profile && (!profile.avatar_url || profile.avatar_url.includes('unknown.svg'))) {
+      try {
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (authUser?.user?.user_metadata?.avatar_url) {
+          profile.avatar_url = authUser.user.user_metadata.avatar_url;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     let gameResults = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
 
     const teamGameIds = (teamRes?.data || []).map((t: any) => t.game_id).filter(Boolean);
     if (teamGameIds.length > 0) {
-      const { data: teamGames } = await supabaseAdmin
-        .from('game_results')
-        .select('*')
-        .in('id', teamGameIds);
-      if (Array.isArray(teamGames) && teamGames.length > 0) {
-        const existingIds = new Set(gameResults.map(g => g.id));
-        for (const tg of teamGames) {
-          if (!existingIds.has(tg.id)) {
-            gameResults.push(tg);
-            existingIds.add(tg.id);
+      try {
+        const { data: teamGames } = await supabaseAdmin
+          .from('game_results')
+          .select('*')
+          .in('id', teamGameIds);
+        if (Array.isArray(teamGames) && teamGames.length > 0) {
+          const existingIds = new Set(gameResults.map(g => g.id));
+          for (const tg of teamGames) {
+            if (!existingIds.has(tg.id)) {
+              gameResults.push(tg);
+              existingIds.add(tg.id);
+            }
           }
+          gameResults.sort((a, b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime());
         }
-        gameResults.sort((a, b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime());
+      } catch (tgErr) {
+        console.warn('teamGames fetch warning:', tgErr);
       }
     }
 
@@ -1198,7 +1307,9 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err: any) {
     console.error('handleGetProfileData error:', err);
-    return res.status(200).json({
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(500).json({
+      error: err?.message || 'Interner Fehler beim Laden der Profildaten',
       profile: null,
       gameResults: [],
       achievements: [],
@@ -1209,6 +1320,7 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
   try {
     const body = getRequestBody(req);
     const userId = body?.userId;
@@ -1220,17 +1332,29 @@ async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, questProgress: [], userTitles: [] });
     }
 
+    try {
+      await ensureCoreSchema();
+    } catch {
+      // ignore
+    }
+
     await processQuestsForUser(userId, supabaseAdmin);
 
     const [questRes, titlesRes] = await Promise.all([
-      supabaseAdmin
-        .from('user_quest_progress')
-        .select('*')
-        .eq('user_id', userId),
-      supabaseAdmin
-        .from('user_titles')
-        .select('title')
-        .eq('user_id', userId)
+      safeDbQuery(
+        supabaseAdmin
+          .from('user_quest_progress')
+          .select('*')
+          .eq('user_id', userId),
+        []
+      ),
+      safeDbQuery(
+        supabaseAdmin
+          .from('user_titles')
+          .select('title')
+          .eq('user_id', userId),
+        []
+      )
     ]);
 
     return res.status(200).json({
@@ -1240,6 +1364,7 @@ async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err: any) {
     console.error('handleEvaluateQuests error:', err);
+    res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({ error: err.message || 'Fehler bei Quest-Auswertung' });
   }
 }

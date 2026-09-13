@@ -10,6 +10,7 @@ import { NAME_TAG_COLORS, getNameTagOption } from '../constants/nameTagConfig';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
 import { QuestList, QuestProgress } from './QuestList';
+import { processQuestsForUser } from '../utils/questEvaluator';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -504,17 +505,24 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         .update({ avatar_url: url.trim() })
         .eq('id', userId);
 
-      // Quests auswerten nach Avatar-Änderung
+      // Quests direkt im Frontend sowie über den Backend-Endpoint auswerten
+      try {
+        await processQuestsForUser(userId);
+      } catch (localQuestErr) {
+        console.warn('Frontend quest evaluation warning:', localQuestErr);
+      }
+
       try {
         await fetch('/api/users/evaluate-quests', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId })
         });
-        await loadQuestProgress();
       } catch (qErr) {
         console.warn('Quest evaluation after avatar update warning:', qErr);
       }
+
+      await loadQuestProgress();
 
       setAvatarMessage('✅ Profilbild erfolgreich aktualisiert!');
       if (refreshUserData) await refreshUserData();

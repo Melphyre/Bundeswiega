@@ -10,60 +10,126 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
 
   try {
     // 1. Profil & vorhandene Quests/Titel laden
-    const { data: profile } = await db
-      .from('profiles')
-      .select('id, level, xp, avatar_url')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (!profile) return;
-
-    let userLevel = Number(profile.level) || 1;
-
-    // Spiele laden (eigene Spiele)
-    const { data: results } = await db
-      .from('game_results')
-      .select('*')
-      .eq('user_id', userId);
-
-    // Auch Spiele aus teamwiegen_players einbinden, falls vorhanden
-    const { data: teamPlayers } = await db
-      .from('teamwiegen_players')
-      .select('game_id')
-      .eq('user_id', userId);
-
-    let safeResults = Array.isArray(results) ? [...results] : [];
-    const teamGameIds = (teamPlayers || []).map((t: any) => t.game_id).filter(Boolean);
-
-    if (teamGameIds.length > 0) {
-      const { data: teamGames } = await db
-        .from('game_results')
+    let profile: any = null;
+    try {
+      const { data } = await db
+        .from('profiles')
         .select('*')
-        .in('id', teamGameIds);
+        .eq('id', userId)
+        .maybeSingle();
+      profile = data;
+    } catch (profErr) {
+      console.warn('Could not select * from profiles in questEvaluator:', profErr);
+    }
 
-      if (Array.isArray(teamGames) && teamGames.length > 0) {
-        const existingIds = new Set(safeResults.map(r => r.id));
-        for (const tg of teamGames) {
-          if (!existingIds.has(tg.id)) {
-            safeResults.push(tg);
-            existingIds.add(tg.id);
+    let userLevel = profile ? Number(profile.level) || 1 : 1;
+    let effectiveAvatarUrl = profile?.avatar_url || profile?.image_url || '';
+
+    // Falls Profil kein Bild hat oder unknown.svg ist: auth.users metadata prüfen
+    if (!effectiveAvatarUrl || effectiveAvatarUrl.includes('unknown.svg')) {
+      try {
+        if (db.auth?.getUser) {
+          const { data: authData } = await db.auth.getUser();
+          if (authData?.user?.id === userId && authData.user.user_metadata?.avatar_url) {
+            effectiveAvatarUrl = authData.user.user_metadata.avatar_url;
           }
         }
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (db.auth?.admin?.getUserById) {
+          const { data: adminAuthData } = await db.auth.admin.getUserById(userId);
+          if (adminAuthData?.user?.user_metadata?.avatar_url) {
+            effectiveAvatarUrl = adminAuthData.user.user_metadata.avatar_url;
+          }
+        }
+      } catch {
+        // ignore
       }
     }
 
-    const { data: questProgress } = await db
-      .from('user_quest_progress')
-      .select('*')
-      .eq('user_id', userId);
+    // Falls Bild in Auth vorhanden, aber noch nicht in profiles gespeichert: synchronisieren
+    if (effectiveAvatarUrl && !effectiveAvatarUrl.includes('unknown.svg') && profile && !profile.avatar_url) {
+      try {
+        await db.from('profiles').update({ avatar_url: effectiveAvatarUrl }).eq('id', userId);
+      } catch {
+        // Spalte avatar_url existiert eventuell noch nicht
+      }
+    }
 
-    const { data: existingTitles } = await db
-      .from('user_titles')
-      .select('title')
-      .eq('user_id', userId);
+    // Spiele laden (eigene Spiele)
+    let safeResults: any[] = [];
+    try {
+      const { data: results } = await db
+        .from('game_results')
+        .select('*')
+        .eq('user_id', userId);
+      if (Array.isArray(results)) {
+        safeResults = [...results];
+      }
+    } catch {
+      // ignore
+    }
 
-    const completedQuestIds = new Set((questProgress || []).filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
-    const unlockedTitles = new Set((existingTitles || []).map((t: any) => t.title));
+    // Auch Spiele aus teamwiegen_players einbinden, falls vorhanden
+    try {
+      const { data: teamPlayers } = await db
+        .from('teamwiegen_players')
+        .select('game_id')
+        .eq('user_id', userId);
+
+      const teamGameIds = (teamPlayers || []).map((t: any) => t.game_id).filter(Boolean);
+
+      if (teamGameIds.length > 0) {
+        const { data: teamGames } = await db
+          .from('game_results')
+          .select('*')
+          .in('id', teamGameIds);
+
+        if (Array.isArray(teamGames) && teamGames.length > 0) {
+          const existingIds = new Set(safeResults.map(r => r.id));
+          for (const tg of teamGames) {
+            if (!existingIds.has(tg.id)) {
+              safeResults.push(tg);
+              existingIds.add(tg.id);
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    let questProgress: any[] = [];
+    try {
+      const { data: qpData } = await db
+        .from('user_quest_progress')
+        .select('*')
+        .eq('user_id', userId);
+      if (Array.isArray(qpData)) {
+        questProgress = qpData;
+      }
+    } catch {
+      // Tabelle existiert eventuell noch nicht
+    }
+
+    let existingTitles: any[] = [];
+    try {
+      const { data: tData } = await db
+        .from('user_titles')
+        .select('title')
+        .eq('user_id', userId);
+      if (Array.isArray(tData)) {
+        existingTitles = tData;
+      }
+    } catch {
+      // Tabelle existiert eventuell noch nicht
+    }
+
+    const completedQuestIds = new Set(questProgress.filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
+    const unlockedTitles = new Set(existingTitles.map((t: any) => t.title));
 
     // 2. Filtere Quests: Nur Quests bis zum aktuellen User-Level, die noch nicht abgeschlossen sind
     const availableQuests = LEVEL_QUESTS.filter(q => q.level <= userLevel && !completedQuestIds.has(q.id));
@@ -77,10 +143,10 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       switch (q.metric) {
         case 'profile_pic':
           if (
-            profile.avatar_url &&
-            typeof profile.avatar_url === 'string' &&
-            profile.avatar_url.trim() !== '' &&
-            !profile.avatar_url.includes('unknown.svg')
+            effectiveAvatarUrl &&
+            typeof effectiveAvatarUrl === 'string' &&
+            effectiveAvatarUrl.trim() !== '' &&
+            !effectiveAvatarUrl.includes('unknown.svg')
           ) {
             progress = 1;
           }
@@ -129,14 +195,18 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       const isCompleted = progress >= targetCount;
 
       // Update / Insert in user_quest_progress
-      await db.from('user_quest_progress').upsert({
-        user_id: userId,
-        quest_id: q.id,
-        current_progress: Math.min(progress, targetCount),
-        is_completed: isCompleted,
-        completed_at: isCompleted ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,quest_id' });
+      try {
+        await db.from('user_quest_progress').upsert({
+          user_id: userId,
+          quest_id: q.id,
+          current_progress: Math.min(progress, targetCount),
+          is_completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id,quest_id' });
+      } catch (upsertErr) {
+        console.warn('user_quest_progress upsert error:', upsertErr);
+      }
 
       // Wenn frisch abgeschlossen: Belohnungen vergeben
       if (isCompleted) {
@@ -144,22 +214,30 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
         completedQuestIds.add(q.id);
 
         if (q.titleReward && !unlockedTitles.has(q.titleReward)) {
-          await db.from('user_titles').upsert({
-            user_id: userId,
-            title: q.titleReward,
-            created_at: new Date().toISOString()
-          }, { onConflict: 'user_id,title' });
-          unlockedTitles.add(q.titleReward);
+          try {
+            await db.from('user_titles').upsert({
+              user_id: userId,
+              title: q.titleReward,
+              created_at: new Date().toISOString()
+            }, { onConflict: 'user_id,title' });
+            unlockedTitles.add(q.titleReward);
+          } catch (tErr) {
+            console.warn('user_titles upsert error:', tErr);
+          }
         }
       }
     }
 
     // Falls neue XP verdient wurden, Profil-XP/Level anpassen
-    if (bonusXpEarned > 0) {
-      const currentXp = Number(profile.xp) || 0;
-      const newXp = currentXp + bonusXpEarned;
-      const { level: newLevel } = calculateLevelFromXp(newXp);
-      await db.from('profiles').update({ xp: newXp, level: newLevel }).eq('id', userId);
+    if (bonusXpEarned > 0 && profile) {
+      try {
+        const currentXp = Number(profile.xp) || 0;
+        const newXp = currentXp + bonusXpEarned;
+        const { level: newLevel } = calculateLevelFromXp(newXp);
+        await db.from('profiles').update({ xp: newXp, level: newLevel }).eq('id', userId);
+      } catch (profUpdateErr) {
+        console.warn('Profile xp update error:', profUpdateErr);
+      }
     }
   } catch (err) {
     console.error('Quest evaluation error:', err);

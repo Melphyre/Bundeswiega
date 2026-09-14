@@ -227,37 +227,38 @@ app.use((req, res, next) => {
 });
 
 // ── Records ──────────────────────────────────────
-app.get(['/api/records', '/records'], (req, res) => handleRecords(req as any, res as any));
+app.all(['/api/records', '/records'], (req, res) => handleRecords(req as any, res as any));
 
 // ── Upload ───────────────────────────────────────
-app.post(['/api/upload', '/upload'], (req, res) => handleUpload(req as any, res as any));
+app.all(['/api/upload', '/upload'], (req, res) => handleUpload(req as any, res as any));
 
 // ── Users ────────────────────────────────────────
-app.get(['/api/users/list', '/users/list'], (req, res) => handleUsersList(req as any, res as any));
-app.post(['/api/users/save-game-result', '/users/save-game-result'], (req, res) => handleSaveGameResult(req as any, res as any));
-app.post(['/api/users/update-title', '/users/update-title'], (req, res) => handleUpdateTitle(req as any, res as any));
-app.post(['/api/users/update-name-bg', '/users/update-name-bg'], (req, res) => handleUpdateNameBg(req as any, res as any));
-app.post(['/api/users/save-result', '/users/save-result'], (req, res) => handleSaveResult(req as any, res as any));
-app.post(['/api/users/update-privacy', '/users/update-privacy'], (req, res) => handleUpdatePrivacy(req as any, res as any));
-app.post(['/api/users/delete', '/users/delete'], (req, res) => handleDeleteUser(req as any, res as any));
-app.get(['/api/users/find-by-username', '/users/find-by-username'], (req, res) => handleFindByUsername(req as any, res as any));
-app.get(['/api/users/check-username', '/users/check-username'], (req, res) => handleCheckUsername(req as any, res as any));
-app.get(['/api/users/public-records', '/users/public-records'], (req, res) => handlePublicRecords(req as any, res as any));
-app.get(['/api/users/profile-data', '/users/profile-data'], (req, res) => handleGetProfileData(req as any, res as any));
-app.post(['/api/users/evaluate-quests', '/users/evaluate-quests'], (req, res) => handleEvaluateQuests(req as any, res as any));
+app.all(['/api/users/list', '/users/list'], (req, res) => handleUsersList(req as any, res as any));
+app.all(['/api/users/save-game-result', '/users/save-game-result'], (req, res) => handleSaveGameResult(req as any, res as any));
+app.all(['/api/users/update-title', '/users/update-title'], (req, res) => handleUpdateTitle(req as any, res as any));
+app.all(['/api/users/update-name-bg', '/users/update-name-bg'], (req, res) => handleUpdateNameBg(req as any, res as any));
+app.all(['/api/users/save-result', '/users/save-result'], (req, res) => handleSaveResult(req as any, res as any));
+app.all(['/api/users/update-privacy', '/users/update-privacy'], (req, res) => handleUpdatePrivacy(req as any, res as any));
+app.all(['/api/users/delete', '/users/delete'], (req, res) => handleDeleteUser(req as any, res as any));
+app.all(['/api/users/find-by-username', '/users/find-by-username'], (req, res) => handleFindByUsername(req as any, res as any));
+app.all(['/api/users/check-username', '/users/check-username'], (req, res) => handleCheckUsername(req as any, res as any));
+app.all(['/api/users/public-records', '/users/public-records'], (req, res) => handlePublicRecords(req as any, res as any));
+app.all(['/api/users/profile-data', '/users/profile-data'], (req, res) => handleGetProfileData(req as any, res as any));
+app.all(['/api/users/evaluate-quests', '/users/evaluate-quests'], (req, res) => handleEvaluateQuests(req as any, res as any));
 
 // ── Admin ────────────────────────────────────────
-app.post(['/api/admin/set-role', '/admin/set-role'], (req, res) => handleAdminSetRole(req as any, res as any));
-app.post(['/api/admin/repair-database', '/admin/repair-database'], (req, res) => handleRepairDatabase(req as any, res as any));
+app.all(['/api/admin/set-role', '/admin/set-role'], (req, res) => handleAdminSetRole(req as any, res as any));
+app.all(['/api/admin/repair-database', '/admin/repair-database'], (req, res) => handleRepairDatabase(req as any, res as any));
 
 // ── Tournament ───────────────────────────────────
-app.get(['/api/tournament/list', '/tournament/list'], (req, res) => handleTournamentList(req as any, res as any));
-app.get(['/api/tournament/get', '/tournament/get'], (req, res) => handleTournamentGet(req as any, res as any));
-app.post(['/api/tournament/save', '/tournament/save'], (req, res) => handleTournamentSave(req as any, res as any));
-app.post(['/api/tournament/delete', '/tournament/delete'], (req, res) => handleTournamentDelete(req as any, res as any));
+app.all(['/api/tournament/list', '/tournament/list'], (req, res) => handleTournamentList(req as any, res as any));
+app.all(['/api/tournament/get', '/tournament/get'], (req, res) => handleTournamentGet(req as any, res as any));
+app.all(['/api/tournament/save', '/tournament/save'], (req, res) => handleTournamentSave(req as any, res as any));
+app.all(['/api/tournament/delete', '/tournament/delete'], (req, res) => handleTournamentDelete(req as any, res as any));
 
 // Fallback für unbegrenzte/unbekannte Routen
 app.use((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   res.status(404).json({ error: `Route ${req.originalUrl || req.url} not found` });
 });
 
@@ -273,52 +274,97 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   }
 });
 
-export default app;
+// Zentraler Handler / Router für Vercel & Express
+const defaultHandler = async (req: any, res: any) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const rawUrl = req.url || '';
+  const pathWithoutQuery = rawUrl.split('?')[0].replace(/\/+$/, '') || '/';
+
+  if (pathWithoutQuery === '/api/records' || pathWithoutQuery === '/records') {
+    return handleRecords(req, res);
+  }
+  if (pathWithoutQuery === '/api/users/list' || pathWithoutQuery === '/users/list') {
+    return handleUsersList(req, res);
+  }
+  if (pathWithoutQuery === '/api/users/profile-data' || pathWithoutQuery === '/users/profile-data') {
+    return handleGetProfileData(req, res);
+  }
+
+  return (app as any)(req, res);
+};
+
+export default defaultHandler;
 
 // ════════════════════════════════════════════════
-// HANDLER FUNKTIONEN
+// HANDLER FUNKTIONEN & DB HELPER
 // ════════════════════════════════════════════════
+
+async function safeDbQuery<T = any>(queryBuilder: any, fallback: T = [] as any): Promise<{ data: T; error: any }> {
+  try {
+    const res = await queryBuilder;
+    return { data: (res?.data ?? fallback) as T, error: res?.error ?? null };
+  } catch (err: any) {
+    return { data: fallback, error: err };
+  }
+}
 
 async function handleRecords(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
   try {
-    await ensureCoreSchema();
-
     if (!isSupabaseConfigured()) {
       return res.status(200).json({ data: [] });
     }
 
-    // 1. Alle teamwiegen_players(user_id) verknüpften IDs abfragen
+    try { await ensureCoreSchema(); } catch (e) { console.warn('Core schema check skipped:', e); }
+
     const [resultsRes, profilesRes, achRes] = await Promise.all([
-      supabaseAdmin
-        .from('game_results')
-        .select('*, teamwiegen_players(user_id)')
-        .order('created_at', { ascending: false }),
-      supabaseAdmin.from('profiles').select('*'),
-      supabaseAdmin.from('achievements').select('*')
+      safeDbQuery(
+        supabaseAdmin
+          .from('game_results')
+          .select('*, teamwiegen_players(user_id)')
+          .order('created_at', { ascending: false }),
+        []
+      ),
+      safeDbQuery(supabaseAdmin.from('profiles').select('*'), []),
+      safeDbQuery(supabaseAdmin.from('achievements').select('*'), [])
     ]);
 
-    if (resultsRes.error) {
-      console.error('game_results select error:', resultsRes.error);
-      return res.status(500).json({ error: resultsRes.error.message, data: [] });
-    }
-
     const profileMap: Record<string, any> = {};
-    (profilesRes.data || []).forEach(p => {
+    (profilesRes.data || []).forEach((p: any) => {
       if (p && p.id) profileMap[p.id] = p;
     });
 
-    const safeResults = Array.isArray(resultsRes.data) ? resultsRes.data : [];
+    let safeResults = Array.isArray(resultsRes.data) ? resultsRes.data : [];
+    // Fallback falls die Relation teamwiegen_players in Supabase fehlschlägt
+    if (safeResults.length === 0 && resultsRes.error) {
+      const fallbackResults = await safeDbQuery(
+        supabaseAdmin
+          .from('game_results')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        []
+      );
+      if (Array.isArray(fallbackResults.data)) {
+        safeResults = fallbackResults.data;
+      }
+    }
+
     const safeAchs = Array.isArray(achRes.data) ? achRes.data : [];
 
     const rows = safeResults
-      .filter(r => {
+      .filter((r: any) => {
         if (!r) return false;
-
-        // Alle relevanten User-IDs dieses Eintrags sammeln (direkte ID + alle aus teamwiegen_players)
         const teamUserIds = (r.teamwiegen_players || []).map((tp: any) => tp.user_id).filter(Boolean);
         const effectiveUserIds = r.user_id ? Array.from(new Set([r.user_id, ...teamUserIds])) : teamUserIds;
 
-        // Falls ein verknüpfter Spieler seine Records verbergen möchte, das Ergebnis nicht anzeigen
         for (const uId of effectiveUserIds) {
           const profile = profileMap[uId];
           if (profile) {
@@ -331,23 +377,22 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
         }
         return true;
       })
-      .map(r => {
+      .map((r: any) => {
         const teamUserIds = (r.teamwiegen_players || []).map((tp: any) => tp.user_id).filter(Boolean);
         const effectiveUserIds = r.user_id ? Array.from(new Set([r.user_id, ...teamUserIds])) : teamUserIds;
         const mainUserId = effectiveUserIds[0] || null;
 
-        // Der eingegebene Teamname/Spielername bleibt unverändert erhalten
         const playerName = r.team_name || r.player_name || (r.is_guest ? 'Gast' : 'Unbekannt');
         const canonicalMode = r.game_mode || 'Standardspiel';
 
         const entryAchs = safeAchs
-          .filter(a => {
+          .filter((a: any) => {
             if (!a) return false;
             const matchUser = mainUserId ? effectiveUserIds.includes(a.user_id) : (a.player_name === playerName || a.is_guest);
             const matchDate = a.date === r.date;
             return matchUser && matchDate && (a.game_mode === canonicalMode || !a.game_mode);
           })
-          .map(a => ({
+          .map((a: any) => ({
             id: a.achievement_id,
             title: a.title,
             icon: a.icon,
@@ -378,7 +423,7 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ data: [header, ...rows] });
   } catch (error: any) {
     console.error("Error in records handler:", error);
-    return res.status(500).json({ error: error.message || "Fehler beim Laden der Statistiken", data: [] });
+    return res.status(200).json({ data: [['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch']] });
   }
 }
 
@@ -1136,15 +1181,6 @@ async function handlePublicRecords(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function safeDbQuery<T = any>(queryBuilder: any, fallback: T = [] as any): Promise<{ data: T; error: any }> {
-  try {
-    const res = await queryBuilder;
-    return { data: (res?.data ?? fallback) as T, error: res?.error ?? null };
-  } catch (err: any) {
-    return { data: fallback, error: err };
-  }
-}
-
 async function handleGetProfileData(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');
   try {
@@ -1226,11 +1262,7 @@ async function handleGetProfileData(req: any, res: any) {
     ]);
 
     if (profileRes?.error && profileRes.error.code && profileRes.error.code !== 'PGRST116') {
-      console.error('profileRes error:', profileRes.error);
-      return res.status(500).json({
-        error: 'Internal Server Error',
-        details: profileRes.error.message || 'Fehler beim Laden des Profils'
-      });
+      console.warn('profileRes query error in handleGetProfileData:', profileRes.error.message || profileRes.error);
     }
 
     let profile = profileRes?.data || null;
@@ -1291,7 +1323,14 @@ async function handleGetProfileData(req: any, res: any) {
     res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({
       error: 'Internal Server Error',
-      details: error?.message || 'Unknown error'
+      details: error?.message || 'Unknown error',
+      profile: null,
+      gameResults: [],
+      achievements: [],
+      questProgress: [],
+      quests: [],
+      userTitles: [],
+      titles: []
     });
   }
 }

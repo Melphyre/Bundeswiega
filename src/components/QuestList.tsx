@@ -1,5 +1,5 @@
 import React from 'react';
-import { LEVEL_QUESTS, QuestDefinition, getQuestTarget } from '../config/quests';
+import { LEVEL_QUESTS, QuestDefinition, getQuestTarget } from '../utils/questEvaluator';
 
 export interface QuestProgress {
   quest_id: string;

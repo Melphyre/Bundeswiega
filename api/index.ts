@@ -233,22 +233,22 @@ app.all(['/api/records', '/records'], (req, res) => handleRecords(req as any, re
 app.all(['/api/upload', '/upload'], (req, res) => handleUpload(req as any, res as any));
 
 // ── Users ────────────────────────────────────────
-app.all(['/api/users/list', '/users/list'], (req, res) => handleUsersList(req as any, res as any));
-app.all(['/api/users/save-game-result', '/users/save-game-result'], (req, res) => handleSaveGameResult(req as any, res as any));
-app.all(['/api/users/update-title', '/users/update-title'], (req, res) => handleUpdateTitle(req as any, res as any));
-app.all(['/api/users/update-name-bg', '/users/update-name-bg'], (req, res) => handleUpdateNameBg(req as any, res as any));
-app.all(['/api/users/save-result', '/users/save-result'], (req, res) => handleSaveResult(req as any, res as any));
+app.all(['/api/users/list', '/users/list', '/api/users', '/users'], (req, res) => handleUsersList(req as any, res as any));
+app.all(['/api/users/save-game-result', '/users/save-game-result', '/api/save-game-result', '/save-game-result'], (req, res) => handleSaveGameResult(req as any, res as any));
+app.all(['/api/users/update-title', '/users/update-title', '/api/update-title', '/update-title'], (req, res) => handleUpdateTitle(req as any, res as any));
+app.all(['/api/users/update-name-bg', '/users/update-name-bg', '/api/update-name-bg', '/update-name-bg'], (req, res) => handleUpdateNameBg(req as any, res as any));
+app.all(['/api/users/save-result', '/users/save-result', '/api/save-result', '/save-result'], (req, res) => handleSaveResult(req as any, res as any));
 app.all(['/api/users/update-privacy', '/users/update-privacy'], (req, res) => handleUpdatePrivacy(req as any, res as any));
 app.all(['/api/users/delete', '/users/delete'], (req, res) => handleDeleteUser(req as any, res as any));
 app.all(['/api/users/find-by-username', '/users/find-by-username'], (req, res) => handleFindByUsername(req as any, res as any));
 app.all(['/api/users/check-username', '/users/check-username'], (req, res) => handleCheckUsername(req as any, res as any));
 app.all(['/api/users/public-records', '/users/public-records'], (req, res) => handlePublicRecords(req as any, res as any));
-app.all(['/api/users/profile-data', '/users/profile-data'], (req, res) => handleGetProfileData(req as any, res as any));
-app.all(['/api/users/evaluate-quests', '/users/evaluate-quests'], (req, res) => handleEvaluateQuests(req as any, res as any));
+app.all(['/api/users/profile-data', '/users/profile-data', '/api/profile-data', '/profile-data'], (req, res) => handleGetProfileData(req as any, res as any));
+app.all(['/api/users/evaluate-quests', '/users/evaluate-quests', '/api/evaluate-quests', '/evaluate-quests'], (req, res) => handleEvaluateQuests(req as any, res as any));
 
 // ── Admin ────────────────────────────────────────
 app.all(['/api/admin/set-role', '/admin/set-role'], (req, res) => handleAdminSetRole(req as any, res as any));
-app.all(['/api/admin/repair-database', '/admin/repair-database'], (req, res) => handleRepairDatabase(req as any, res as any));
+app.all(['/api/admin/repair-database', '/admin/repair-database', '/api/repair-database', '/repair-database'], (req, res) => handleRepairDatabase(req as any, res as any));
 
 // ── Tournament ───────────────────────────────────
 app.all(['/api/tournament/list', '/tournament/list'], (req, res) => handleTournamentList(req as any, res as any));
@@ -288,14 +288,26 @@ const defaultHandler = async (req: any, res: any) => {
   const rawUrl = req.url || '';
   const pathWithoutQuery = rawUrl.split('?')[0].replace(/\/+$/, '') || '/';
 
-  if (pathWithoutQuery === '/api/records' || pathWithoutQuery === '/records') {
+  if (pathWithoutQuery.includes('/records')) {
     return handleRecords(req, res);
   }
-  if (pathWithoutQuery === '/api/users/list' || pathWithoutQuery === '/users/list') {
+  if (pathWithoutQuery.includes('/profile-data')) {
+    return handleGetProfileData(req, res);
+  }
+  if (pathWithoutQuery.includes('/users/list') || pathWithoutQuery === '/api/users' || pathWithoutQuery === '/users') {
     return handleUsersList(req, res);
   }
-  if (pathWithoutQuery === '/api/users/profile-data' || pathWithoutQuery === '/users/profile-data') {
-    return handleGetProfileData(req, res);
+  if (pathWithoutQuery.includes('/repair-database')) {
+    return handleRepairDatabase(req, res);
+  }
+  if (pathWithoutQuery.includes('/update-title')) {
+    return handleUpdateTitle(req, res);
+  }
+  if (pathWithoutQuery.includes('/update-name-bg')) {
+    return handleUpdateNameBg(req, res);
+  }
+  if (pathWithoutQuery.includes('/save-game-result')) {
+    return handleSaveGameResult(req, res);
   }
 
   return (app as any)(req, res);
@@ -2443,136 +2455,167 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     }
     if (markedOrphanProfiles === 0) report.push('✅ Keine verwaisten Profile gefunden');
 
-    // ══════════════════════════════════════════
+   // ══════════════════════════════════════════
     // SCHRITT 2: GAME_RESULTS REPARIEREN
     // ══════════════════════════════════════════
     report.push('─── Game Results ───');
 
-    // Alle game_results neu laden (inkl. neu erstellter Profile)
-    const { data: freshResults } = await supabaseAdmin
+    const { data: freshResults, error: resErr } = await supabaseAdmin
       .from('game_results')
-      .select('id, user_id, game_mode, date, avg, schnaepse, total');
+      .select('id, user_id, is_guest, game_mode, date, avg, schnaepse, total, created_at');
 
-    // total-Werte korrigieren
-    let fixedTotal = 0;
-    for (const r of freshResults || []) {
-      const correctTotal = Math.round(((Number(r.avg) || 0) + (Number(r.schnaepse) || 0)) * 100) / 100;
-      if (Math.abs((Number(r.total) || 0) - correctTotal) > 0.01) {
-        const { error } = await supabaseAdmin
-          .from('game_results')
-          .update({ total: correctTotal })
-          .eq('id', r.id);
-        if (!error) fixedTotal++;
-      }
-    }
-    if (fixedTotal > 0) fixes.push(`🔢 ${fixedTotal} total-Werte korrigiert (avg + schnaepse)`);
-    else report.push('✅ Alle total-Werte korrekt');
-
-    // Fehlende Datum/Modus reparieren
-    let fixedIncomplete = 0;
-    for (const r of freshResults || []) {
-      const needsUpdate = !r.date?.trim() || !r.game_mode?.trim();
-      if (needsUpdate) {
-        const { error } = await supabaseAdmin
-          .from('game_results')
-          .update({
-            date: r.date?.trim() || new Date().toLocaleDateString('de-DE'),
-            game_mode: r.game_mode?.trim() || 'Unbekannt'
-          })
-          .eq('id', r.id);
-        if (!error) fixedIncomplete++;
-      }
-    }
-    if (fixedIncomplete > 0) fixes.push(`🔧 ${fixedIncomplete} unvollständige game_results repariert`);
-    else report.push('✅ Alle game_results vollständig');
-
-    // Verwaiste game_results → in database_backups sichern statt löschen
-    const orphanResults = (freshResults || []).filter((r: any) => !authUserMap[r.user_id]);
-    if (orphanResults.length > 0) {
-      try {
-        await supabaseAdmin.from('database_backups').insert({
-          backup_type: 'orphan_game_results',
-          data: orphanResults
-        });
-        fixes.push(`💾 ${orphanResults.length} verwaiste game_results in database_backups gesichert (nicht gelöscht)`);
-      } catch {}
-      report.push(`⚠️ ${orphanResults.length} game_results ohne Auth User gefunden (gesichert, nicht gelöscht)`);
+    if (resErr) {
+      report.push(`❌ Fehler beim Laden der Game Results: ${resErr.message}`);
     } else {
-      report.push('✅ Keine verwaisten game_results');
+      let fixedTotal = 0;
+      let fixedIncomplete = 0;
+
+      for (const r of freshResults || []) {
+        const mode = (r.game_mode || '').toLowerCase();
+        const isSpeed = mode.includes('speed');
+
+        // Total nur bei Standard-Spielen korrigieren (bei Speedwiegen nicht!)
+        let correctTotal = Number(r.total) || 0;
+        if (!isSpeed) {
+          correctTotal = Math.round(((Number(r.avg) || 0) + (Number(r.schnaepse) || 0)) * 100) / 100;
+        }
+
+        const needsTotalFix = !isSpeed && Math.abs((Number(r.total) || 0) - correctTotal) > 0.01;
+        const needsMetaFix = !r.date?.trim() || !r.game_mode?.trim();
+
+        if (needsTotalFix || needsMetaFix) {
+          // ISO-Datum YYYY-MM-DD erzeugen
+          const fallbackDate = r.created_at ? new Date(r.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
+          const updatePayload: Record<string, any> = {};
+          if (needsTotalFix) updatePayload.total = correctTotal;
+          if (!r.date?.trim()) updatePayload.date = fallbackDate;
+          if (!r.game_mode?.trim()) updatePayload.game_mode = 'Standardspiel';
+
+          const { error: upErr } = await supabaseAdmin
+            .from('game_results')
+            .update(updatePayload)
+            .eq('id', r.id);
+
+          if (!upErr) {
+            if (needsTotalFix) fixedTotal++;
+            if (needsMetaFix) fixedIncomplete++;
+          }
+        }
+      }
+
+      if (fixedTotal > 0) fixes.push(`🔢 ${fixedTotal} total-Werte korrigiert (avg + schnaepse)`);
+      else report.push('✅ Alle total-Werte korrekt');
+
+      if (fixedIncomplete > 0) fixes.push(`🔧 ${fixedIncomplete} unvollständige game_results repariert`);
+      else report.push('✅ Alle game_results vollständig');
+
+      // 2. Verwaiste Einträge prüfen (NUR registrierte User ohne Auth-Konto; Gäste ausklammern!)
+      const orphanResults = (freshResults || []).filter((r: any) => 
+        r.user_id && !r.is_guest && !authUserMap[r.user_id]
+      );
+
+      if (orphanResults.length > 0) {
+        try {
+          await supabaseAdmin.from('database_backups').insert({
+            backup_type: 'orphan_game_results',
+            data: orphanResults
+          });
+          report.push(`⚠️ ${orphanResults.length} verwaiste game_results ohne Auth-User in database_backups gesichert`);
+        } catch (bErr: any) {
+          console.warn('Backup warning for orphan results:', bErr?.message);
+        }
+      } else {
+        report.push('✅ Keine verwaisten game_results');
+      }
     }
 
-    // ══════════════════════════════════════════
+   // ══════════════════════════════════════════
     // SCHRITT 3: ACHIEVEMENTS REPARIEREN
     // ══════════════════════════════════════════
     report.push('─── Achievements ───');
 
-    const { data: freshAchs } = await supabaseAdmin
+    const { data: freshAchs, error: achErr } = await supabaseAdmin
       .from('achievements')
-      .select('id, user_id, achievement_id, date, title, rarity, icon, game_mode, earned_with, earned_together, created_at');
+      .select('id, user_id, is_guest, player_name, achievement_id, date, title, rarity, icon, game_mode, earned_with, earned_together, created_at');
 
-    // Duplikate entfernen – aber erst das Original identifizieren
-    const achMap: Record<string, any[]> = {};
-    for (const a of freshAchs || []) {
-      const key = `${a.user_id}|${a.achievement_id}|${a.date}`;
-      if (!achMap[key]) achMap[key] = [];
-      achMap[key].push(a);
-    }
-
-    let deletedDuplicates = 0;
-    const duplicatesToDelete: any[] = [];
-    for (const [, entries] of Object.entries(achMap)) {
-      if (entries.length > 1) {
-        // Ältestes behalten (niedrigste created_at), Rest löschen
-        entries.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-        duplicatesToDelete.push(...entries.slice(1));
+    if (achErr) {
+      report.push(`❌ Fehler beim Laden der Achievements: ${achErr.message}`);
+    } else {
+      // 1. Duplikate identifizieren (Unterscheidung zwischen Regulären Usern & Gästen)
+      const achMap: Record<string, any[]> = {};
+      for (const a of freshAchs || []) {
+        // Bei Gästen wird der player_name als Identifier verwendet, um Guest-Spiele nicht fälschlich zu verschmelzen
+        const userIdentifier = a.user_id ? a.user_id : `guest_${(a.player_name || 'unknown').toLowerCase().trim()}`;
+        const key = `${userIdentifier}|${a.achievement_id}|${a.date}`;
+        
+        if (!achMap[key]) achMap[key] = [];
+        achMap[key].push(a);
       }
-    }
 
-    if (duplicatesToDelete.length > 0) {
-      // Duplikate zuerst sichern in database_backups
-      try {
-        await supabaseAdmin.from('database_backups').insert({
-          backup_type: 'duplicate_achievements',
-          data: duplicatesToDelete
-        });
-      } catch {}
-
-      // Dann löschen
-      for (const dup of duplicatesToDelete) {
-        const { error } = await supabaseAdmin.from('achievements').delete().eq('id', dup.id);
-        if (!error) deletedDuplicates++;
+      const duplicatesToDelete: any[] = [];
+      for (const [, entries] of Object.entries(achMap)) {
+        if (entries.length > 1) {
+          // Ältestes behalten (niedrigste created_at / ID), Rest löschen
+          entries.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+          duplicatesToDelete.push(...entries.slice(1));
+        }
       }
-      fixes.push(`🔄 ${deletedDuplicates} doppelte Achievements entfernt (Original behalten, Duplikat gesichert)`);
-    } else {
-      report.push('✅ Keine doppelten Achievements');
-    }
 
-    // Achievements ohne achievement_id sichern
-    const invalidAchs = (freshAchs || []).filter((a: any) => !a.achievement_id?.trim());
-    if (invalidAchs.length > 0) {
-      try {
-        await supabaseAdmin.from('database_backups').insert({
-          backup_type: 'invalid_achievements',
-          data: invalidAchs
-        });
-      } catch {}
-      report.push(`⚠️ ${invalidAchs.length} Achievements ohne ID gefunden und in database_backups gesichert`);
-    } else {
-      report.push('✅ Alle Achievements haben IDs');
-    }
+      if (duplicatesToDelete.length > 0) {
+        // Duplikate zuerst in database_backups sichern
+        try {
+          await supabaseAdmin.from('database_backups').insert({
+            backup_type: 'duplicate_achievements',
+            data: duplicatesToDelete
+          });
+        } catch (bErr: any) {
+          console.warn('Backup warning for duplicate achievements:', bErr?.message);
+        }
 
-    // Verwaiste Achievements sichern
-    const orphanAchs = (freshAchs || []).filter((a: any) => !authUserMap[a.user_id]);
-    if (orphanAchs.length > 0) {
-      try {
-        await supabaseAdmin.from('database_backups').insert({
-          backup_type: 'orphan_achievements',
-          data: orphanAchs
-        });
-      } catch {}
-      report.push(`⚠️ ${orphanAchs.length} verwaiste Achievements in database_backups gesichert (nicht gelöscht)`);
-    } else {
-      report.push('✅ Keine verwaisten Achievements');
+        // Duplikate im effizienten Batch löschen (statt Einzel-Queries)
+        const dupIds = duplicatesToDelete.map(d => d.id);
+        const { error: delErr } = await supabaseAdmin
+          .from('achievements')
+          .delete()
+          .in('id', dupIds);
+
+        if (!delErr) {
+          fixes.push(`🔄 ${dupIds.length} doppelte Achievements entfernt (Original behalten, Duplikate gesichert)`);
+        } else {
+          errors.push(`Fehler beim Löschen doppelter Achievements: ${delErr.message}`);
+        }
+      } else {
+        report.push('✅ Keine doppelten Achievements');
+      }
+
+      // 2. Achievements ohne achievement_id filtern & sichern
+      const invalidAchs = (freshAchs || []).filter((a: any) => !a.achievement_id?.trim());
+      if (invalidAchs.length > 0) {
+        try {
+          await supabaseAdmin.from('database_backups').insert({
+            backup_type: 'invalid_achievements',
+            data: invalidAchs
+          });
+        } catch {}
+        report.push(`⚠️ ${invalidAchs.length} Achievements ohne ID in database_backups gesichert`);
+      } else {
+        report.push('✅ Alle Achievements haben gültige IDs');
+      }
+
+      // 3. Verwaiste Achievements (User gelöscht, aber kein Gast)
+      const orphanAchs = (freshAchs || []).filter((a: any) => a.user_id && !authUserMap[a.user_id]);
+      if (orphanAchs.length > 0) {
+        try {
+          await supabaseAdmin.from('database_backups').insert({
+            backup_type: 'orphan_achievements',
+            data: orphanAchs
+          });
+        } catch {}
+        report.push(`⚠️ ${orphanAchs.length} verwaiste Achievements in database_backups gesichert`);
+      } else {
+        report.push('✅ Keine verwaisten Achievements');
+      }
     }
 
     // ══════════════════════════════════════════
@@ -2580,39 +2623,59 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // ══════════════════════════════════════════
     report.push('─── Friendships ───');
 
-    const { data: freshFriendships } = await supabaseAdmin
+    const { data: freshFriendships, error: friendErr } = await supabaseAdmin
       .from('friendships')
-      .select('id, requester_id, receiver_id, status');
+      .select('id, requester_id, receiver_id, status, created_at');
 
-    // Ungültige Status reparieren
-    const validStatuses = ['pending', 'accepted', 'rejected'];
-    let fixedStatuses = 0;
-    for (const f of freshFriendships || []) {
-      if (!validStatuses.includes(f.status)) {
-        const { error } = await supabaseAdmin
+    if (friendErr) {
+      report.push(`❌ Fehler beim Laden der Freundschaften: ${friendErr.message}`);
+    } else {
+      const validStatuses = ['pending', 'accepted', 'rejected'];
+      const invalidIds: string[] = [];
+
+      // 1. Ungültige Status sammeln
+      for (const f of freshFriendships || []) {
+        if (!validStatuses.includes(f.status)) {
+          invalidIds.push(f.id);
+        }
+      }
+
+      // Batch-Update für ungültige Status (viel schneller als Einzel-Updates)
+      if (invalidIds.length > 0) {
+        const { error: updateErr } = await supabaseAdmin
           .from('friendships')
           .update({ status: 'pending' })
-          .eq('id', f.id);
-        if (!error) fixedStatuses++;
-      }
-    }
-    if (fixedStatuses > 0) fixes.push(`🔧 ${fixedStatuses} Friendship-Status repariert`);
-    else report.push('✅ Alle Friendship-Status gültig');
+          .in('id', invalidIds);
 
-    // Verwaiste Freundschaften sichern
-    const orphanFriends = (freshFriendships || []).filter(
-      (f: any) => !authUserMap[f.requester_id] || !authUserMap[f.receiver_id]
-    );
-    if (orphanFriends.length > 0) {
-      try {
-        await supabaseAdmin.from('database_backups').insert({
-          backup_type: 'orphan_friendships',
-          data: orphanFriends
-        });
-      } catch {}
-      report.push(`⚠️ ${orphanFriends.length} verwaiste Freundschaften in database_backups gesichert (nicht gelöscht)`);
-    } else {
-      report.push('✅ Keine verwaisten Freundschaften');
+        if (!updateErr) {
+          fixes.push(`🔧 ${invalidIds.length} Friendship-Status auf 'pending' zurückgesetzt`);
+        } else {
+          errors.push(`Fehler beim Reparieren der Friendship-Status: ${updateErr.message}`);
+        }
+      } else {
+        report.push('✅ Alle Friendship-Status gültig');
+      }
+
+      // 2. Selbst-Freundschaften & verwaiste Einträge identifizieren (A -> A oder User existiert nicht)
+      const orphanFriends = (freshFriendships || []).filter((f: any) => 
+        f.requester_id === f.receiver_id || 
+        !authUserMap[f.requester_id] || 
+        !authUserMap[f.receiver_id]
+      );
+
+      if (orphanFriends.length > 0) {
+        try {
+          await supabaseAdmin.from('database_backups').insert({
+            backup_type: 'orphan_friendships',
+            data: orphanFriends
+          });
+          report.push(`⚠️ ${orphanFriends.length} ungültige/verwaiste Freundschaften in database_backups gesichert`);
+        } catch (bErr: any) {
+          console.warn('Backup warning for friendships:', bErr?.message);
+        }
+      } else {
+        report.push('✅ Keine verwaisten Freundschaften');
+      }
     }
 
     // ══════════════════════════════════════════
@@ -2620,7 +2683,6 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     // ══════════════════════════════════════════
     report.push('─── Profil-Statistiken ───');
 
-    // Profile-Statistiken für ALLE User neu berechnen
     const { data: allResults } = await supabaseAdmin
       .from('game_results')
       .select('user_id, avg, schnaepse');
@@ -2629,7 +2691,6 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
       .from('achievements')
       .select('user_id, achievement_id');
 
-    // Gruppierung nach user_id
     const statsMap: Record<string, {
       gamesPlayed: number;
       totalSchnaepse: number;
@@ -2638,18 +2699,28 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
     }> = {};
 
     for (const r of allResults || []) {
+      // Gast-Spiele ohne User-ID ignorieren!
+      if (!r.user_id) continue;
+
       if (!statsMap[r.user_id]) {
         statsMap[r.user_id] = { gamesPlayed: 0, totalSchnaepse: 0, bestAvg: null, achCount: 0 };
       }
+      
       statsMap[r.user_id].gamesPlayed++;
-      statsMap[r.user_id].totalSchnaepse += r.schnaepse || 0;
-      const avg = r.avg || 999;
-      if (statsMap[r.user_id].bestAvg === null || avg < statsMap[r.user_id].bestAvg) {
-        statsMap[r.user_id].bestAvg = avg;
+      statsMap[r.user_id].totalSchnaepse += Number(r.schnaepse) || 0;
+      
+      // Korrektur: Null/0 als validen Highscore zulassen (nicht als falsy werten)
+      const currentAvg = (r.avg !== null && r.avg !== undefined) ? Number(r.avg) : null;
+      if (currentAvg !== null) {
+        if (statsMap[r.user_id].bestAvg === null || currentAvg < statsMap[r.user_id].bestAvg!) {
+          statsMap[r.user_id].bestAvg = currentAvg;
+        }
       }
     }
 
     for (const a of allAchs || []) {
+      if (!a.user_id) continue;
+
       if (!statsMap[a.user_id]) {
         statsMap[a.user_id] = { gamesPlayed: 0, totalSchnaepse: 0, bestAvg: null, achCount: 0 };
       }
@@ -2667,11 +2738,11 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
           updated_at: new Date().toISOString()
         })
         .eq('id', userId);
+        
       if (!error) profilesUpdated++;
     }
 
     fixes.push(`📊 ${profilesUpdated} Profile-Statistiken neu berechnet aus game_results und achievements`);
-
     // ══════════════════════════════════════════
     // ZUSAMMENFASSUNG
     // ══════════════════════════════════════════

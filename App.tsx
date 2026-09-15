@@ -2261,6 +2261,34 @@ const App: React.FC = () => {
       setTournamentTableSaveState('success');
       setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
 
+      // Speichere Spieler-Einzelergebnisse in der Datenbank
+      for (const p of playerResults) {
+        try {
+          const matchedUser = clerkUsers.find(u => u.username === p.name || u.name === p.name);
+          const resolvedUserId = (playerAccountLinks && playerAccountLinks[p.name]) || (matchedUser ? matchedUser.id : null);
+          await fetch('/api/users/save-game-result', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: resolvedUserId || null,
+              gameResult: {
+                game_mode: 'Turnierspiel',
+                date: new Date().toLocaleDateString('de-DE'),
+                avg: p.avg,
+                schnaepse: p.schnaepse,
+                total: p.total,
+                is_guest: !resolvedUserId,
+                player_name: p.name,
+                tournament_name: activeTournamentTable.tournamentName,
+                tournament_table: targetTableId
+              }
+            })
+          });
+        } catch (e) {
+          console.warn('Fehler beim Speichern des Turnierspieler-Ergebnisses:', e);
+        }
+      }
+
       // Reload tournament detail if modal is active
       if (selectedTournamentName) {
         openTournamentDetail(selectedTournamentName);

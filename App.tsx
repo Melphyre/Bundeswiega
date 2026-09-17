@@ -58,6 +58,7 @@ import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
+import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
   fetchFriendsAndRequests,
   sendFriendRequest as apiSendFriendRequest,
@@ -642,7 +643,7 @@ const App: React.FC = () => {
   // Profile Modal State
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'freunde' | 'einstellungen'>('profil');
+  const [profileTab, setProfileTab] = useState<'profil' | 'rekorde' | 'wiegschaften' | 'freunde' | 'einstellungen'>('profil');
   const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
   const [deleteProfileInput, setDeleteProfileInput] = useState('');
   const [deletingProfile, setDeletingProfile] = useState(false);
@@ -1365,7 +1366,7 @@ const App: React.FC = () => {
   const [recordsData, setRecordsData] = useState<any[][] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
-  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Standardspiel');
+  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements' | 'Wiegschaften'>('Standardspiel');
   const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Turnier'>('Alle');
 
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
@@ -5972,7 +5973,7 @@ const App: React.FC = () => {
               <div>
                 {/* Mode Tabs */}
                 <div className="flex space-x-2 mb-6 border-b border-gray-500/10 pb-4 overflow-x-auto">
-                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Achievements'] as const).map(tab => (
+                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Achievements', 'Wiegschaften'] as const).map(tab => (
                     <button
                       key={tab}
                       onClick={() => {
@@ -5993,6 +5994,15 @@ const App: React.FC = () => {
 
                 {/* Main Records viewport */}
                 {(() => {
+                  if (activeRecordsTab === 'Wiegschaften') {
+                    return (
+                      <GuildsLeaderboardView
+                        darkMode={darkMode}
+                        currentUserId={supabaseUser?.id}
+                      />
+                    );
+                  }
+
                   const list = parseRecords(recordsData || []);
 
                   if (activeRecordsTab === 'Achievements') {

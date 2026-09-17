@@ -20,6 +20,7 @@ import {
   rejectFriendRequest as apiRejectFriendRequest,
   removeFriend as apiRemoveFriend
 } from '../services/friendService';
+import WiegschaftenTab from './WiegschaftenTab';
 
 interface ProfileModalProps {
   showProfileModal: boolean;
@@ -29,8 +30,8 @@ interface ProfileModalProps {
   isGuest?: boolean;
   darkMode: boolean;
   isAdmin: boolean;
-  profileTab: 'profil' | 'rekorde' | 'freunde' | 'einstellungen';
-  setProfileTab: (tab: 'profil' | 'rekorde' | 'freunde' | 'einstellungen') => void;
+  profileTab: 'profil' | 'rekorde' | 'wiegschaften' | 'freunde' | 'einstellungen';
+  setProfileTab: (tab: 'profil' | 'rekorde' | 'wiegschaften' | 'freunde' | 'einstellungen') => void;
   profileUsername: string;
   setProfileUsername: (u: string) => void;
   handleUsernameChange: () => Promise<void>;
@@ -748,6 +749,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             {[
               { key: 'profil' as const, label: '👤 Mein Profil', count: undefined },
               { key: 'rekorde' as const, label: '🎮 Meine Spiele', count: myGameData.length },
+              { key: 'wiegschaften' as const, label: '🏰 Wiegschaften', count: undefined },
               { key: 'freunde' as const, label: '👥 Freunde', count: friends.length + (pendingRequests.length > 0 ? ` (${pendingRequests.length} neu)` : '') },
               { key: 'einstellungen' as const, label: '⚙️ Einstellungen', count: undefined }
             ].map(tab => (
@@ -1206,6 +1208,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   )}
                 </div>
               </div>
+            )}
+
+            {/* TAB: WIEGSCHAFTEN */}
+            {profileTab === 'wiegschaften' && (
+              <WiegschaftenTab
+                userId={supabaseUser?.id}
+                darkMode={darkMode}
+                username={profileUsername || supabaseUser?.user_metadata?.username}
+                onRefreshProfile={refreshUserData}
+              />
             )}
 
             {/* TAB 3: FREUNDE */}

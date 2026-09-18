@@ -42,6 +42,7 @@ export const CATEGORY_LABELS: Record<AchievementCategory, string> = {
 
 export const RARITY_LABELS: Record<AchievementRarity, string> = {
   common: 'Gewöhnlich',
+  uncommon: 'Ungewöhnlich',
   rare: 'Selten',
   epic: 'Episch',
   legendary: 'Legendär'
@@ -55,7 +56,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Scharfschütze',
     description: '3x hintereinander unter 5g Abstand',
     icon: '🎯',
-    rarity: 'rare',
+    rarity: 'uncommon',
     condition: 'streak(dist < 5g) >= 3',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -65,7 +66,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Volltreffer-König',
     description: '3x Volltreffer (exakt 0g Abstand) in einem Spiel',
     icon: '👑',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'count(dist == 0g) >= 3',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -75,7 +76,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Millimeterarbeit',
     description: 'Durchschnittsabstand unter 3,5g',
     icon: '🔬',
-    rarity: 'rare',
+    rarity: 'common',
     condition: 'end_of_game && avg_dist < 3.5g',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -95,7 +96,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Tropfen für Tropfen',
     description: 'Nie mehr als 5g Abstand in einer Runde gehabt',
     icon: '💧',
-    rarity: 'rare',
+    rarity: 'epic',
     condition: 'end_of_game && all_rounds(dist <= 5g)',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -105,7 +106,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Jungfrau',
     description: 'Das Spiel mit 0 Strafpunkten beendet',
     icon: '✨',
-    rarity: 'epic',
+    rarity: 'legendary',
     condition: 'end_of_game && schnaepse == 0 && !isDisqualified',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -115,7 +116,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Poker Face',
     description: 'In 3 aufeinanderfolgenden Runden exakt denselben Abstand (±1g)',
     icon: '🃏',
-    rarity: 'rare',
+    rarity: 'legendary',
     condition: 'consecutive_rounds(max(dist) - min(dist) <= 1g) == 3',
     category: 'precision',
     categoryLabel: CATEGORY_LABELS.precision
@@ -177,7 +178,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Ewiger Zweiter',
     description: 'In jeder Runde den zweitkleinsten Abstand gehabt',
     icon: '🥈',
-    rarity: 'common',
+    rarity: 'epic',
     condition: 'all_rounds(isSecondMinDistInRound == true)',
     category: 'penalty',
     categoryLabel: CATEGORY_LABELS.penalty
@@ -189,7 +190,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Zwillinge',
     description: 'Zwei Spieler mit exakt demselben Gewicht in 3+ Runden',
     icon: '👯',
-    rarity: 'rare',
+    rarity: 'epic',
     condition: 'count_rounds(playerA.weight == playerB.weight) >= 3',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special,
@@ -200,7 +201,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Doppelgänger',
     description: 'Dasselbe Spielerpaar mit exakt demselben Gewicht in 3+ Runden',
     icon: '👤',
-    rarity: 'epic',
+    rarity: 'legendary',
     condition: 'same_pair_rounds(playerA.weight == playerB.weight) >= 3',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special,
@@ -211,7 +212,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Schnappszahl-Jäger',
     description: 'In einem Spiel 2+ Schnappszahlen getroffen',
     icon: '🎯',
-    rarity: 'rare',
+    rarity: 'uncommon',
     condition: 'count(weight in [11,22,33,44,55,66,77,88,99,...]) >= 2',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special
@@ -221,7 +222,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: '777',
     description: 'Exakt 77g in einer Runde getroffen',
     icon: '🎰',
-    rarity: 'epic',
+    rarity: 'uncommon',
     condition: 'any_round(weight == 77g)',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special
@@ -231,7 +232,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Spiegelzahl',
     description: 'Zwei Spieler mit gespiegelten Gewichten in einer Runde',
     icon: '🪞',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'reverse_digits(weightA) == weightB && weightA != weightB',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special,
@@ -242,7 +243,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Runde Sache',
     description: 'Exakt 100g, 200g oder 300g getroffen',
     icon: '🔵',
-    rarity: 'common',
+    rarity: 'uncommon',
     condition: 'any_round(weight in [100, 200, 300])',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special
@@ -252,7 +253,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Knapp daneben',
     description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt',
     icon: '😬',
-    rarity: 'common',
+    rarity: 'uncommon',
     condition: 'count(dist == 1g) >= 2',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special
@@ -262,7 +263,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Außenseiter',
     description: 'In jeder Runde mindestens 10g von allen anderen entfernt',
     icon: '🏝️',
-    rarity: 'rare',
+    rarity: 'common',
     condition: 'all_rounds(min_diff_to_others >= 10g)',
     category: 'special',
     categoryLabel: CATEGORY_LABELS.special
@@ -345,7 +346,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Sandbagging',
     description: 'Erste 3 Runden der Schlechteste, am Ende Gesamtdurchschnitt < 5g',
     icon: '🎭',
-    rarity: 'legendary',
+    rarity: 'rare',
     condition: 'first_3_rounds(isMaxDist) && avg_dist < 5.0g',
     category: 'progress',
     categoryLabel: CATEGORY_LABELS.progress
@@ -357,7 +358,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Lucky Loser',
     description: 'Meiste Strafpunkte, aber niedrigster Gesamtscore aller Spieler',
     icon: '🍀',
-    rarity: 'rare',
+    rarity: 'epic',
     condition: 'schnaepse == max(schnaepse) && total_score == min(total_score)',
     category: 'result',
     categoryLabel: CATEGORY_LABELS.result
@@ -367,7 +368,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Comeback',
     description: 'Nach Runde 1 Letzter, am Ende das Spiel gewonnen',
     icon: '💪',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'rank_round_1 == last && rank_final == 1',
     category: 'result',
     categoryLabel: CATEGORY_LABELS.result
@@ -377,7 +378,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Gleichgewicht',
     description: 'Alle Spieler in jeder Runde unter 5g Abstand',
     icon: '☯️',
-    rarity: 'legendary',
+    rarity: 'epic',
     condition: 'all_players_all_rounds(dist < 5.0g)',
     category: 'result',
     categoryLabel: CATEGORY_LABELS.result,
@@ -390,7 +391,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Hellseher',
     description: 'Zielgewicht angesagt und selbst einen Volltreffer gelandet',
     icon: '🔮',
-    rarity: 'legendary',
+    rarity: 'common',
     condition: 'is_announcer && !isFinal && abs(weight - target) == 0g',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -400,7 +401,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Stratege',
     description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer',
     icon: '🧠',
-    rarity: 'epic',
+    rarity: 'common',
     condition: 'is_announcer && !isFinal && other_player(dist == 0g)',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -410,7 +411,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Kopfrechner',
     description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)',
     icon: '🧮',
-    rarity: 'epic',
+    rarity: 'common',
     condition: 'isFinal && abs(weight - individualTarget) == 0g',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -430,7 +431,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Schluckspecht',
     description: 'In jeder Runde unter dem Zielgewicht gelandet',
     icon: '🍻',
-    rarity: 'common',
+    rarity: 'uncommon',
     condition: 'all_rounds(weight < target)',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -442,7 +443,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Blitzpräzise',
     description: 'Unter 3g Durchschnitt UND unter 90 Sekunden Gesamtzeit',
     icon: '⚡',
-    rarity: 'epic',
+    rarity: 'legendary',
     condition: 'speed: avg_dist < 3.0g && total_time < 90s',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -482,7 +483,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Nullsumme',
     description: 'Mindestens 2 Volltreffer (exakt 0g Abstand) in einer Speed-Runde',
     icon: '🎰',
-    rarity: 'epic',
+    rarity: 'uncommon',
     condition: 'speed: count(dist == 0g) >= 2',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -492,7 +493,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Roboter',
     description: 'In jeder Stufe unter 3g Abstand',
     icon: '🤖',
-    rarity: 'legendary',
+    rarity: 'rare',
     condition: 'speed: all_stages(dist < 3.0g)',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -512,7 +513,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Hastig',
     description: 'Gesamtzeit unter 50 Sekunden (unabhängig von Präzision)',
     icon: '💨',
-    rarity: 'common',
+    rarity: 'epic',
     condition: 'speed: total_time < 50s',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -522,7 +523,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Gemütlich',
     description: 'Trotz über 150 Sekunden Gesamtzeit unter 5g Durchschnitt',
     icon: '🛋️',
-    rarity: 'rare',
+    rarity: 'uncommon',
     condition: 'speed: total_time > 150s && avg_dist < 5.0g',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -552,7 +553,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Spiegelläufer',
     description: 'Zwei aufeinanderfolgende Stufen hatten gespiegelte Abstände (z.B. 12g & 21g)',
     icon: '🪞',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'speed: consecutive_mirror(dist[i], dist[i+1])',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -562,7 +563,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Gleichlauf',
     description: 'Alle Stufen hatten exakt denselben Abstand zum Zielgewicht',
     icon: '🔄',
-    rarity: 'rare',
+    rarity: 'epic',
     condition: 'speed: all_stages(dist == dist[0])',
     category: 'speed',
     categoryLabel: CATEGORY_LABELS.speed
@@ -594,7 +595,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Traumteam',
     description: 'Alle Teammitglieder eines Teams lagen in einer Runde unter 5g Abstand vom Zielgewicht',
     icon: '🌟',
-    rarity: 'rare',
+    rarity: 'uncommon',
     condition: 'team: all_members_in_round(dist < 5.0g)',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -616,7 +617,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Ausgleichskünstler',
     description: 'Nachdem alle Teammitglieder eines Teams eingegeben haben, wurde das Zielgewicht als Teamgesamtabstand exakt erreicht (0g)',
     icon: '⚖️',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'team: final_team_dist == 0g',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -649,7 +650,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Taktiker',
     description: 'Ein Team gewinnt das Spiel ohne je in einer Runde den niedrigsten Einzelabstand aller Spieler gehabt zu haben',
     icon: '🧠',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'team: team_won && never_had_lowest_single_dist',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -660,7 +661,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Underdog-Team',
     description: 'Nach der Hälfte der Runden auf dem letzten Platz (meiste Strafpunkte) und am Ende trotzdem gewonnen',
     icon: '🐾',
-    rarity: 'legendary',
+    rarity: 'epic',
     condition: 'team: halftime_rank == last && final_rank == 1',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -682,7 +683,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Nerven aus Stahl',
     description: 'In der letzten Runde vom letzten Platz auf den ersten Platz gekommen',
     icon: '🔩',
-    rarity: 'legendary',
+    rarity: 'epic',
     condition: 'team: penultimate_rank == last && final_rank == 1',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -704,7 +705,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Spiegelteams',
     description: 'Zwei Teams haben in einer Runde gespiegelte Gesamtabstände (z.B. 12g & 21g)',
     icon: '🪞',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'team: reverse_digits(teamA_dist) == teamB_dist',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -726,7 +727,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Mehr Jungfrauen',
     description: 'Ein Team bekommt im gesamten Spiel keinen einzigen Strafpunkt',
     icon: '😇',
-    rarity: 'legendary',
+    rarity: 'epic',
     condition: 'team: total_schnaepse == 0',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -737,7 +738,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Pechvögel',
     description: 'Ein Team hat 3 mal im Spiel eine Schnappszahl als Gesamtabstand erreicht und dadurch Strafpunkte erhalten',
     icon: '🐦',
-    rarity: 'common',
+    rarity: 'uncommon',
     condition: 'team: count(schnapps_penalty) >= 3',
     category: 'team',
     categoryLabel: CATEGORY_LABELS.team,
@@ -750,7 +751,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Goldwaage',
     description: 'Sieger des Finales (Platz 1 im Finaltisch)',
     icon: '🥇',
-    rarity: 'legendary',
+    rarity: 'rare',
     condition: 'tournament: final_table_rank == 1',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -760,7 +761,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Silberwaage',
     description: '2. Platz im Finale des Turniers',
     icon: '🥈',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'tournament: final_table_rank == 2',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -780,7 +781,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Ohne Proben nach oben',
     description: 'Über den Second Chance Tisch ins Finale eingezogen',
     icon: '🔄',
-    rarity: 'epic',
+    rarity: 'common',
     condition: 'tournament: qualified_via_second_chance',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -790,7 +791,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Unerwarteter Favorit',
     description: 'War im Second Chance Tisch und hat das Turnier gewonnen',
     icon: '🎭',
-    rarity: 'legendary',
+    rarity: 'epic',
     condition: 'tournament: was_second_chance && final_rank == 1',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -810,7 +811,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Schnaps-König des Turniers',
     description: 'Die meisten Schnäpse im gesamten Turnier getrunken',
     icon: '🍻',
-    rarity: 'epic',
+    rarity: 'common',
     condition: 'tournament: rank(schnaepse) == 1',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -840,7 +841,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Final-Favorit',
     description: 'Niedrigster Gesamtscore aller Spieler in der Vorrunde',
     icon: '👑',
-    rarity: 'epic',
+    rarity: 'uncommon',
     condition: 'tournament: min(preliminary_total_score)',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -850,7 +851,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Sauber geblieben',
     description: 'Im gesamten Turnier keinen einzigen Schnaps getrunken',
     icon: '✨',
-    rarity: 'epic',
+    rarity: 'legendary',
     condition: 'tournament: tournament_schnaepse == 0',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -860,7 +861,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Eiserner Wille',
     description: 'Aus dem Second Chance Tisch bis ins Finale und dort unter die Top 3 gekommen',
     icon: '🛡️',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'tournament: was_second_chance && final_rank <= 3',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -870,7 +871,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Durchstarter',
     description: 'Durchschnittsabstand im Finale war besser als in der Vorrunde',
     icon: '🚀',
-    rarity: 'rare',
+    rarity: 'common',
     condition: 'tournament: final_avg_dist < preliminary_avg_dist',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -880,7 +881,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Konstanz-Monster',
     description: 'In allen gespielten Tischen einen Ø Abstand unter 15,0g gehabt',
     icon: '📏',
-    rarity: 'epic',
+    rarity: 'uncommon',
     condition: 'tournament: all_tables(avg_dist < 15.0g)',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -890,7 +891,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Streber',
     description: 'Sowohl Vorrundentisch als auch Finaltisch gewonnen',
     icon: '🤓',
-    rarity: 'legendary',
+    rarity: 'rare',
     condition: 'tournament: preliminary_rank == 1 && final_table_rank == 1',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -900,7 +901,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Tisch-Dominator',
     description: 'Vorrundentisch mit mindestens 10g Vorsprung gewonnen',
     icon: '💥',
-    rarity: 'epic',
+    rarity: 'rare',
     condition: 'tournament: preliminary_lead >= 10.0g',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -910,7 +911,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Marathon-Mann',
     description: 'Vorrunde, Second Chance und Finale gespielt',
     icon: '🏃',
-    rarity: 'epic',
+    rarity: 'uncommon',
     condition: 'tournament: played_tables >= 3 (Vorrunde, 2nd Chance, Finale)',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament
@@ -930,7 +931,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Stehaufmännchen',
     description: 'In der Vorrunde Letzter an seinem Tisch, aber im Finale nicht Letzter',
     icon: '🧗',
-    rarity: 'rare',
+    rarity: 'epic',
     condition: 'tournament: preliminary_rank == last && final_rank < last',
     category: 'tournament',
     categoryLabel: CATEGORY_LABELS.tournament

@@ -4,6 +4,7 @@ import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { playButtonSound } from './FriendsModal';
+import { supabase } from '../supabaseClient';
 
 interface WiegschaftenTabProps {
   userId?: string;
@@ -104,6 +105,134 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
+
+  // Wappen-Upload States (Supabase Storage: Bucket 'avatars')
+  const [directWappenLoading, setDirectWappenLoading] = useState(false);
+  const [createWappenLoading, setCreateWappenLoading] = useState(false);
+  const [editWappenLoading, setEditWappenLoading] = useState(false);
+
+  // Hilfsfunktion: Bild in Supabase Storage Bucket 'avatars' hochladen und öffentliche URL für SQL zurückgeben
+  const uploadWappenToStorage = async (file: File, prefix: string): Promise<string> => {
+    if (!file) throw new Error('Keine Datei ausgewählt');
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error('Datei ist zu groß (maximal 5 MB erlaubt)');
+    }
+    const validExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg', 'gif'];
+    const fileExt = (file.name.split('.').pop() || 'png').toLowerCase();
+    if (!validExtensions.includes(fileExt)) {
+      throw new Error('Bitte lade eine gültige Bilddatei hoch (PNG, JPG, WEBP, SVG).');
+    }
+
+    const filePath = `guilds/${prefix}_${Date.now()}.${fileExt}`;
+
+    // 1. In Supabase Storage 'avatars' Bucket speichern
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, {
+        upsert: true,
+        contentType: file.type || 'image/png'
+      });
+
+    if (uploadError) {
+      console.error('Supabase Storage avatars Upload Fehler:', uploadError);
+      throw new Error(uploadError.message || 'Fehler beim Hochladen in Supabase Storage avatars');
+    }
+
+    // 2. Öffentliche HTTPS-URL abrufen (in SQL wird nur diese Verlinkung gespeichert)
+    const { data: urlData } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath);
+
+    if (!urlData?.publicUrl) {
+      throw new Error('Konnte keine öffentliche URL für das Wappen abrufen.');
+    }
+
+    return urlData.publicUrl;
+  };
+
+  // Direkt-Upload auf das Wappen in der Wiegschaftskarte
+  const handleDirectWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !data?.guild || !userId) return;
+
+    setDirectWappenLoading(true);
+    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    try {
+      const publicUrl = await uploadWappenToStorage(file, data.guild.id);
+
+      // In der SQL-Datenbank lediglich die Verlinkung zum Storage-Bild speichern
+      const res = await fetch('/api/guilds/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          guildId: data.guild.id,
+          logo_url: publicUrl
+        })
+      });
+
+      const resJson = await res.json();
+      if (!res.ok || !resJson.success) {
+        throw new Error(resJson.error || 'Fehler beim Speichern der Verlinkung in der Datenbank');
+      }
+
+      setData(prev => prev && prev.guild ? {
+        ...prev,
+        guild: {
+          ...prev.guild,
+          logo_url: publicUrl
+        }
+      } : prev);
+      setEditLogoUrl(publicUrl);
+      setStatusFeedback('✅ Wappen erfolgreich im Supabase Storage (avatars) gespeichert und in der Datenbank verlinkt!');
+    } catch (err: any) {
+      console.error('Wappen-Upload Fehler:', err);
+      setStatusFeedback(`❌ Fehler beim Wappen-Upload: ${err.message || 'Unbekannter Fehler'}`);
+    } finally {
+      setDirectWappenLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // Upload bei "Wiegschaft gründen"
+  const handleCreateWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCreateWappenLoading(true);
+    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    try {
+      const publicUrl = await uploadWappenToStorage(file, `create_${userId || 'temp'}`);
+      setCreateLogoUrl(publicUrl);
+      setStatusFeedback('✅ Wappen in Supabase Storage (avatars) gespeichert! Beim Gründen wird die Verlinkung in SQL gespeichert.');
+    } catch (err: any) {
+      console.error('Wappen-Upload Fehler:', err);
+      setStatusFeedback(`❌ Upload fehlgeschlagen: ${err.message || 'Unbekannter Fehler'}`);
+    } finally {
+      setCreateWappenLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // Upload bei "Bearbeiten"
+  const handleEditWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !data?.guild) return;
+
+    setEditWappenLoading(true);
+    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    try {
+      const publicUrl = await uploadWappenToStorage(file, `edit_${data.guild.id}`);
+      setEditLogoUrl(publicUrl);
+      setStatusFeedback('✅ Wappen in Supabase Storage (avatars) hochgeladen! Klicke auf "Änderungen speichern", um den Link in der SQL-Datenbank zu aktualisieren.');
+    } catch (err: any) {
+      console.error('Wappen-Upload Fehler:', err);
+      setStatusFeedback(`❌ Upload fehlgeschlagen: ${err.message || 'Unbekannter Fehler'}`);
+    } finally {
+      setEditWappenLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
 
   const fetchGuildData = useCallback(async () => {
     if (!userId) {
@@ -407,6 +536,23 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
 
   return (
     <div id="wiegschaften-tab-container" className="space-y-6">
+      {/* Offizielles Motto / Info-Text */}
+      <div
+        id="wiegschaft-motto-banner"
+        className={`p-4 sm:p-5 rounded-2xl border flex items-center space-x-3.5 sm:space-x-4 shadow-sm ${
+          darkMode
+            ? 'bg-slate-800/80 border-slate-700/80 text-slate-100'
+            : 'bg-gradient-to-r from-teal-50 to-white border-teal-200/80 text-teal-950'
+        }`}
+      >
+        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center text-2xl flex-shrink-0">
+          🏰
+        </div>
+        <p className="text-xs sm:text-sm font-semibold leading-relaxed">
+          Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zu sammen und messt euch mit Wiegschaften auf der ganzen Welt.
+        </p>
+      </div>
+
       {statusFeedback && (
         <div id="wiegschaft-toast-feedback" className="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-600 dark:text-teal-400 text-xs font-bold flex items-center justify-between">
           <span>{statusFeedback}</span>
@@ -425,8 +571,8 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
             <h4 className="text-lg font-black uppercase tracking-wide" style={{ color: BRAND_COLOR }}>
               Keiner Wiegschaft beigetreten
             </h4>
-            <p className="text-xs opacity-75 max-w-md mx-auto mt-1">
-              Schließe dich mit anderen Wiegerinnen und Wiegern zusammen! Gründe deine eigene Wiegschaft oder nimm eine offene Einladung an.
+            <p className="text-xs sm:text-sm opacity-80 max-w-lg mx-auto mt-2 leading-relaxed">
+              Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zu sammen und messt euch mit Wiegschaften auf der ganzen Welt.
             </p>
           </div>
 
@@ -570,26 +716,73 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
               </div>
 
               {/* Logo / Wappen Auswahl */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold opacity-75 block">
-                  Wappen / Logo auswählen oder Bild-URL angeben
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_CRESTS.map(crest => (
-                    <button
-                      key={crest}
-                      type="button"
-                      onClick={() => setCreateLogoUrl(crest)}
-                      className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center transition-all cursor-pointer border ${createLogoUrl === crest ? 'border-teal-500 bg-teal-500/20 scale-105 shadow' : 'border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
-                    >
-                      {crest}
-                    </button>
-                  ))}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold opacity-75 block">
+                    Wappen / Logo der Wiegschaft
+                  </label>
+                  <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold flex items-center space-x-1">
+                    <i className="fas fa-shield-alt text-[9px]"></i>
+                    <span>Storage: avatars</span>
+                  </span>
                 </div>
+
+                {/* Vorschau & Upload-Button (Supabase Storage: Bucket 'avatars') */}
+                <div className="flex items-center space-x-3 p-3 rounded-xl border border-gray-500/20 bg-black/5 dark:bg-white/5">
+                  <div className="w-14 h-14 rounded-xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden shadow-xs relative">
+                    {createWappenLoading ? (
+                      <i className="fas fa-spinner animate-spin text-[#238183]"></i>
+                    ) : createLogoUrl && createLogoUrl.startsWith('http') ? (
+                      <img src={createLogoUrl} alt="Wappen Vorschau" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{createLogoUrl || '🏰'}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label
+                      htmlFor="create-guild-wappen-file"
+                      className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer active:scale-95 transition-all shadow-xs ${
+                        createWappenLoading ? 'opacity-50 cursor-not-allowed bg-gray-500' : 'bg-[#238183] hover:opacity-90'
+                      }`}
+                    >
+                      <i className="fas fa-upload text-[11px]"></i>
+                      <span>{createWappenLoading ? 'Wird gespeichert...' : 'Wappen hochladen'}</span>
+                    </label>
+                    <input
+                      id="create-guild-wappen-file"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleCreateWappenUpload}
+                      disabled={createWappenLoading}
+                    />
+                    <p className="text-[10px] opacity-65 leading-tight">
+                      Wird in Supabase Storage <span className="font-semibold text-teal-600 dark:text-teal-400">avatars</span> gespeichert. In SQL wird nur die Verlinkung hinterlegt.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Vorlagen */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold opacity-60">Oder Vorlage wählen:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {PRESET_CRESTS.map(crest => (
+                      <button
+                        key={crest}
+                        type="button"
+                        onClick={() => setCreateLogoUrl(crest)}
+                        className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer border ${createLogoUrl === crest ? 'border-teal-500 bg-teal-500/20 scale-105 shadow' : 'border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
+                      >
+                        {crest}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <input
                   id="create-guild-logo-url"
                   type="text"
-                  placeholder="Oder Bild-URL (https://...) einfügen"
+                  placeholder="Oder Bild-URL direkt einfügen (https://...)"
                   value={createLogoUrl.startsWith('http') ? createLogoUrl : ''}
                   onChange={e => setCreateLogoUrl(e.target.value)}
                   className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
@@ -629,11 +822,40 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
           <div className={`p-5 rounded-3xl border shadow-sm relative overflow-hidden ${darkMode ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 rounded-2xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-3xl shadow flex-shrink-0 overflow-hidden">
-                  {data.guild.logo_url && data.guild.logo_url.startsWith('http') ? (
-                    <img src={data.guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
-                  ) : (
-                    <span>{data.guild.logo_url || '🏰'}</span>
+                <div className="relative group">
+                  <div
+                    id="guild-current-wappen-display"
+                    className="w-16 h-16 rounded-2xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-3xl shadow flex-shrink-0 overflow-hidden relative"
+                    title={isCaptain ? 'Wappen ändern (Speichert im Storage avatars, Link in SQL)' : undefined}
+                  >
+                    {directWappenLoading ? (
+                      <i className="fas fa-spinner animate-spin text-[#238183] text-xl"></i>
+                    ) : data.guild.logo_url && data.guild.logo_url.startsWith('http') ? (
+                      <img src={data.guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{data.guild.logo_url || '🏰'}</span>
+                    )}
+
+                    {isCaptain && !directWappenLoading && (
+                      <label
+                        htmlFor="guild-wappen-direct-upload"
+                        className="absolute inset-0 bg-black/65 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer text-center p-1"
+                        title="Neues Wappen hochladen (Storage: avatars)"
+                      >
+                        <i className="fas fa-camera text-xs mb-0.5"></i>
+                        <span className="text-[8px] font-black uppercase tracking-tight leading-tight">Wappen ändern</span>
+                      </label>
+                    )}
+                  </div>
+                  {isCaptain && (
+                    <input
+                      id="guild-wappen-direct-upload"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleDirectWappenUpload}
+                      disabled={directWappenLoading}
+                    />
                   )}
                 </div>
                 <div>
@@ -734,23 +956,70 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-bold opacity-75 block">Wappen / Logo</label>
-                    <div className="flex flex-wrap gap-2">
-                      {PRESET_CRESTS.map(crest => (
-                        <button
-                          key={crest}
-                          type="button"
-                          onClick={() => setEditLogoUrl(crest)}
-                          className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer border ${editLogoUrl === crest ? 'border-teal-500 bg-teal-500/20 scale-105' : 'border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
-                        >
-                          {crest}
-                        </button>
-                      ))}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold opacity-75 block">Wappen / Logo der Wiegschaft</label>
+                      <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold flex items-center space-x-1">
+                        <i className="fas fa-shield-alt text-[9px]"></i>
+                        <span>Storage: avatars</span>
+                      </span>
                     </div>
+
+                    {/* Vorschau & Upload-Button (Supabase Storage: avatars) */}
+                    <div className="flex items-center space-x-3 p-3 rounded-xl border border-gray-500/20 bg-black/5 dark:bg-white/5">
+                      <div className="w-14 h-14 rounded-xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden shadow-xs relative">
+                        {editWappenLoading ? (
+                          <i className="fas fa-spinner animate-spin text-[#238183]"></i>
+                        ) : editLogoUrl && editLogoUrl.startsWith('http') ? (
+                          <img src={editLogoUrl} alt="Wappen Vorschau" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{editLogoUrl || '🏰'}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label
+                          htmlFor="edit-guild-wappen-file"
+                          className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer active:scale-95 transition-all shadow-xs ${
+                            editWappenLoading ? 'opacity-50 cursor-not-allowed bg-gray-500' : 'bg-[#238183] hover:opacity-90'
+                          }`}
+                        >
+                          <i className="fas fa-upload text-[11px]"></i>
+                          <span>{editWappenLoading ? 'Wird gespeichert...' : 'Neues Wappen hochladen'}</span>
+                        </label>
+                        <input
+                          id="edit-guild-wappen-file"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleEditWappenUpload}
+                          disabled={editWappenLoading}
+                        />
+                        <p className="text-[10px] opacity-65 leading-tight">
+                          Wird in Storage <span className="font-semibold text-teal-600 dark:text-teal-400">avatars</span> gespeichert und der Link in der SQL-Datenbank hinterlegt.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Vorlagen */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold opacity-60">Oder Vorlage wählen:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {PRESET_CRESTS.map(crest => (
+                          <button
+                            key={crest}
+                            type="button"
+                            onClick={() => setEditLogoUrl(crest)}
+                            className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer border ${editLogoUrl === crest ? 'border-teal-500 bg-teal-500/20 scale-105' : 'border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
+                          >
+                            {crest}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <input
                       type="text"
-                      placeholder="Bild-URL (https://...)"
+                      placeholder="Oder Bild-URL direkt eingeben (https://...)"
                       value={editLogoUrl.startsWith('http') ? editLogoUrl : ''}
                       onChange={e => setEditLogoUrl(e.target.value)}
                       className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}

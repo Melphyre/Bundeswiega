@@ -4,11 +4,12 @@ import { Html5Qrcode, Html5QrcodeCameraScanConfig } from 'html5-qrcode';
 export interface QRScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onScanSuccess: (decodedText: string) => void;
+  onScanSuccess: (decodedText: string) => Promise<void> | void;
   title?: string;
   description?: string;
   scanCooldownMs?: number;
   darkMode?: boolean;
+  externalErrorMessage?: string | null;
 }
 
 interface CameraDevice {
@@ -24,6 +25,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   description = "Halte den QR-Code deines Mitspielers in den Rahmen",
   scanCooldownMs = 1500,
   darkMode = true,
+  externalErrorMessage = null,
 }) => {
   const scannerContainerId = "html5qrcode-scanner-view";
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
@@ -96,7 +98,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
   }, [scannerContainerId]);
 
   // Handle successful scan
-  const handleScanCallback = useCallback((decodedText: string) => {
+  const handleScanCallback = useCallback(async (decodedText: string) => {
     const now = Date.now();
     if (now - lastScanTimeRef.current < scanCooldownMs) {
       return; // Cooldown debounce active
@@ -113,7 +115,11 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     setStatus('paused');
 
     // Trigger callback
-    onScanSuccess(decodedText);
+    try {
+      await Promise.resolve(onScanSuccess(decodedText));
+    } catch (err) {
+      console.error("[QRScannerModal] Callback error:", err);
+    }
 
     // Auto resume scan after cooldown if modal stays open
     setTimeout(() => {
@@ -356,13 +362,23 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
           )}
 
           {/* Success Pause Banner */}
-          {status === 'paused' && (
+          {status === 'paused' && !externalErrorMessage && (
             <div className="absolute inset-0 bg-emerald-950/80 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-10 space-y-2 animate-in zoom-in-95">
               <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xl shadow-lg">
                 ✓
               </div>
               <p className="text-xs font-black text-emerald-300 uppercase tracking-wider">Erfolgreich erfasst!</p>
               <p className="text-sm font-bold text-white max-w-[200px] truncate">{lastScannedText}</p>
+            </div>
+          )}
+
+          {/* External Error Overlay */}
+          {externalErrorMessage && (
+            <div className="absolute inset-x-3 bottom-3 bg-red-950/95 border border-red-500/60 rounded-xl p-3 text-center z-20 space-y-1 shadow-xl animate-in fade-in slide-in-from-bottom-2">
+              <p className="text-xs font-bold text-red-300 flex items-center justify-center gap-1.5">
+                <i className="fas fa-exclamation-circle text-red-400"></i>
+                <span>{externalErrorMessage}</span>
+              </p>
             </div>
           )}
 

@@ -241,6 +241,8 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l2_5x_avg_sub5', level: 2, title: 'Erreiche 5x einen Durchschnitt < 5 Gramm', xpReward: 10, metric: 'avg_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
   { id: 'l2_5x_total_sub7', level: 2, title: 'Erreiche 5x ein Total < 7 Gramm', xpReward: 10, metric: 'total_less_than', targetValue: 7.0, threshold: 7.0, targetCount: 5 },
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
+  { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
+  { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
 
   // --- LEVEL 3 ---
   { id: 'l3_15_standard', level: 3, title: 'Spiele 15 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 15, targetCount: 15, gameMode: 'Standardspiel' },
@@ -457,6 +459,37 @@ async function serverEvaluateQuestsForUser(userId: string) {
           ).length;
           break;
         }
+
+        case 'achievements_count': {
+          let count = Number(profile?.achievements_count || 0);
+          try {
+            const { count: exactCount } = await supabaseAdmin
+              .from('achievements')
+              .select('id', { count: 'exact', head: true })
+              .eq('user_id', userId);
+            if (typeof exactCount === 'number') {
+              count = Math.max(count, exactCount);
+            }
+          } catch {
+            // ignore
+          }
+          progress = count;
+          break;
+        }
+
+        case 'wins_count': {
+          const wins = safeResults.filter(r => {
+            if (q.gameMode) {
+              const norm = normalizeMode(r.game_mode);
+              const targetNorm = normalizeMode(q.gameMode);
+              if (norm !== targetNorm) return false;
+            }
+            return r.is_winner === true || r.rank === 1 || r.won === true;
+          }).length;
+          const profileWins = Number(profile?.games_won || 0);
+          progress = Math.max(wins, profileWins);
+          break;
+        }
       }
 
       const isCompleted = progress >= targetCount;
@@ -609,7 +642,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     }
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color')
+      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color, name_glow')
       .order('username', { ascending: true });
 
     if (error || !profiles) {
@@ -626,7 +659,8 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       title: p.title || '',
       level: p.level || 1,
       xp: p.xp || 0,
-      name_bg_color: p.name_bg_color || 'none'
+      name_bg_color: p.name_bg_color || 'none',
+      name_glow: p.name_glow || 'none'
     }));
 
     return res.status(200).json({ users });
@@ -763,6 +797,23 @@ async function handleUpdateNameBg(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true });
   } catch (err: any) {
     console.error("handleUpdateNameBg Crash:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Error' });
+  }
+}
+
+// ─── 8b. UPDATE NAME GLOW (POST /api/users/update-name-glow) ───
+async function handleUpdateNameGlow(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const body = parseBody(req);
+    const { userId, name_glow } = body;
+    if (!userId || !supabaseAdmin) {
+      return res.status(200).json({ success: false });
+    }
+    await supabaseAdmin.from('profiles').update({ name_glow: name_glow || 'none' }).eq('id', userId);
+    return res.status(200).json({ success: true });
+  } catch (err: any) {
+    console.error("handleUpdateNameGlow Crash:", err);
     return res.status(200).json({ success: false, error: err?.message || 'Error' });
   }
 }
@@ -1231,7 +1282,7 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
     if (memberUserIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
-        .select('id, username, avatar_url, title, level, xp, name_bg_color')
+        .select('id, username, avatar_url, title, level, xp, name_bg_color, name_glow')
         .in('id', memberUserIds);
 
       (profiles || []).forEach((p: any) => {
@@ -1251,7 +1302,8 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
         title: prof.title || '',
         level: prof.level || 1,
         xp: prof.xp || 0,
-        name_bg_color: prof.name_bg_color || 'none'
+        name_bg_color: prof.name_bg_color || 'none',
+        name_glow: prof.name_glow || 'none'
       };
     });
 
@@ -1306,6 +1358,37 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Hilfsfunktion: Stellt sicher, dass hochgeladene Wappen im Storage 'avatars' liegen
+// und in der SQL-Tabelle lediglich die Verlinkung (HTTPS-URL) gespeichert wird.
+async function ensureAvatarStorageUrl(logoUrlOrData: string, prefix = 'guilds'): Promise<string> {
+  if (!logoUrlOrData || !logoUrlOrData.startsWith('data:image/')) {
+    return logoUrlOrData;
+  }
+  try {
+    const match = logoUrlOrData.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+    if (!match) return logoUrlOrData;
+    const rawExt = match[1].toLowerCase();
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt.includes('svg') ? 'svg' : rawExt;
+    const buffer = Buffer.from(match[2], 'base64');
+    const filePath = `${prefix}/wappen_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const contentType = rawExt.includes('svg') ? 'image/svg+xml' : `image/${rawExt}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from('avatars')
+      .upload(filePath, buffer, { contentType, upsert: true });
+    if (upErr) {
+      console.error('Failed to upload base64 guild crest to avatars bucket:', upErr);
+      return logoUrlOrData;
+    }
+    const { data: pubData } = supabaseAdmin.storage
+      .from('avatars')
+      .getPublicUrl(filePath);
+    return pubData?.publicUrl || logoUrlOrData;
+  } catch (err) {
+    console.error('Error in ensureAvatarStorageUrl:', err);
+    return logoUrlOrData;
+  }
+}
+
 // 16.2 POST /api/guilds/create
 async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -1317,7 +1400,8 @@ async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
     const name = (payload.name || '').trim();
     const tag = (payload.tag || '').trim().toUpperCase();
     const description = (payload.description || '').trim();
-    const logo_url = (payload.logo_url || '').trim();
+    const rawLogoUrl = (payload.logo_url || '').trim();
+    const logo_url = await ensureAvatarStorageUrl(rawLogoUrl, `guilds/user_${userId}`);
 
     if (!userId || !name || !tag) {
       return res.status(400).json({ success: false, error: 'Name, Kürzel und Benutzer-ID sind erforderlich' });
@@ -1429,7 +1513,9 @@ async function handleUpdateGuild(req: VercelRequest, res: VercelResponse) {
       updates.tag = cleanTag;
     }
     if (description !== undefined) updates.description = (description || '').trim();
-    if (logo_url !== undefined) updates.logo_url = (logo_url || '').trim();
+    if (logo_url !== undefined) {
+      updates.logo_url = await ensureAvatarStorageUrl((logo_url || '').trim(), `guilds/${guildId}`);
+    }
 
     const { error: updateErr } = await supabaseAdmin
       .from('guilds')
@@ -1911,6 +1997,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (pathname === '/users/update-name-bg' || pathname === '/update-name-bg') {
       return await handleUpdateNameBg(req, res);
+    }
+    if (pathname === '/users/update-name-glow' || pathname === '/update-name-glow') {
+      return await handleUpdateNameGlow(req, res);
     }
     if (pathname === '/users/delete') {
       return await handleDeleteUser(req, res);

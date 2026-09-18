@@ -8,6 +8,8 @@ export interface QuestDefinition {
   title: string;
   xpReward: number;
   titleReward?: string;
+  colorReward?: string;
+  rewardDescription?: string;
   metric: 
     | 'profile_pic' 
     | 'games_count' 
@@ -15,7 +17,9 @@ export interface QuestDefinition {
     | 'total_less_than' 
     | 'max_schnaepse'
     | 'teamwiegen_count'
-    | 'tournament_count';
+    | 'tournament_count'
+    | 'achievements_count'
+    | 'wins_count';
   targetValue: number;
   gameMode?: string;
   threshold?: number;
@@ -41,6 +45,8 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l2_5x_avg_sub5', level: 2, title: 'Erreiche 5x einen Durchschnitt < 5 Gramm', xpReward: 10, metric: 'avg_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
   { id: 'l2_5x_total_sub7', level: 2, title: 'Erreiche 5x ein Total < 7 Gramm', xpReward: 10, metric: 'total_less_than', targetValue: 7.0, threshold: 7.0, targetCount: 5 },
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
+  { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
+  { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
 
   // --- LEVEL 3 ---
   { id: 'l3_15_standard', level: 3, title: 'Spiele 15 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 15, targetCount: 15, gameMode: 'Standardspiel' },
@@ -353,6 +359,37 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           ).length;
           break;
         }
+
+        case 'achievements_count': {
+          let count = Number(profile?.achievements_count || (profile as any)?.achievementsCount || 0);
+          try {
+            const { count: exactCount } = await db
+              .from('achievements')
+              .select('id', { count: 'exact', head: true })
+              .eq('user_id', userId);
+            if (typeof exactCount === 'number') {
+              count = Math.max(count, exactCount);
+            }
+          } catch {
+            // ignore
+          }
+          progress = count;
+          break;
+        }
+
+        case 'wins_count': {
+          const wins = safeResults.filter(r => {
+            if (q.gameMode) {
+              const targetNorm = normalizeGameMode(q.gameMode);
+              const rNorm = normalizeGameMode(r.game_mode);
+              if (rNorm !== targetNorm) return false;
+            }
+            return r.is_winner === true || r.rank === 1 || r.won === true;
+          }).length;
+          const profileWins = Number(profile?.games_won || (profile as any)?.gamesWon || 0);
+          progress = Math.max(wins, profileWins);
+          break;
+        }
       }
 
       const isCompleted = progress >= targetCount;
@@ -375,6 +412,18 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       if (isCompleted) {
         bonusXpEarned += q.xpReward;
         completedQuestIds.add(q.id);
+
+        // Farb-Belohnung (z. B. Rosa bei 50 Achievements, Türkis bei 5 Standard-Siegen)
+        if (q.colorReward) {
+          try {
+            const stored = localStorage.getItem(`bundeswiega_user_unlocked_colors_${userId}`);
+            const unlockedList: string[] = stored ? JSON.parse(stored) : [];
+            if (!unlockedList.includes(q.colorReward)) {
+              unlockedList.push(q.colorReward);
+              localStorage.setItem(`bundeswiega_user_unlocked_colors_${userId}`, JSON.stringify(unlockedList));
+            }
+          } catch {}
+        }
 
         if (q.titleReward && !unlockedTitles.has(q.titleReward)) {
           try {

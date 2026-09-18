@@ -73,31 +73,31 @@ export const LEVEL_PROGRESSION_TABLE: LevelProgressionEntry[] = [
     level: 2,
     xpRequiredForLevel: 100,
     cumulativeXp: 100,
-    rewardTitle: 'Farbiger Namenshintergrund',
-    rewardDescription: 'Freischaltung des Name-Tag Design-Systems (Rot, Blau, Grün, Gelb)',
+    rewardTitle: 'Titel "Basis-Wieger" & Namenshintergrund',
+    rewardDescription: 'Titel "Basis-Wieger" + Namenshintergründe (Rot, Blau, Grün, Gelb) + Quests freigeschaltet',
     rewardType: 'feature',
     icon: '🎨',
-    badgeText: 'Feature-Freischaltung'
+    badgeText: 'Titel & Feature'
   },
   {
     level: 3,
     xpRequiredForLevel: 200,
     cumulativeXp: 300,
-    rewardTitle: 'Detaillierte Spiel-Statistiken',
-    rewardDescription: 'Erweiterte Analyse & Durchschnittswerte im Spielerprofil',
+    rewardTitle: 'Titel "geübter Wieger" & Farben Schwarz/Weiß',
+    rewardDescription: 'Titel "geübter Wieger" + Namenshintergründe Schwarz & Weiß + Detaillierte Statistiken',
     rewardType: 'feature',
-    icon: '📊',
-    badgeText: 'Feature'
+    icon: '🍺',
+    badgeText: 'Titel & Farben'
   },
   {
     level: 4,
     xpRequiredForLevel: 300,
     cumulativeXp: 600,
-    rewardTitle: 'Sticker & Reaktionen',
-    rewardDescription: 'Erste Wiege-Sticker & Reaktionen für das Live-Spiel',
+    rewardTitle: 'Titel "App-Meister" & "Wiegemeister" + Pulsierender Neon-Glow',
+    rewardDescription: 'Titel "App-Meister" & "Wiegemeister" + Pulsierender Neon-Glow Rahmen um den Namen (Blau, Rot, Grün, Gelb)',
     rewardType: 'cosmetic',
     icon: '✨',
-    badgeText: 'Kosmetisch'
+    badgeText: '2 Titel & Neon-Glow'
   },
   {
     level: 5,
@@ -280,19 +280,40 @@ export interface LevelReward {
   level: number;
   title: string;
   unlockedTitle?: string;
+  unlockedTitles?: string[];
   badge?: string;
   description: string;
   icon: string;
 }
 
-export const LEVEL_REWARDS: LevelReward[] = LEVEL_PROGRESSION_TABLE.map(entry => ({
-  level: entry.level,
-  title: entry.rewardTitle,
-  unlockedTitle: entry.level === 1 ? 'Neuling' : undefined,
-  badge: entry.badgeText,
-  description: entry.rewardDescription,
-  icon: entry.icon
-}));
+export const LEVEL_REWARDS: LevelReward[] = LEVEL_PROGRESSION_TABLE.map(entry => {
+  let unlockedTitle: string | undefined;
+  let unlockedTitles: string[] | undefined;
+
+  if (entry.level === 1) {
+    unlockedTitle = 'Neuling';
+    unlockedTitles = ['Neuling'];
+  } else if (entry.level === 2) {
+    unlockedTitle = 'Basis-Wieger';
+    unlockedTitles = ['Basis-Wieger'];
+  } else if (entry.level === 3) {
+    unlockedTitle = 'geübter Wieger';
+    unlockedTitles = ['geübter Wieger'];
+  } else if (entry.level === 4) {
+    unlockedTitle = 'App-Meister & Wiegemeister';
+    unlockedTitles = ['App-Meister', 'Wiegemeister'];
+  }
+
+  return {
+    level: entry.level,
+    title: entry.rewardTitle,
+    unlockedTitle,
+    unlockedTitles,
+    badge: entry.badgeText,
+    description: entry.rewardDescription,
+    icon: entry.icon
+  };
+});
 
 export const getRewardForLevel = (level: number): LevelReward | undefined => {
   return LEVEL_REWARDS.find(r => r.level === level);
@@ -345,10 +366,16 @@ export const getLevelFromXP = (xp: number): number => {
 };
 
 /**
- * Standardtitel basierend auf dem erreichten Level.
- * Nach der Bereinigung existiert nur noch der Standardtitel "Neuling".
+ * Standardtitel basierend auf dem erreichten Level:
+ * - Level 1: "Neuling"
+ * - Level 2: "Basis-Wieger"
+ * - Level 3: "geübter Wieger"
+ * - Level 4: "App-Meister"
  */
-export const getTitleForLevel = (_level: number): string => {
+export const getTitleForLevel = (level: number): string => {
+  if (level >= 4) return 'App-Meister';
+  if (level >= 3) return 'geübter Wieger';
+  if (level >= 2) return 'Basis-Wieger';
   return 'Neuling';
 };
 

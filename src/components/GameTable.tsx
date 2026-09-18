@@ -12,9 +12,10 @@ interface GameTableProps {
   darkMode: boolean;
   currentRoundResults: Record<string, string>;
   setCurrentRoundResults: (val: Record<string, string>) => void;
-  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null; name_bg_color?: string | null }>;
+  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null; name_bg_color?: string | null; name_glow?: string | null }>;
   getPlayerTitle?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
   getPlayerNameBgColor?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
+  getPlayerNameGlow?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
 }
 
 export const GameTable: React.FC<GameTableProps> = ({
@@ -26,7 +27,8 @@ export const GameTable: React.FC<GameTableProps> = ({
   setCurrentRoundResults,
   playerAccountLinks,
   getPlayerTitle,
-  getPlayerNameBgColor
+  getPlayerNameBgColor,
+  getPlayerNameGlow
 }) => {
   return (
     <div className={`p-2 md:p-4 rounded-3xl ${darkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} border shadow-sm overflow-x-auto w-full mb-6`}>
@@ -39,6 +41,7 @@ export const GameTable: React.FC<GameTableProps> = ({
               const avatarUrl = p.imageUrl || accountLink?.imageUrl;
               const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || undefined;
               const resolvedNameBg = (getPlayerNameBgColor ? (getPlayerNameBgColor(p.id, p) || getPlayerNameBgColor(p.name, p)) : undefined) || p.name_bg_color || accountLink?.name_bg_color;
+              const resolvedNameGlow = (getPlayerNameGlow ? (getPlayerNameGlow(p.id, p) || getPlayerNameGlow(p.name, p)) : undefined) || p.name_glow || accountLink?.name_glow;
 
               return (
                 <th key={p.id} className="text-center p-1 align-top">
@@ -62,7 +65,7 @@ export const GameTable: React.FC<GameTableProps> = ({
                       className="w-8 h-8 border-2 flex-shrink-0 shadow-sm"
                       style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                     />
-                    <VerticalText text={p.name} colorKey={resolvedNameBg} />
+                    <VerticalText text={p.name} colorKey={resolvedNameBg} glowKey={resolvedNameGlow} />
                   </div>
                 </th>
               );

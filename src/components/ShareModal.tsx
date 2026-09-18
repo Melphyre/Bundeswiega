@@ -55,8 +55,17 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   };
 
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(`${shareText}\n${shareUrl}`)}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+
+  const handleInstagramClick = async () => {
+    try {
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Fallback handled silently
+    }
+  };
 
   return (
     <div
@@ -157,15 +166,17 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               <span>WhatsApp</span>
             </a>
 
-            {/* Telegram */}
+            {/* Instagram */}
             <a
-              href={telegramUrl}
+              href="https://www.instagram.com/"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs flex flex-col items-center justify-center space-y-1 shadow-md transition-transform active:scale-95"
+              onClick={handleInstagramClick}
+              className="p-3 rounded-xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 hover:opacity-90 text-white font-bold text-xs flex flex-col items-center justify-center space-y-1 shadow-md transition-transform active:scale-95"
+              title="Auf Instagram teilen (Link wird automatisch kopiert)"
             >
-              <i className="fab fa-telegram-plane text-lg"></i>
-              <span>Telegram</span>
+              <i className="fab fa-instagram text-lg"></i>
+              <span>Instagram</span>
             </a>
 
             {/* X / Twitter */}

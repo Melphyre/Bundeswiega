@@ -6,7 +6,7 @@ import { getUnlockedTitles, PLAYER_TITLES, extractProfileStats } from '../consta
 import PlayerTitleBadge from './PlayerTitleBadge';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { calculateLevelFromXp } from '../utils/levelSystem';
-import { NAME_TAG_COLORS, getNameTagOption } from '../constants/nameTagConfig';
+import { NAME_TAG_COLORS, getNameTagOption, NAME_GLOW_OPTIONS, isColorUnlocked } from '../constants/nameTagConfig';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
 import { QuestList, QuestProgress } from './QuestList';
@@ -351,6 +351,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [nameBgLoading, setNameBgLoading] = useState(false);
   const [nameBgMessage, setNameBgMessage] = useState<string | null>(null);
 
+  const [selectedNameGlow, setSelectedNameGlow] = useState<string>('none');
+  const [nameGlowLoading, setNameGlowLoading] = useState(false);
+  const [nameGlowMessage, setNameGlowMessage] = useState<string | null>(null);
+
   // Join table QR states
   const [showJoinQrModal, setShowJoinQrModal] = useState(false);
   const [joinQrValue, setJoinQrValue] = useState('');
@@ -415,6 +419,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     } else if (supabaseUser?.id) {
       const stored = localStorage.getItem(`bundeswiega_user_name_bg_${supabaseUser.id}`);
       if (stored) setSelectedNameBgColor(stored);
+    }
+
+    const glow = supabaseUser?.user_metadata?.name_glow || (profileStats as any)?.name_glow;
+    if (glow) {
+      setSelectedNameGlow(glow);
+    } else if (supabaseUser?.id) {
+      const stored = localStorage.getItem(`bundeswiega_user_name_glow_${supabaseUser.id}`);
+      if (stored) setSelectedNameGlow(stored);
     }
   }, [supabaseUser, showProfileModal, profileStats]);
 
@@ -527,6 +539,60 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setNameBgMessage(`❌ Fehler: ${e.message || 'Konnte Hintergrund nicht speichern'}`);
     } finally {
       setNameBgLoading(false);
+    }
+  };
+
+  const handleNameGlowChange = async (newGlow: string) => {
+    const userId = supabaseUser?.id;
+    if (!userId) return;
+
+    setSelectedNameGlow(newGlow);
+    setNameGlowLoading(true);
+    setNameGlowMessage(null);
+
+    try {
+      // 1. Supabase Auth Metadaten aktualisieren
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { name_glow: newGlow }
+      });
+      if (authErr) console.warn('auth updateUser name_glow warn:', authErr);
+
+      // 2. Profiles Tabelle aktualisieren
+      try {
+        await supabase
+          .from('profiles')
+          .update({ name_glow: newGlow })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn('profiles.name_glow update warn:', dbErr);
+      }
+
+      // 3. LocalStorage sichern
+      try {
+        localStorage.setItem(`bundeswiega_user_name_glow_${userId}`, newGlow);
+      } catch {
+        // ignore
+      }
+
+      // 4. Backend API aufrufen
+      try {
+        await fetch('/api/users/update-name-glow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, name_glow: newGlow })
+        });
+      } catch {
+        // ignore
+      }
+
+      const opt = NAME_GLOW_OPTIONS.find(o => o.id === newGlow);
+      setNameGlowMessage(`✅ Neon-Glow Rahmen "${opt?.label || newGlow}" erfolgreich gespeichert!`);
+      if (refreshUserData) await refreshUserData();
+    } catch (e: any) {
+      console.error('Fehler beim Aktualisieren des Neon-Glow Rahmens:', e);
+      setNameGlowMessage(`❌ Fehler: ${e.message || 'Konnte Neon-Glow nicht speichern'}`);
+    } finally {
+      setNameGlowLoading(false);
     }
   };
 
@@ -771,6 +837,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   <PlayerNameTag
                     name={supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Mein Profil'}
                     colorKey={selectedNameBgColor}
+                    glowKey={selectedNameGlow}
                     className="px-2.5 py-0.5"
                   />
                   {selectedTitle && <PlayerTitleBadge title={selectedTitle} size="md" />}
@@ -966,6 +1033,37 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   }
 
                   const currentName = profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.email || 'Spieler';
+                  const userUnlockedColors: string[] = (() => {
+                    try {
+                      const s = localStorage.getItem(`bundeswiega_user_unlocked_colors_${effectiveUserId || supabaseUser?.id}`);
+                      return s ? JSON.parse(s) : [];
+                    } catch {
+                      return [];
+                    }
+                  })();
+
+                  const completedQuestIds = questProgresses.filter(qp => qp.is_completed).map(qp => qp.quest_id);
+                  const totalAchievementsCount = (myAchievementsData || []).filter((a: any) => a.unlocked || a.is_unlocked).length;
+                  if (totalAchievementsCount >= 50 && !completedQuestIds.includes('l2_50_achievements')) {
+                    completedQuestIds.push('l2_50_achievements');
+                  }
+                  const standardWinsCount = (myGameData || []).filter((g: any) => {
+                    const norm = matchesGameMode(g.game_mode, 'Standardspiel');
+                    return norm && (g.is_winner || g.rank === 1 || g.won);
+                  }).length;
+                  if (standardWinsCount >= 5 && !completedQuestIds.includes('l2_5_wins_standard')) {
+                    completedQuestIds.push('l2_5_wins_standard');
+                  }
+
+                  const unlockedNameColors = NAME_TAG_COLORS.filter((opt) => {
+                    const check = isColorUnlocked(opt.id, levelInfo.level, {
+                      completedQuestIds,
+                      achievementsCount: totalAchievementsCount,
+                      standardWins: standardWinsCount,
+                      unlockedColors: userUnlockedColors
+                    });
+                    return check.unlocked;
+                  });
 
                   return (
                     <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
@@ -984,57 +1082,106 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                               </span>
                             </div>
                             <p className="text-xs opacity-60">
-                              Personalisiere deinen Namenshintergrund für Spieltabelle & Ranglisten
+                              Personalisiere deinen Namenshintergrund und Leuchtrahmen für Spieltabelle & Ranglisten
                             </p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <label className="block text-xs font-bold opacity-80">
-                          Wähle deinen Namenshintergrund:
-                        </label>
+                      <div className="space-y-4">
+                        {/* Dropdown 1: Namenshintergrund (nur freigespielte Farben) */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-xs font-bold opacity-80 flex items-center space-x-1.5">
+                              <span>🎨 Namenshintergrund auswählen:</span>
+                            </label>
+                            {selectedNameBgColor && selectedNameBgColor !== 'none' && (
+                              <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
+                                Aktiv: {getNameTagOption(selectedNameBgColor).label}
+                              </span>
+                            )}
+                          </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                          {NAME_TAG_COLORS.map((opt) => {
-                            const isSelected = selectedNameBgColor === opt.id || (!selectedNameBgColor && opt.id === 'none');
-                            return (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                disabled={nameBgLoading}
-                                onClick={() => handleNameBgColorChange(opt.id)}
-                                className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center space-y-1.5 cursor-pointer relative ${
-                                  isSelected
-                                    ? 'ring-2 ring-[#238183] border-[#238183] bg-[#238183]/10 shadow-sm'
-                                    : (darkMode ? 'bg-slate-900/50 border-slate-700 hover:border-slate-500' : 'bg-white border-gray-200 hover:border-gray-300')
-                                }`}
-                              >
-                                {isSelected && (
-                                  <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#238183] text-white flex items-center justify-center text-[9px]">
-                                    <i className="fas fa-check"></i>
-                                  </div>
-                                )}
+                          <select
+                            value={selectedNameBgColor || 'none'}
+                            onChange={(e) => handleNameBgColorChange(e.target.value)}
+                            disabled={nameBgLoading}
+                            className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                              darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
+                            }`}
+                          >
+                            {unlockedNameColors.map((opt) => {
+                              const emoji = opt.id === 'none' ? '🚫' : opt.id === 'red' ? '🔴' : opt.id === 'blue' ? '🔵' : opt.id === 'green' ? '🟢' : opt.id === 'yellow' ? '🟡' : opt.id === 'black' ? '⚫' : opt.id === 'white' ? '⚪' : opt.id === 'pink' ? '🌸' : opt.id === 'turquoise' ? '💎' : '🎨';
+                              return (
+                                <option
+                                  key={opt.id}
+                                  value={opt.id}
+                                >
+                                  {emoji} {opt.label}
+                                </option>
+                              );
+                            })}
+                          </select>
 
-                                {opt.id === 'none' ? (
-                                  <div className="w-6 h-6 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[10px] opacity-60">
-                                    ✕
-                                  </div>
-                                ) : (
-                                  <div
-                                    className="w-6 h-6 rounded-full border-2 border-white/60 shadow-sm"
-                                    style={{ backgroundColor: opt.bgHex }}
-                                  />
-                                )}
+                          <div className="flex items-center justify-between text-[11px] opacity-60 px-1 pt-0.5 flex-wrap gap-1">
+                            <span>
+                              Freigeschaltet: <strong className="text-emerald-500">{unlockedNameColors.length}</strong> von {NAME_TAG_COLORS.length} Namensfarben
+                            </span>
+                            <span>Weitere Farben werden durch Levelaufstiege & Quests freigeschaltet</span>
+                          </div>
 
-                                <span className="text-[11px] truncate">{opt.label}</span>
-                              </button>
-                            );
-                          })}
+                          {nameBgMessage && (
+                            <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                              {nameBgMessage}
+                            </p>
+                          )}
                         </div>
 
+                        {/* Dropdown 2: Neon Glow Rahmen (ab Level 4) */}
+                        {levelInfo.level >= 4 && (
+                          <div className="space-y-2 p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/5 animate-in fade-in">
+                            <div className="flex items-center justify-between">
+                              <label className="block text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
+                                <i className="fas fa-sparkles"></i>
+                                <span>✨ Pulsierender Neon-Glow Rahmen:</span>
+                              </label>
+                              <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/40">
+                                Ab Level 4 freigeschaltet
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] opacity-70">
+                              Wähle einen leuchtenden, sanft pulsierenden Rahmen um deinen Namen:
+                            </p>
+
+                            <select
+                              value={selectedNameGlow || 'none'}
+                              onChange={(e) => handleNameGlowChange(e.target.value)}
+                              disabled={nameGlowLoading}
+                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                                darkMode ? 'border-purple-500/40 bg-slate-900 text-white' : 'border-purple-300 bg-white text-black'
+                              }`}
+                            >
+                              {NAME_GLOW_OPTIONS.map((opt) => {
+                                const glowEmoji = opt.id === 'none' ? '🚫' : opt.id === 'blue' ? '🔵' : opt.id === 'red' ? '🔴' : opt.id === 'green' ? '🟢' : '🟡';
+                                return (
+                                  <option key={opt.id} value={opt.id}>
+                                    {glowEmoji} {opt.label}
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {nameGlowMessage && (
+                              <p className={`text-xs font-bold animate-in fade-in ${nameGlowMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {nameGlowMessage}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                         {/* Live-Vorschau */}
-                        <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 ${
+                        <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
                           darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'
                         }`}>
                           <span className="text-[11px] font-bold opacity-60">
@@ -1044,6 +1191,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             <PlayerNameTag
                               name={currentName}
                               colorKey={selectedNameBgColor}
+                              glowKey={selectedNameGlow}
                               className="text-xs px-3 py-1 font-black"
                             />
                             {selectedTitle && (
@@ -1051,13 +1199,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             )}
                           </div>
                         </div>
-
-                        {/* Rückmeldung */}
-                        {nameBgMessage && (
-                          <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {nameBgMessage}
-                          </p>
-                        )}
                       </div>
                     </div>
                   );
@@ -1128,6 +1269,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             {/* TAB 2: MEINE REKORDE & STATS */}
             {profileTab === 'rekorde' && (
               <div className="space-y-6">
+                {/* Info-Banner zu Gast-Spielen & Kontaktformular */}
+                <div
+                  id="my-games-info-banner"
+                  className={`p-4 rounded-2xl border flex items-start sm:items-center space-x-3.5 shadow-xs ${
+                    darkMode
+                      ? 'bg-slate-800/80 border-slate-700/80 text-slate-100'
+                      : 'bg-gradient-to-r from-teal-50 to-white border-teal-200/80 text-teal-950'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center text-xl flex-shrink-0">
+                    🎮
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold leading-relaxed">
+                    Hier siehst du deine bisherigen Ergebnisse. Hast du bereits Spiele als Gast gespeichert und möchtest sie deinem Konto hinzugefügt bekommen, so wende dich über das Kontaktformular im Hauptmenü (ganz unten) an uns.
+                  </p>
+                </div>
+
                 {/* Subtabs Modus-Filter & Schieberegler */}
                 <div id="records-subtabs-container" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
                   <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">

@@ -343,6 +343,7 @@ const App: React.FC = () => {
   const [showAdminTitlesModal, setShowAdminTitlesModal] = useState(false);
   const [roundPlayerXp, setRoundPlayerXp] = useState<Record<string, { xpEarned: number; newLevel: number; newXp: number; levelUp?: boolean; xpBreakdown?: any }>>({});
   const [unlockedTitleToast, setUnlockedTitleToast] = useState<PlayerTitle | null>(null);
+  const [qrSuccessToast, setQrSuccessToast] = useState<string | null>(null);
 
   // Hilfsfunktion: Prüft, ob ein Titel tatsächlich vergeben und aktiv ist
   const isValidTitle = (t?: string | null): boolean => {
@@ -1407,8 +1408,10 @@ const App: React.FC = () => {
   const [recordsData, setRecordsData] = useState<any[][] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
-  const [activeRecordsTab, setActiveRecordsTab] = useState<'Wiegschaften' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Wiegschaften');
+  const [activeRecordsTab, setActiveRecordsTab] = useState<'Wiegschaften' | 'Spiele' | 'Achievements'>('Wiegschaften');
+  const [recordsGamesSubTab, setRecordsGamesSubTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen'>('Standardspiel');
   const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Turnier'>('Alle');
+  const [expandedAchIds, setExpandedAchIds] = useState<Record<string, boolean>>({});
 
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
@@ -1666,59 +1669,231 @@ const App: React.FC = () => {
     setQrError(null);
   };
 
-  const handleQrScan = (decodedText: string, playerId: string) => {
+  const handleQrScan = async (decodedText: string, targetPlayerId?: string | null) => {
     try {
-      const payload = JSON.parse(atob(decodedText));
-
-      if (Date.now() > payload.expires) {
-        setQrError('QR-Code ist abgelaufen. Bitte neu generieren.');
+      const trimmed = (decodedText || '').trim();
+      if (!trimmed) {
+        setQrError('Leerer QR-Code.');
         return;
       }
 
-      if (!payload.userId || !payload.userName) {
-        setQrError('Falscher QR-Code. Bitte einen Bundeswiega QR-Code scannen.');
+      let candidateUserId: string | null = null;
+      let candidateUsername: string | null = null;
+      let candidateEmail: string | null = null;
+
+      // 1. Base64 JSON (z.B. aus Bundeswiega Profil-QR)
+      try {
+        const decoded = atob(trimmed);
+        const parsed = JSON.parse(decoded);
+        if (parsed && typeof parsed === 'object') {
+          candidateUserId = parsed.userId || parsed.user_id || parsed.id || parsed.uid || null;
+          candidateUsername = parsed.userName || parsed.username || parsed.name || parsed.accountName || null;
+          candidateEmail = parsed.email || null;
+        }
+      } catch {
+        // Kein Base64 JSON
+      }
+
+      // 2. Direktes JSON
+      if (!candidateUserId && !candidateUsername) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object') {
+            candidateUserId = parsed.userId || parsed.user_id || parsed.id || parsed.uid || null;
+            candidateUsername = parsed.userName || parsed.username || parsed.name || parsed.accountName || null;
+            candidateEmail = parsed.email || null;
+          }
+        } catch {
+          // Kein JSON
+        }
+      }
+
+      // 3. URL mit Parametern (z.B. ?user=... oder ?userId=...)
+      if (!candidateUserId && !candidateUsername && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+        try {
+          const url = new URL(trimmed);
+          candidateUserId = url.searchParams.get('userId') || url.searchParams.get('user_id') || url.searchParams.get('id') || url.searchParams.get('uid') || null;
+          candidateUsername = url.searchParams.get('username') || url.searchParams.get('user') || url.searchParams.get('name') || null;
+          candidateEmail = url.searchParams.get('email') || null;
+        } catch {
+          // URL-Parsing fehlgeschlagen
+        }
+      }
+
+      // 4. Reiner Text (u-ID im UUID-Format oder Accountname / Benutzername)
+      if (!candidateUserId && !candidateUsername) {
+        const clean = trimmed.replace(/^@/, '');
+        const isUuid = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(clean);
+        if (isUuid) {
+          candidateUserId = clean;
+        } else if (clean.includes('@')) {
+          candidateEmail = clean;
+        } else {
+          candidateUsername = clean;
+        }
+      }
+
+      // 5. Profil in Supabase Datenbank 'profiles' oder clerkUsers abgleichen
+      let matchedProfile: {
+        id: string;
+        username: string;
+        avatar_url?: string | null;
+        title?: string;
+        email?: string;
+      } | null = null;
+
+      // A. Vorab im lokalen Cache (clerkUsers) prüfen
+      if (clerkUsers && clerkUsers.length > 0) {
+        const localMatch = clerkUsers.find(u => {
+          if (candidateUserId && u.id.toLowerCase() === candidateUserId.toLowerCase()) return true;
+          if (candidateUsername && (u.name || (u as any).username || '').toLowerCase() === candidateUsername.toLowerCase()) return true;
+          if (candidateEmail && (u.email || '').toLowerCase() === candidateEmail.toLowerCase()) return true;
+          return false;
+        });
+        if (localMatch) {
+          matchedProfile = {
+            id: localMatch.id,
+            username: localMatch.name || (localMatch as any).username || 'Spieler',
+            avatar_url: localMatch.imageUrl,
+            title: localMatch.title,
+            email: localMatch.email
+          };
+        }
+      }
+
+      // B. Direkt in Supabase Tabelle 'profiles' nachschlagen
+      if (!matchedProfile && isSupabaseConfigured()) {
+        try {
+          if (candidateUserId) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, username, email, avatar_url, title')
+              .eq('id', candidateUserId)
+              .maybeSingle();
+            if (data) matchedProfile = data;
+          }
+
+          if (!matchedProfile && candidateUsername) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, username, email, avatar_url, title')
+              .ilike('username', candidateUsername)
+              .maybeSingle();
+            if (data) matchedProfile = data;
+          }
+
+          if (!matchedProfile && candidateEmail) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, username, email, avatar_url, title')
+              .ilike('email', candidateEmail)
+              .maybeSingle();
+            if (data) matchedProfile = data;
+          }
+
+          if (!matchedProfile && trimmed) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('id, username, email, avatar_url, title')
+              .or(`username.ilike.${trimmed},id.eq.${trimmed}`)
+              .maybeSingle();
+            if (data) matchedProfile = data;
+          }
+        } catch (dbErr) {
+          console.warn('[QR-Scan] Fehler beim Abgleich mit Supabase profiles:', dbErr);
+        }
+      }
+
+      if (!matchedProfile) {
+        setQrError(`Kein Profil in der Datenbank gefunden für "${candidateUsername || candidateUserId || trimmed}".`);
         return;
       }
 
+      // 6. Zu besetzenden Spieler ermitteln
+      let effectivePlayerId = targetPlayerId || scanningForPlayerId;
+      if (!effectivePlayerId) {
+        const emptySlot = players.find(p => !p.name.trim() && !playerAccountLinks[p.id]);
+        if (emptySlot) effectivePlayerId = emptySlot.id;
+        else if (players.length > 0) effectivePlayerId = players[0].id;
+      }
+
+      if (!effectivePlayerId) {
+        setQrError('Kein freier Spieler-Platz für die Eintragung gefunden.');
+        return;
+      }
+
+      // 7. Prüfen, ob dieser Account bereits einem anderen Spieler im Spiel zugewiesen ist
       const usedUserIds = [
         ...(Object.values(playerAccountLinks) as Array<{ userId: string }>).map(l => l.userId),
         ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string }>).map(l => l.userId)
       ];
-      if (usedUserIds.includes(payload.userId)) {
-        setQrError(`${payload.userName} ist bereits einem anderen Spieler zugewiesen.`);
+      const currentlyAssignedUserId = playerAccountLinks[effectivePlayerId]?.userId || teamMemberAccountLinks[effectivePlayerId]?.userId;
+
+      if (usedUserIds.includes(matchedProfile.id) && currentlyAssignedUserId !== matchedProfile.id) {
+        setQrError(`Account "${matchedProfile.username}" ist diesem Spiel bereits zugewiesen.`);
         return;
       }
 
-      const isStandardPlayer = players.some(p => p.id === playerId);
+      const pName = matchedProfile.username || 'Spieler';
+      const pUid = matchedProfile.id;
+      const pAvatar = matchedProfile.avatar_url || undefined;
+
+      // 8. Automatisch als Spieler für dieses Spiel eintragen
+      const isStandardPlayer = players.some(p => p.id === effectivePlayerId);
       if (isStandardPlayer) {
         setPlayers(prev => prev.map(p =>
-          p.id === playerId ? { ...p, name: payload.userName, userId: payload.userId } : p
+          p.id === effectivePlayerId ? { ...p, name: pName, userId: pUid } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
-          [playerId]: {
-            userId: payload.userId,
-            userName: payload.userName,
-            imageUrl: payload.imageUrl || undefined
+          [effectivePlayerId]: {
+            userId: pUid,
+            userName: pName,
+            imageUrl: pAvatar
           }
         }));
       } else {
-        setTeamMemberAccountLinks(prev => ({
-          ...prev,
-          [playerId]: {
-            userId: payload.userId,
-            userName: payload.userName,
-            imageUrl: payload.imageUrl || undefined
-          }
-        }));
         setTeams(prevTeams => prevTeams.map(t => ({
           ...t,
-          members: t.members.map(m => m.id === playerId ? { ...m, name: payload.userName } : m)
+          members: t.members.map(m => m.id === effectivePlayerId ? { ...m, name: pName } : m)
         })));
+        setTeamMemberAccountLinks(prev => ({
+          ...prev,
+          [effectivePlayerId]: {
+            userId: pUid,
+            userName: pName,
+            imageUrl: pAvatar
+          }
+        }));
       }
-      setQrError(null);
-    } catch {
-      setQrError('Falscher QR-Code. Bitte einen gültigen Bundeswiega QR-Code scannen.');
+
+      // In clerkUsers hinterlegen, falls noch nicht vorhanden
+      setClerkUsers(prev => {
+        if (prev.some(u => u.id === pUid)) return prev;
+        return [...prev, {
+          id: pUid,
+          name: pName,
+          email: matchedProfile.email || '',
+          imageUrl: pAvatar || '',
+          title: matchedProfile.title || ''
+        }];
+      });
+
+      // 9. AUTOMATISCH: Kamera & Scanner sofort schließen – kein weiterer Klick nötig!
+      stopQrScanner();
+      try {
+        playGlobalClickSound();
+      } catch {}
+
+      // Erfolgs-Toast anzeigen
+      setQrSuccessToast(`✨ ${pName} automatisch via QR-Code eingetragen!`);
+      setTimeout(() => {
+        setQrSuccessToast(null);
+      }, 4000);
+
+    } catch (err: any) {
+      console.error('[handleQrScan error]:', err);
+      setQrError('Fehler beim Verarbeiten des QR-Codes.');
     }
   };
 
@@ -6028,15 +6203,13 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div>
-                {/* Mode Tabs & Flaschengrößen-Schieberegler */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-gray-500/10 pb-4">
+                {/* Haupt-Tabs: Wiegschaft | Spiele | Achievements */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-gray-500/10 pb-4">
                   <div className="flex space-x-2 overflow-x-auto pb-1 sm:pb-0">
                     {([
-                      { id: 'Wiegschaften', label: 'Wiegschaft' },
-                      { id: 'Standardspiel', label: 'Standard' },
-                      { id: 'Speedwiegen', label: 'Speedwiegen' },
-                      { id: 'Teamwiegen', label: 'Teamwiegen' },
-                      { id: 'Achievements', label: 'Achievements' },
+                      { id: 'Wiegschaften', label: 'Wiegschaft', icon: 'fas fa-shield-alt' },
+                      { id: 'Spiele', label: 'Spiele', icon: 'fas fa-gamepad' },
+                      { id: 'Achievements', label: 'Achievements', icon: 'fas fa-trophy' },
                     ] as const).map(tab => (
                       <button
                         key={tab.id}
@@ -6045,89 +6218,123 @@ const App: React.FC = () => {
                           playGlobalClickSound();
                           setActiveRecordsTab(tab.id);
                         }}
-                        className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                        className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-2 ${
                           activeRecordsTab === tab.id 
                             ? 'text-white shadow-md' 
-                            : 'opacity-50 hover:opacity-100'
+                            : 'opacity-50 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
                         }`}
                         style={{ backgroundColor: activeRecordsTab === tab.id ? BRAND_COLOR : 'transparent' }}
                       >
-                        {tab.label}
+                        <i className={`${tab.icon} text-xs`}></i>
+                        <span>{tab.label}</span>
                       </button>
                     ))}
                   </div>
-
-                  {/* Schieberegler an der rechten oberen Ecke wenn Standard oder Speedwiegen aktiv */}
-                  {(activeRecordsTab === 'Standardspiel' || activeRecordsTab === 'Speedwiegen') && (
-                    <div
-                      id="records-volume-toggle-container"
-                      className="flex items-center self-end sm:self-auto gap-2 bg-black/5 dark:bg-white/5 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs"
-                    >
-                      <button
-                        type="button"
-                        id="records-volume-btn-500ml"
-                        onClick={() => {
-                          playGlobalClickSound();
-                          if (activeRecordsTab === 'Standardspiel') setStandardspielSizeTab('500ml');
-                          else setSpeedwiegenSizeTab('500ml');
-                        }}
-                        className={`text-xs font-bold transition-all cursor-pointer ${
-                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '500ml'
-                            ? 'text-[#238183] font-black'
-                            : 'opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        500ml
-                      </button>
-
-                      {/* Schieberegler Switch: Inaktiv (links) = 500ml, Aktiv (rechts) = 0,33L */}
-                      <button
-                        type="button"
-                        id="records-volume-switch"
-                        role="switch"
-                        aria-checked={(activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'}
-                        aria-label="Flaschengröße umschalten zwischen 500ml und 0,33L"
-                        onClick={() => {
-                          playGlobalClickSound();
-                          if (activeRecordsTab === 'Standardspiel') {
-                            setStandardspielSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
-                          } else {
-                            setSpeedwiegenSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
-                          }
-                        }}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
-                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
-                            ? 'bg-[#238183]'
-                            : (darkMode ? 'bg-slate-700' : 'bg-gray-300')
-                        }`}
-                        title={(activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'Aktiv: 0,33L (Klicken für 500ml)' : 'Inaktiv: 500ml (Klicken für 0,33L)'}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
-                            (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-
-                      <button
-                        type="button"
-                        id="records-volume-btn-033l"
-                        onClick={() => {
-                          playGlobalClickSound();
-                          if (activeRecordsTab === 'Standardspiel') setStandardspielSizeTab('0,33L');
-                          else setSpeedwiegenSizeTab('0,33L');
-                        }}
-                        className={`text-xs font-bold transition-all cursor-pointer ${
-                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
-                            ? 'text-[#238183] font-black'
-                            : 'opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        0,33L
-                      </button>
-                    </div>
-                  )}
                 </div>
+
+                {/* Unter-Reiter für Spiele (Standard, Speedwiegen, Teamwiegen) & Flaschengrößen-Schieberegler */}
+                {activeRecordsTab === 'Spiele' && (
+                  <div
+                    id="records-games-subtabs-container"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 p-2 rounded-2xl bg-black/5 dark:bg-white/5 border border-gray-500/10"
+                  >
+                    <div className="flex space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
+                      {([
+                        { id: 'Standardspiel', label: 'Standard', icon: 'fas fa-balance-scale' },
+                        { id: 'Speedwiegen', label: 'Speedwiegen', icon: 'fas fa-stopwatch' },
+                        { id: 'Teamwiegen', label: 'Teamwiegen', icon: 'fas fa-users' },
+                      ] as const).map(sub => (
+                        <button
+                          key={sub.id}
+                          id={`records-game-subtab-${sub.id.toLowerCase()}`}
+                          onClick={() => {
+                            playGlobalClickSound();
+                            setRecordsGamesSubTab(sub.id);
+                          }}
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                            recordsGamesSubTab === sub.id
+                              ? 'bg-[#238183] text-white shadow-sm'
+                              : 'opacity-65 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <i className={`${sub.icon} text-[11px]`}></i>
+                          <span>{sub.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Schieberegler an der rechten Seite wenn Standard oder Speedwiegen aktiv */}
+                    {(recordsGamesSubTab === 'Standardspiel' || recordsGamesSubTab === 'Speedwiegen') && (
+                      <div
+                        id="records-volume-toggle-container"
+                        className="flex items-center self-end sm:self-auto gap-2 bg-white/70 dark:bg-slate-800/80 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs"
+                      >
+                        <button
+                          type="button"
+                          id="records-volume-btn-500ml"
+                          onClick={() => {
+                            playGlobalClickSound();
+                            if (recordsGamesSubTab === 'Standardspiel') setStandardspielSizeTab('500ml');
+                            else setSpeedwiegenSizeTab('500ml');
+                          }}
+                          className={`text-xs font-bold transition-all cursor-pointer ${
+                            (recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '500ml'
+                              ? 'text-[#238183] font-black'
+                              : 'opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          500ml
+                        </button>
+
+                        {/* Schieberegler Switch: Inaktiv (links) = 500ml, Aktiv (rechts) = 0,33L */}
+                        <button
+                          type="button"
+                          id="records-volume-switch"
+                          role="switch"
+                          aria-checked={(recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'}
+                          aria-label="Flaschengröße umschalten zwischen 500ml und 0,33L"
+                          onClick={() => {
+                            playGlobalClickSound();
+                            if (recordsGamesSubTab === 'Standardspiel') {
+                              setStandardspielSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
+                            } else {
+                              setSpeedwiegenSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
+                            }
+                          }}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
+                            (recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
+                              ? 'bg-[#238183]'
+                              : (darkMode ? 'bg-slate-700' : 'bg-gray-300')
+                          }`}
+                          title={(recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'Aktiv: 0,33L (Klicken für 500ml)' : 'Inaktiv: 500ml (Klicken für 0,33L)'}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                              (recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          id="records-volume-btn-033l"
+                          onClick={() => {
+                            playGlobalClickSound();
+                            if (recordsGamesSubTab === 'Standardspiel') setStandardspielSizeTab('0,33L');
+                            else setSpeedwiegenSizeTab('0,33L');
+                          }}
+                          className={`text-xs font-bold transition-all cursor-pointer ${
+                            (recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
+                              ? 'text-[#238183] font-black'
+                              : 'opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          0,33L
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Main Records viewport */}
                 {(() => {
@@ -6302,8 +6509,13 @@ const App: React.FC = () => {
                       }
                     });
 
-                    // Sort unlocked groups by number of awards descending
-                    const sortedUnlockedGroups = [...unlockedGroups].sort((a, b) => b.awards.length - a.awards.length);
+                    // Sort unlocked groups by number of awards descending (am öftesten freigeschaltet zuerst)
+                    const sortedUnlockedGroups = [...unlockedGroups].sort((a, b) => {
+                      if (b.awards.length !== a.awards.length) {
+                        return b.awards.length - a.awards.length;
+                      }
+                      return a.title.localeCompare(b.title);
+                    });
 
                     return (
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
@@ -6368,6 +6580,7 @@ const App: React.FC = () => {
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {sortedUnlockedGroups.map(ach => {
+                              const isExpanded = !!expandedAchIds[ach.id];
                               const rarityBadge = {
                                 common: "bg-gray-500/20 text-gray-400 border-gray-500/30",
                                 rare: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -6375,130 +6588,168 @@ const App: React.FC = () => {
                                 legendary: "bg-amber-500/20 text-amber-400 border-amber-500/30"
                               }[ach.rarity] || "bg-gray-500/20 text-gray-400 border-gray-500/30";
 
+                              // Calculate Top 10 players/teams for this achievement
+                              const isTeamAch = ach.id.startsWith('team_') || (ach.awards.length > 0 && ach.awards[0].players.some(p => p.startsWith('Team ')));
+                              const isTogetherAch = !isTeamAch && (ach.earnedTogether || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id) || (ach.awards.length > 0 && ach.awards[0].earnedTogether));
+
+                              const playerRankingMap: Record<string, {
+                                name: string;
+                                players: string[];
+                                count: number;
+                                dates: string[];
+                                isTeam: boolean;
+                              }> = {};
+
+                              if (isTeamAch) {
+                                ach.awards.forEach(aw => {
+                                  const sorted = [...aw.players].sort();
+                                  const key = sorted.join(' & ');
+                                  if (!playerRankingMap[key]) {
+                                    playerRankingMap[key] = { name: key, players: sorted, count: 0, dates: [], isTeam: true };
+                                  }
+                                  playerRankingMap[key].count++;
+                                  playerRankingMap[key].dates.push(aw.date);
+                                });
+                              } else {
+                                ach.awards.forEach(aw => {
+                                  aw.players.forEach(pName => {
+                                    if (!pName) return;
+                                    if (!playerRankingMap[pName]) {
+                                      playerRankingMap[pName] = { name: pName, players: [pName], count: 0, dates: [], isTeam: false };
+                                    }
+                                    playerRankingMap[pName].count++;
+                                    playerRankingMap[pName].dates.push(aw.date);
+                                  });
+                                });
+                              }
+
+                              const top10Ranking = Object.values(playerRankingMap)
+                                .sort((a, b) => b.count - a.count)
+                                .slice(0, 10);
+
                               return (
                                 <div 
                                   key={ach.id} 
-                                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
-                                    darkMode ? 'bg-slate-900/70 border-slate-700' : 'bg-gray-50 border-gray-200'
+                                  id={`ach-card-${ach.id}`}
+                                  onClick={() => {
+                                    playGlobalClickSound();
+                                    setExpandedAchIds(prev => ({ ...prev, [ach.id]: !prev[ach.id] }));
+                                  }}
+                                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all cursor-pointer select-none group ${
+                                    isExpanded
+                                      ? darkMode
+                                        ? 'bg-slate-900/90 border-[#238183]/60 shadow-lg ring-1 ring-[#238183]/30'
+                                        : 'bg-white border-[#238183]/50 shadow-md ring-1 ring-[#238183]/20'
+                                      : darkMode
+                                      ? 'bg-slate-900/70 border-slate-700/80 hover:border-slate-600 hover:bg-slate-900/90'
+                                      : 'bg-gray-50/90 border-gray-200 hover:border-gray-300 hover:bg-white'
                                   }`}
                                 >
                                   <div>
+                                    {/* Header Info */}
                                     <div className="flex items-start space-x-3">
-                                      <div className="text-3xl p-3 rounded-xl bg-black/10 flex items-center justify-center min-w-[50px]">
+                                      <div className="text-3xl p-3 rounded-2xl bg-black/10 dark:bg-white/10 flex items-center justify-center min-w-[52px] h-[52px] shrink-0 group-hover:scale-105 transition-transform">
                                         {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
                                       </div>
-                                      <div className="flex-1">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <h4 className="font-black text-sm">{ach.title}</h4>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                          <h4 className="font-black text-sm group-hover:text-[#238183] dark:group-hover:text-teal-400 transition-colors">
+                                            {ach.title}
+                                          </h4>
                                           <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${rarityBadge}`}>
                                             {ach.rarity}
                                           </span>
                                         </div>
-                                        <p className="text-xs opacity-70 mt-1">{ach.description}</p>
+                                        <p className="text-xs opacity-70 mt-1 leading-relaxed">{ach.description}</p>
                                       </div>
                                     </div>
 
-                                    {/* List of Awards */}
-                                    <div className="mt-3 pt-3 border-t border-gray-500/10 space-y-2">
-                                      <div className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Erhalten von:</div>
-                                      {(() => {
-                                        const isTeamAch = ach.id.startsWith('team_') || (ach.awards.length > 0 && ach.awards[0].players.some(p => p.startsWith('Team ')));
-                                        const isTogetherAch = !isTeamAch && (ach.earnedTogether || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id) || (ach.awards.length > 0 && ach.awards[0].earnedTogether));
+                                    {/* Freigeschaltet Häufigkeit - prominent sofort ersichtlich */}
+                                    <div className="mt-3.5 flex items-center justify-between gap-2 pt-2.5 border-t border-gray-500/10">
+                                      <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-black text-xs shadow-xs">
+                                        <i className="fas fa-trophy text-[11px]"></i>
+                                        <span>{ach.awards.length}× freigeschaltet</span>
+                                      </div>
 
-                                        if (isTeamAch) {
-                                          const teamGroups: Record<string, { count: number; dates: string[]; players: string[] }> = {};
-                                          ach.awards.forEach(aw => {
-                                            const sortedPlayers = [...aw.players].sort();
-                                            const key = sortedPlayers.join('|');
-                                            if (!teamGroups[key]) teamGroups[key] = { count: 0, dates: [], players: sortedPlayers };
-                                            teamGroups[key].count++;
-                                            teamGroups[key].dates.push(aw.date);
-                                          });
-
-                                          return Object.entries(teamGroups).map(([key, group], gIdx) => (
-                                            <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
-                                              <div className="flex items-center justify-between text-xs font-bold">
-                                                <div className="flex items-center space-x-1.5 flex-wrap">
-                                                  <span className="text-xs">🏆</span>
-                                                  {group.players.map((pName, pIdx) => (
-                                                    <React.Fragment key={pIdx}>
-                                                      {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
-                                                      <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
-                                                    </React.Fragment>
-                                                  ))}
-                                                </div>
-                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/30">
-                                                  ×{group.count}
-                                                </span>
-                                              </div>
-                                              <div className="pl-5">
-                                                <ExpandableDates dates={group.dates} />
-                                              </div>
-                                            </div>
-                                          ));
-                                        }
-
-                                        if (isTogetherAch) {
-                                          const togetherGroups: Record<string, { count: number; dates: string[]; players: string[] }> = {};
-                                          ach.awards.forEach(aw => {
-                                            const sortedPlayers = [...aw.players].sort();
-                                            const key = sortedPlayers.join('|');
-                                            if (!togetherGroups[key]) togetherGroups[key] = { count: 0, dates: [], players: sortedPlayers };
-                                            togetherGroups[key].count++;
-                                            togetherGroups[key].dates.push(aw.date);
-                                          });
-
-                                          return Object.entries(togetherGroups).map(([key, group], gIdx) => (
-                                            <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
-                                              <div className="flex items-center justify-between text-xs font-bold">
-                                                <div className="flex items-center space-x-1.5 flex-wrap">
-                                                  <span className="text-xs">👥</span>
-                                                  {group.players.map((pName, pIdx) => (
-                                                    <React.Fragment key={pIdx}>
-                                                      {pIdx > 0 && <span className="opacity-50 text-[10px] mx-0.5">&amp;</span>}
-                                                      <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
-                                                    </React.Fragment>
-                                                  ))}
-                                                </div>
-                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                                                  ×{group.count}
-                                                </span>
-                                              </div>
-                                              <div className="pl-5">
-                                                <ExpandableDates dates={group.dates} />
-                                              </div>
-                                            </div>
-                                          ));
-                                        }
-
-                                        // Für Solo-Achievements: gruppieren nach Spielername
-                                        const playerGroups: Record<string, { count: number; dates: string[] }> = {};
-                                        ach.awards.forEach(aw => {
-                                          aw.players.forEach(pName => {
-                                            if (!playerGroups[pName]) playerGroups[pName] = { count: 0, dates: [] };
-                                            playerGroups[pName].count++;
-                                            playerGroups[pName].dates.push(aw.date);
-                                          });
-                                        });
-
-                                        return Object.entries(playerGroups).map(([pName, group], gIdx) => (
-                                          <div key={gIdx} className="bg-black/5 dark:bg-white/5 px-3 py-2 rounded-xl flex flex-col space-y-1 border border-black/5 dark:border-white/5">
-                                            <div className="flex items-center justify-between text-xs font-bold">
-                                              <div className="flex items-center space-x-1.5">
-                                                <span className="text-xs">👤</span>
-                                                <span style={{ color: getPlayerColor(pName, players) }}>{pName}</span>
-                                              </div>
-                                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand/20 text-brand border border-brand/30">
-                                                ×{group.count}
-                                              </span>
-                                            </div>
-                                            <div className="pl-5">
-                                              <ExpandableDates dates={group.dates} />
-                                            </div>
-                                          </div>
-                                        ));
-                                      })()}
+                                      <div className="flex items-center space-x-1.5 text-xs font-bold text-[#238183] dark:text-teal-400">
+                                        <span>{isExpanded ? 'Ranking einklappen' : 'Top 10 Rangliste'}</span>
+                                        <i className={`fas fa-chevron-down text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}></i>
+                                      </div>
                                     </div>
+
+                                    {/* Aufklappbares Top 10 Ranking */}
+                                    {isExpanded && (
+                                      <div 
+                                        className="mt-3.5 pt-3 border-t border-gray-500/10 space-y-2 cursor-default"
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        <div className="flex items-center justify-between text-[10px] uppercase font-black tracking-wider opacity-60 pb-1">
+                                          <span className="flex items-center space-x-1.5">
+                                            <i className="fas fa-crown text-amber-400 text-xs"></i>
+                                            <span>Top 10 Spieler-Ranking</span>
+                                          </span>
+                                          <span>Häufigkeit</span>
+                                        </div>
+
+                                        {top10Ranking.length === 0 ? (
+                                          <div className="text-center py-4 opacity-50 text-xs">
+                                            Keine Spieler-Einträge gefunden.
+                                          </div>
+                                        ) : (
+                                          <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                                            {top10Ranking.map((entry, rIdx) => {
+                                              const medal = rIdx === 0 ? '🥇' : rIdx === 1 ? '🥈' : rIdx === 2 ? '🥉' : null;
+
+                                              return (
+                                                <div 
+                                                  key={rIdx} 
+                                                  className={`px-3 py-2 rounded-xl flex flex-col space-y-1 border transition-colors ${
+                                                    rIdx === 0
+                                                      ? darkMode
+                                                        ? 'bg-amber-500/10 border-amber-500/30'
+                                                        : 'bg-amber-50/80 border-amber-300/60'
+                                                      : darkMode
+                                                      ? 'bg-black/20 border-white/5'
+                                                      : 'bg-black/5 border-black/5'
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center justify-between text-xs font-bold">
+                                                    <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
+                                                      <span className="w-5 text-center font-black text-xs shrink-0">
+                                                        {medal || `#${rIdx + 1}`}
+                                                      </span>
+                                                      <div className="truncate flex items-center space-x-1.5 min-w-0">
+                                                        <span className="text-xs shrink-0">
+                                                          {entry.isTeam ? '🏆' : '👤'}
+                                                        </span>
+                                                        <span 
+                                                          className="truncate font-black"
+                                                          style={{
+                                                            color: !entry.isTeam && entry.players.length === 1
+                                                              ? getPlayerColor(entry.players[0], players)
+                                                              : undefined
+                                                          }}
+                                                        >
+                                                          {entry.name}
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                    <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#238183]/15 text-[#238183] dark:text-teal-400 border border-[#238183]/30 whitespace-nowrap shrink-0">
+                                                      {entry.count}×
+                                                    </span>
+                                                  </div>
+                                                  {entry.dates && entry.dates.length > 0 && (
+                                                    <div className="pl-7">
+                                                      <ExpandableDates dates={entry.dates} />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -6509,19 +6760,21 @@ const App: React.FC = () => {
                     );
                   }
 
+                  const effectiveGameTab = activeRecordsTab === 'Spiele' ? recordsGamesSubTab : (activeRecordsTab as 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen');
+
                   let filtered: any[] = [];
-                  if (activeRecordsTab === 'Standardspiel') {
+                  if (effectiveGameTab === 'Standardspiel') {
                     const target = standardspielSizeTab === '500ml' ? 'Standardspiel (500ml)' : 'Standardspiel (0,33L)';
                     filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, target));
-                  } else if (activeRecordsTab === 'Speedwiegen') {
+                  } else if (effectiveGameTab === 'Speedwiegen') {
                     const target = speedwiegenSizeTab === '500ml' ? 'Speedwiegen (500ml)' : 'Speedwiegen (0,33L)';
                     filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, target));
                   } else {
-                    filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, activeRecordsTab));
+                    filtered = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, effectiveGameTab));
                   }
 
                   if (filtered.length === 0) {
-                    if (activeRecordsTab === 'Speedwiegen') {
+                    if (effectiveGameTab === 'Speedwiegen') {
                       return (
                         <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
                           <div className="text-center py-16 opacity-55">
@@ -6531,18 +6784,18 @@ const App: React.FC = () => {
                           </div>
                         </div>
                       );
-                    } else if (activeRecordsTab !== 'Standardspiel') {
+                    } else if (effectiveGameTab !== 'Standardspiel') {
                       return (
                         <div className="text-center py-16 opacity-55">
                           <i className="fas fa-info-circle text-4xl mb-4"></i>
-                          <p className="font-bold text-sm">Keine Einträge für {activeRecordsTab} gefunden.</p>
+                          <p className="font-bold text-sm">Keine Einträge für {effectiveGameTab} gefunden.</p>
                         </div>
                       );
                     }
                   }
 
                   // 1. Leaderboard of Best Averages (Lowest first) or Best overall achievements
-                  if (activeRecordsTab === 'Standardspiel') {
+                  if (effectiveGameTab === 'Standardspiel') {
                     // Compute player stats map
                     const playerStatsMap: Record<string, {
                       name: string;
@@ -7238,7 +7491,7 @@ const App: React.FC = () => {
 
                   // 2. Leaderboard of highest single-game points (schnaepse) (lowest time is better for Speedwiegen)
                   const pointsLeaderboard = [...filtered]
-                    .sort((a, b) => activeRecordsTab === 'Speedwiegen' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse)
+                    .sort((a, b) => effectiveGameTab === 'Speedwiegen' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse)
                     .slice(0, 10); // top 10
 
                   const speedmeisterList = [...filtered]
@@ -7246,7 +7499,7 @@ const App: React.FC = () => {
 
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
-                      {activeRecordsTab === 'Speedwiegen' ? (
+                      {effectiveGameTab === 'Speedwiegen' ? (
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                           <h4 className="text-sm font-black uppercase mb-1 tracking-wider text-yellow-500 flex items-center">
                             <i className="fas fa-trophy mr-2 text-amber-400"></i>Speedmeister-Rangliste
@@ -7311,7 +7564,7 @@ const App: React.FC = () => {
                                   <div className="text-right">
                                     <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
                                     <span className="block text-[8px] opacity-40">
-                                      {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                      {p.date}{effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
                                     </span>
                                     {p.tournament_name && (
                                       <span className="inline-block mt-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -7327,11 +7580,11 @@ const App: React.FC = () => {
                           {/* Points (Schnäpse) / Time Section */}
                           <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                             <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                              <i className={activeRecordsTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
-                              {activeRecordsTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
+                              <i className={effectiveGameTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
+                              {effectiveGameTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
                             </h4>
                             <p className="text-[10px] opacity-50 mb-3 uppercase font-bold font-bold">
-                              {activeRecordsTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
+                              {effectiveGameTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
                             </p>
                             <div className="space-y-2">
                               {pointsLeaderboard.map((p, idx) => (
@@ -7349,10 +7602,10 @@ const App: React.FC = () => {
                                   </div>
                                   <div className="text-right">
                                     <span className="font-black text-sm text-indigo-400">
-                                      {activeRecordsTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
+                                      {effectiveGameTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
                                     </span>
                                     <span className="block text-[8px] opacity-40">
-                                      {p.date}{activeRecordsTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
+                                      {p.date}{effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
                                     </span>
                                     {p.tournament_name && (
                                       <span className="inline-block mt-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -7371,7 +7624,7 @@ const App: React.FC = () => {
                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                         <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
                           <i className="fas fa-history mr-2 opacity-50"></i>
-                          {activeRecordsTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
+                          {effectiveGameTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
                         </h4>
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
@@ -7380,14 +7633,14 @@ const App: React.FC = () => {
                                 <th className="pb-2">Datum</th>
                                 <th className="pb-2">Spieler/Team</th>
                                 <th className="pb-2">Ø-Abstand</th>
-                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
-                                <th className="pb-2 text-right">{activeRecordsTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
-                                {activeRecordsTab === 'Speedwiegen' && <th className="pb-2 text-right">Score</th>}
+                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
+                                <th className="pb-2 text-right">{effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
+                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2 text-right">Score</th>}
                               </tr>
                             </thead>
                             <tbody>
                               {(() => {
-                                const displayList = activeRecordsTab === 'Speedwiegen'
+                                const displayList = effectiveGameTab === 'Speedwiegen'
                                   ? [...filtered].sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse))
                                   : filtered;
                                 return displayList.slice(0, 50).map((item, idx) => (
@@ -7403,7 +7656,7 @@ const App: React.FC = () => {
                                       )}
                                     </td>
                                     <td className="py-2 font-black">
-                                      {activeRecordsTab === 'Standardspiel' ? (
+                                      {effectiveGameTab === 'Standardspiel' ? (
                                         <button 
                                           onClick={() => setSelectedPlayerForDetails(item.playerName)}
                                           className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
@@ -7428,15 +7681,15 @@ const App: React.FC = () => {
                                       )}
                                     </td>
                                     <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(2)}g</td>
-                                    {activeRecordsTab === 'Speedwiegen' && (
+                                    {effectiveGameTab === 'Speedwiegen' && (
                                       <td className="py-2 text-indigo-400 font-bold">
                                         {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
                                       </td>
                                     )}
                                     <td className="py-2 text-right font-black text-indigo-400">
-                                      {activeRecordsTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
+                                      {effectiveGameTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
                                     </td>
-                                    {activeRecordsTab === 'Speedwiegen' && (
+                                    {effectiveGameTab === 'Speedwiegen' && (
                                       <td className="py-2 text-right font-black text-purple-400">
                                         {(item.avg + item.schnaepse).toFixed(1)}
                                       </td>
@@ -9572,6 +9825,25 @@ const App: React.FC = () => {
         onClose={() => setShowShareModal(false)}
         darkMode={darkMode}
       />
+
+      {/* 📷 QR-CODE KAMERA SCANNER FÜR SPIELER-REGISTRIERUNG */}
+      <QRScannerModal
+        isOpen={showQrScanner}
+        onClose={stopQrScanner}
+        onScanSuccess={(decoded) => handleQrScan(decoded, scanningForPlayerId)}
+        title="Spieler QR-Code scannen"
+        description="Halte den QR-Code (Accountname oder Spieler u-ID) in den Kamera-Rahmen. Der Spieler wird bei Erkennung sofort automatisch eingetragen."
+        darkMode={darkMode}
+        externalErrorMessage={qrError}
+      />
+
+      {/* ✨ QR SCAN ERFOLGS-TOAST */}
+      {qrSuccessToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] px-6 py-3.5 rounded-2xl bg-[#238183] text-white font-black text-sm shadow-2xl flex items-center space-x-2 border-2 border-white/40 animate-in slide-in-from-top-4 duration-300 pointer-events-none">
+          <i className="fas fa-check-circle text-lg text-emerald-300"></i>
+          <span>{qrSuccessToast}</span>
+        </div>
+      )}
 
     </div>
   );

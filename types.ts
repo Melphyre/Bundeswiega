@@ -8,6 +8,7 @@ export interface Player {
   userId?: string;
   title?: string;
   name_bg_color?: string | null;
+  name_glow?: string | null;
   imageUrl?: string | null;
 }
 

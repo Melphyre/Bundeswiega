@@ -22,7 +22,9 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
   if (!isOpen) return null;
 
   const reward = getRewardForLevel(newLevel);
-  const titleToDisplay = unlockedTitle || reward?.unlockedTitle || getTitleForLevel(newLevel);
+  const titlesToDisplay = reward?.unlockedTitles && reward.unlockedTitles.length > 0
+    ? reward.unlockedTitles
+    : [unlockedTitle || reward?.unlockedTitle || getTitleForLevel(newLevel)].filter(Boolean) as string[];
 
   return (
     <div
@@ -62,9 +64,9 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
         <div className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
           <div className="flex items-center gap-2 flex-wrap justify-center">
             <PlayerLevelBadge level={newLevel} size="lg" />
-            {titleToDisplay && (
-              <PlayerTitleBadge title={titleToDisplay} size="md" />
-            )}
+            {titlesToDisplay.map((t, idx) => (
+              <PlayerTitleBadge key={idx} title={t} size="md" />
+            ))}
           </div>
           <p className="text-xs font-bold text-amber-500 mt-1">
             Du hast Stufe {newLevel} erreicht!
@@ -79,25 +81,59 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
           </div>
 
           <div className="space-y-2 text-xs">
-            {reward?.unlockedTitle ? (
+            {titlesToDisplay.length > 0 ? (
               <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                <span className="text-base">{reward.icon}</span>
+                <span className="text-base">{reward?.icon || '🏷️'}</span>
                 <div>
                   <strong className="block font-black text-amber-600 dark:text-amber-400">
-                    Neuer Titel freigeschaltet: "{reward.unlockedTitle}"
+                    {titlesToDisplay.length > 1
+                      ? `Neue Titel freigeschaltet: ${titlesToDisplay.map(t => `"${t}"`).join(' & ')}`
+                      : `Neuer Titel freigeschaltet: "${titlesToDisplay[0]}"`}
                   </strong>
                   <span className="opacity-70 text-[11px] leading-tight block">
-                    {reward.description}
+                    {reward?.description || 'Du kannst deinen neuen Titel ab sofort in deinem Profil auswählen!'}
                   </span>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                <span className="text-base">⭐</span>
+            ) : null}
+
+            {newLevel === 2 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                <span className="text-base">🎨</span>
                 <div>
-                  <strong className="block font-bold">Rang & Ansehen erhöht</strong>
-                  <span className="opacity-60 text-[11px] leading-tight block">
-                    Dein neues Level ist nun überall in Ranglisten und Freundeslisten sichtbar!
+                  <strong className="block font-black text-blue-600 dark:text-blue-400">
+                    Namenshintergründe & Level 2 Quests freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Wähle deinen Namenshintergrund (Rot, Blau, Grün, Gelb) und meistere die neuen Quests für Rosa & Türkis!
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {newLevel === 3 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                <span className="text-base">🎨</span>
+                <div>
+                  <strong className="block font-black text-indigo-600 dark:text-indigo-400">
+                    Farben Schwarz & Weiß freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Du kannst deinen Spielernamen nun auch mit edlem Schwarz oder Weiß hervorheben.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {newLevel === 4 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                <span className="text-base">✨</span>
+                <div>
+                  <strong className="block font-black text-purple-600 dark:text-purple-400">
+                    Pulsierender Neon-Glow Rahmen freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Wähle in deinem Profil einen leuchtenden Neon-Glow Rahmen (Blau, Rot, Grün, Gelb).
                   </span>
                 </div>
               </div>

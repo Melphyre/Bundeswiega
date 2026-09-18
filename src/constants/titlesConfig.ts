@@ -115,6 +115,70 @@ export const PLAYER_TITLES: PlayerTitle[] = [
     isUnlocked: () => true
   },
   {
+    id: 'basis_wieger',
+    name: 'Basis-Wieger',
+    description: 'Belohnung für das Erreichen von Stufe 2',
+    icon: '⚖️',
+    badgeBg: 'bg-blue-500/10 dark:bg-blue-500/20',
+    textColor: 'text-blue-700 dark:text-blue-300',
+    borderColor: 'border-blue-500/30',
+    category: 'level',
+    conditionText: 'Erfordert Level 2',
+    requiredLevel: 2,
+    isUnlocked: (p) =>
+      extractProfileStats(p).level >= 2 ||
+      ((p as any)?.unlockedTitles || []).includes('Basis-Wieger') ||
+      p?.title === 'Basis-Wieger'
+  },
+  {
+    id: 'geuebter_wieger',
+    name: 'geübter Wieger',
+    description: 'Belohnung für das Erreichen von Stufe 3',
+    icon: '🍺',
+    badgeBg: 'bg-indigo-500/10 dark:bg-indigo-500/20',
+    textColor: 'text-indigo-700 dark:text-indigo-300',
+    borderColor: 'border-indigo-500/30',
+    category: 'level',
+    conditionText: 'Erfordert Level 3',
+    requiredLevel: 3,
+    isUnlocked: (p) =>
+      extractProfileStats(p).level >= 3 ||
+      ((p as any)?.unlockedTitles || []).includes('geübter Wieger') ||
+      p?.title === 'geübter Wieger'
+  },
+  {
+    id: 'app_meister',
+    name: 'App-Meister',
+    description: 'Belohnung für das Erreichen von Stufe 4',
+    icon: '📱',
+    badgeBg: 'bg-purple-500/10 dark:bg-purple-500/20',
+    textColor: 'text-purple-700 dark:text-purple-300',
+    borderColor: 'border-purple-500/30',
+    category: 'level',
+    conditionText: 'Erfordert Level 4',
+    requiredLevel: 4,
+    isUnlocked: (p) =>
+      extractProfileStats(p).level >= 4 ||
+      ((p as any)?.unlockedTitles || []).includes('App-Meister') ||
+      p?.title === 'App-Meister'
+  },
+  {
+    id: 'wiegemeister',
+    name: 'Wiegemeister',
+    description: 'Belohnung für das Erreichen von Stufe 4',
+    icon: '👑',
+    badgeBg: 'bg-amber-500/10 dark:bg-amber-500/20',
+    textColor: 'text-amber-700 dark:text-amber-300',
+    borderColor: 'border-amber-500/30',
+    category: 'level',
+    conditionText: 'Erfordert Level 4',
+    requiredLevel: 4,
+    isUnlocked: (p) =>
+      extractProfileStats(p).level >= 4 ||
+      ((p as any)?.unlockedTitles || []).includes('Wiegemeister') ||
+      p?.title === 'Wiegemeister'
+  },
+  {
     id: 'scharfschuetze',
     name: 'Scharfschütze',
     description: 'Quest-Belohnung: Durchschnitt unter 2,5 Gramm',

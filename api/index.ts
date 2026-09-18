@@ -221,6 +221,303 @@ async function handleFindByUsername(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// ─── QUEST DEFINITIONS & EVALUATION ENGINE ───
+const SERVER_LEVEL_QUESTS = [
+  // --- LEVEL 1 ---
+  { id: 'l1_profile_pic', level: 1, title: 'Lege ein Profilbild an', xpReward: 5, metric: 'profile_pic', targetValue: 1, targetCount: 1 },
+  { id: 'l1_5_standard', level: 1, title: 'Spiele 5 Standardspiele', xpReward: 5, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel' },
+  { id: 'l1_teamwiegen_2', level: 1, title: 'Nimm an 2 Teamwiegen teil', xpReward: 5, metric: 'teamwiegen_count', targetValue: 2, targetCount: 2 },
+  { id: 'l1_tournament_1', level: 1, title: 'Nimm an einem Turnier teil', xpReward: 10, metric: 'tournament_count', targetValue: 1, targetCount: 1 },
+  { id: 'l1_avg_sub5', level: 1, title: 'Erreiche einen Durchschnitt von < 5 Gramm', xpReward: 5, metric: 'avg_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 1 },
+  { id: 'l1_total_sub6', level: 1, title: 'Erreiche ein Total von < 6 Gramm', xpReward: 5, metric: 'total_less_than', targetValue: 6.0, threshold: 6.0, targetCount: 1 },
+  { id: 'l1_avg_sub25', level: 1, title: 'In einem Spiel einen Durchschnitt unter 2,5 Gramm', xpReward: 5, titleReward: 'Scharfschütze', metric: 'avg_less_than', targetValue: 2.5, threshold: 2.5, targetCount: 1 },
+  { id: 'l1_zero_schnaepse', level: 1, title: 'In einem Standardspiel 0 Schnäpse', xpReward: 5, titleReward: 'Jungfrau', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 1, gameMode: 'Standardspiel' },
+
+  // --- LEVEL 2 ---
+  { id: 'l2_10_standard', level: 2, title: 'Spiele 10 Standardspiele', xpReward: 10, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Standardspiel' },
+  { id: 'l2_5_speed', level: 2, title: 'Spiele 5 Speedwiegen', xpReward: 10, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Speedwiegen' },
+  { id: 'l2_teamwiegen_4', level: 2, title: 'Nimm an 4 Teamwiegen teil', xpReward: 10, metric: 'teamwiegen_count', targetValue: 4, targetCount: 4 },
+  { id: 'l2_tournament_2', level: 2, title: 'Nimm an 2 Turnieren teil', xpReward: 15, metric: 'tournament_count', targetValue: 2, targetCount: 2 },
+  { id: 'l2_5x_avg_sub5', level: 2, title: 'Erreiche 5x einen Durchschnitt < 5 Gramm', xpReward: 10, metric: 'avg_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
+  { id: 'l2_5x_total_sub7', level: 2, title: 'Erreiche 5x ein Total < 7 Gramm', xpReward: 10, metric: 'total_less_than', targetValue: 7.0, threshold: 7.0, targetCount: 5 },
+  { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
+
+  // --- LEVEL 3 ---
+  { id: 'l3_15_standard', level: 3, title: 'Spiele 15 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 15, targetCount: 15, gameMode: 'Standardspiel' },
+  { id: 'l3_10_speed', level: 3, title: 'Spiele 10 Speedwiegen', xpReward: 15, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Speedwiegen' },
+  { id: 'l3_teamwiegen_6', level: 3, title: 'Nimm an 6 Teamwiegen teil', xpReward: 15, metric: 'teamwiegen_count', targetValue: 6, targetCount: 6 },
+  { id: 'l3_tournament_3', level: 3, title: 'Nimm an 3 Turnieren teil', xpReward: 20, metric: 'tournament_count', targetValue: 3, targetCount: 3 },
+  { id: 'l3_avg_sub2', level: 3, title: 'Durchschnitt unter 2,0 Gramm in einem Spiel', xpReward: 20, titleReward: 'Präzisions-Schütze', metric: 'avg_less_than', targetValue: 2.0, threshold: 2.0, targetCount: 1 },
+  { id: 'l3_5x_sub2_schnaepse', level: 3, title: 'Spiele 5 Spiele mit maximal 2 Schnäpsen', xpReward: 15, metric: 'max_schnaepse', targetValue: 2, threshold: 2, targetCount: 5 },
+
+  // --- LEVEL 4 ---
+  { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
+  { id: 'l4_teamwiegen_8', level: 4, title: 'Nimm an 8 Teamwiegen teil', xpReward: 20, metric: 'teamwiegen_count', targetValue: 8, targetCount: 8 },
+  { id: 'l4_tournament_5', level: 4, title: 'Nimm an 5 Turnieren teil', xpReward: 25, metric: 'tournament_count', targetValue: 5, targetCount: 5 },
+  { id: 'l4_5x_total_sub5', level: 4, title: 'Erreiche 5x ein Total unter 5 Gramm', xpReward: 20, metric: 'total_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
+  { id: 'l4_zero_schnaepse_speed', level: 4, title: 'Speedwiegen ohne einzigen Schnaps', xpReward: 25, titleReward: 'Blitzsauber', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 1, gameMode: 'Speedwiegen' },
+
+  // --- LEVEL 5 ---
+  { id: 'l5_50_games_total', level: 5, title: 'Absolviere 50 Spiele', xpReward: 30, titleReward: 'Stammgast', metric: 'games_count', targetValue: 50, targetCount: 50 },
+  { id: 'l5_teamwiegen_12', level: 5, title: 'Nimm an 12 Teamwiegen teil', xpReward: 25, titleReward: 'Team-Stütze', metric: 'teamwiegen_count', targetValue: 12, targetCount: 12 },
+  { id: 'l5_tournament_7', level: 5, title: 'Nimm an 7 Turnieren teil', xpReward: 30, titleReward: 'Turnier-Stammgast', metric: 'tournament_count', targetValue: 7, targetCount: 7 },
+  { id: 'l5_avg_sub15', level: 5, title: 'Fabelzeit: Durchschnitt unter 1,5 Gramm', xpReward: 30, titleReward: 'Chirurg', metric: 'avg_less_than', targetValue: 1.5, threshold: 1.5, targetCount: 1 },
+  { id: 'l5_10x_avg_sub4', level: 5, title: 'Erreiche 10x einen Durchschnitt unter 4 Gramm', xpReward: 25, metric: 'avg_less_than', targetValue: 4.0, threshold: 4.0, targetCount: 10 },
+
+  // --- LEVEL 6 ---
+  { id: 'l6_20_speed', level: 6, title: 'Spiele 20 Speedwiegen', xpReward: 30, metric: 'games_count', targetValue: 20, targetCount: 20, gameMode: 'Speedwiegen' },
+  { id: 'l6_teamwiegen_15', level: 6, title: 'Nimm an 15 Teamwiegen teil', xpReward: 30, metric: 'teamwiegen_count', targetValue: 15, targetCount: 15 },
+  { id: 'l6_tournament_10', level: 6, title: 'Nimm an 10 Turnieren teil', xpReward: 35, metric: 'tournament_count', targetValue: 10, targetCount: 10 },
+  { id: 'l6_5x_avg_sub2', level: 6, title: 'Erreiche 5x einen Durchschnitt unter 2 Gramm', xpReward: 35, titleReward: 'Konstanz-Monster', metric: 'avg_less_than', targetValue: 2.0, threshold: 2.0, targetCount: 5 },
+  { id: 'l6_10x_total_sub4', level: 6, title: 'Erreiche 10x ein Total unter 4 Gramm', xpReward: 35, metric: 'total_less_than', targetValue: 4.0, threshold: 4.0, targetCount: 10 },
+
+  // --- LEVEL 7 ---
+  { id: 'l7_75_games_total', level: 7, title: 'Absolviere 75 Spiele', xpReward: 40, metric: 'games_count', targetValue: 75, targetCount: 75 },
+  { id: 'l7_teamwiegen_20', level: 7, title: 'Nimm an 20 Teamwiegen teil', xpReward: 35, metric: 'teamwiegen_count', targetValue: 20, targetCount: 20 },
+  { id: 'l7_tournament_12', level: 7, title: 'Nimm an 12 Turnieren teil', xpReward: 40, metric: 'tournament_count', targetValue: 12, targetCount: 12 },
+  { id: 'l7_avg_sub1', level: 7, title: 'Perfektioniert: Durchschnitt unter 1,0 Gramm!', xpReward: 50, titleReward: 'Meister der Waage', metric: 'avg_less_than', targetValue: 1.0, threshold: 1.0, targetCount: 1 },
+  { id: 'l7_10x_zero_schnaepse', level: 7, title: 'Absolviere 10 Spiele ohne einen Schnaps', xpReward: 40, titleReward: 'Nüchterner Meister', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 10 },
+
+  // --- LEVEL 8 ---
+  { id: 'l8_50_standard', level: 8, title: 'Spiele 50 Standardspiele', xpReward: 45, metric: 'games_count', targetValue: 50, targetCount: 50, gameMode: 'Standardspiel' },
+  { id: 'l8_teamwiegen_25', level: 8, title: 'Nimm an 25 Teamwiegen teil', xpReward: 40, metric: 'teamwiegen_count', targetValue: 25, targetCount: 25 },
+  { id: 'l8_tournament_15', level: 8, title: 'Nimm an 15 Turnieren teil', xpReward: 45, titleReward: 'Turnier-Veteran', metric: 'tournament_count', targetValue: 15, targetCount: 15 },
+  { id: 'l8_5x_total_sub3', level: 8, title: 'Erreiche 5x ein Total unter 3 Gramm', xpReward: 50, metric: 'total_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 5 },
+
+  // --- LEVEL 9 ---
+  { id: 'l9_100_games_total', level: 9, title: 'Absolviere 100 Spiele', xpReward: 60, titleReward: 'Veteran', metric: 'games_count', targetValue: 100, targetCount: 100 },
+  { id: 'l9_teamwiegen_30', level: 9, title: 'Nimm an 30 Teamwiegen teil', xpReward: 50, titleReward: 'Team-Legende', metric: 'teamwiegen_count', targetValue: 30, targetCount: 30 },
+  { id: 'l9_tournament_20', level: 9, title: 'Nimm an 20 Turnieren teil', xpReward: 55, metric: 'tournament_count', targetValue: 20, targetCount: 20 },
+  { id: 'l9_10x_avg_sub15', level: 9, title: 'Erreiche 10x einen Durchschnitt unter 1,5 Gramm', xpReward: 60, metric: 'avg_less_than', targetValue: 1.5, threshold: 1.5, targetCount: 10 },
+
+  // --- LEVEL 10 ---
+  { id: 'l10_teamwiegen_40', level: 10, title: 'Nimm an 40 Teamwiegen teil', xpReward: 70, metric: 'teamwiegen_count', targetValue: 40, targetCount: 40 },
+  { id: 'l10_tournament_25', level: 10, title: 'Nimm an 25 Turnieren teil', xpReward: 75, titleReward: 'Turnier-Gott', metric: 'tournament_count', targetValue: 25, targetCount: 25 },
+  { id: 'l10_legend_avg', level: 10, title: 'Legendreifer Durchschnitt unter 0,8 Gramm', xpReward: 100, titleReward: 'Unantastbar', metric: 'avg_less_than', targetValue: 0.8, threshold: 0.8, targetCount: 1 },
+  { id: 'l10_20x_zero_schnaepse', level: 10, title: 'Absolviere 20 Spiele völlig ohne Schnäpse', xpReward: 80, titleReward: 'Fehlerfrei', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 20 }
+];
+
+async function serverEvaluateQuestsForUser(userId: string) {
+  if (!userId || !supabaseAdmin) return;
+  try {
+    const [profRes, resultsRes, teamPlayersRes, qpRes, titlesRes] = await Promise.all([
+      supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      supabaseAdmin.from('game_results').select('*').eq('user_id', userId),
+      supabaseAdmin.from('teamwiegen_players').select('game_id').eq('user_id', userId),
+      supabaseAdmin.from('user_quest_progress').select('*').eq('user_id', userId),
+      supabaseAdmin.from('user_titles').select('title').eq('user_id', userId)
+    ]);
+
+    const profile = profRes?.data;
+    const userLevel = profile ? Number(profile.level) || 1 : 1;
+    let effectiveAvatarUrl = profile?.avatar_url || profile?.image_url || '';
+
+    let safeResults: any[] = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
+    const teamGameIds: string[] = (teamPlayersRes?.data || []).map((tp: any) => tp.game_id).filter(Boolean);
+
+    if (teamGameIds.length > 0) {
+      const { data: teamGames } = await supabaseAdmin
+        .from('game_results')
+        .select('*')
+        .in('id', teamGameIds);
+
+      if (Array.isArray(teamGames) && teamGames.length > 0) {
+        const existingIds = new Set(safeResults.map(r => r.id));
+        for (const tg of teamGames) {
+          if (!existingIds.has(tg.id)) {
+            safeResults.push({
+              ...tg,
+              is_team_player: true
+            });
+            existingIds.add(tg.id);
+          } else {
+            const existing = safeResults.find(r => r.id === tg.id);
+            if (existing) existing.is_team_player = true;
+          }
+        }
+      }
+    }
+
+    const questProgress = Array.isArray(qpRes?.data) ? qpRes.data : [];
+    const completedQuestIds = new Set(questProgress.filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
+    const unlockedTitles = new Set((titlesRes?.data || []).map((t: any) => t.title));
+
+    const normalizeMode = (m?: string | null) => {
+      if (!m) return 'Standardspiel (500ml)';
+      const l = m.trim().toLowerCase();
+      if (l.includes('team')) return 'Teamwiegen';
+      if (l.includes('speed')) return (l.includes('0,33') || l.includes('0.33')) ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+      if (l.includes('standard')) return (l.includes('0,33') || l.includes('0.33')) ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
+      return m;
+    };
+
+    const availableQuests = SERVER_LEVEL_QUESTS.filter(q => q.level <= userLevel && !completedQuestIds.has(q.id));
+
+    let bonusXpEarned = 0;
+
+    for (const q of availableQuests) {
+      let progress = 0;
+      const targetCount = (q as any).targetCount !== undefined ? (q as any).targetCount : (q.metric === 'profile_pic' ? 1 : q.targetValue);
+
+      switch (q.metric) {
+        case 'profile_pic':
+          if (effectiveAvatarUrl && typeof effectiveAvatarUrl === 'string' && effectiveAvatarUrl.trim() !== '' && !effectiveAvatarUrl.includes('unknown.svg')) {
+            progress = 1;
+          }
+          break;
+
+        case 'games_count':
+          progress = safeResults.filter(r => {
+            if (!q.gameMode) return true;
+            const norm = normalizeMode(r.game_mode);
+            const targetNorm = normalizeMode(q.gameMode);
+            if (norm === targetNorm) return true;
+            const raw = (r.game_mode || '').toLowerCase();
+            const target = q.gameMode.toLowerCase();
+            if (target.includes('team') && (raw.includes('team') || r.is_team_player === true)) return true;
+            return raw.includes(target);
+          }).length;
+          break;
+
+        case 'avg_less_than': {
+          const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
+          progress = safeResults.filter(r => {
+            if (q.gameMode) {
+              const norm = normalizeMode(r.game_mode);
+              const targetNorm = normalizeMode(q.gameMode);
+              if (norm !== targetNorm && !(targetNorm === 'Teamwiegen' && (r.is_team_player || (r.game_mode || '').toLowerCase().includes('team')))) {
+                return false;
+              }
+            }
+            return r.avg !== null && r.avg !== undefined && Number(r.avg) < threshold;
+          }).length;
+          break;
+        }
+
+        case 'total_less_than': {
+          const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
+          progress = safeResults.filter(r => {
+            if (q.gameMode) {
+              const norm = normalizeMode(r.game_mode);
+              const targetNorm = normalizeMode(q.gameMode);
+              if (norm !== targetNorm && !(targetNorm === 'Teamwiegen' && (r.is_team_player || (r.game_mode || '').toLowerCase().includes('team')))) {
+                return false;
+              }
+            }
+            return r.total !== null && r.total !== undefined && Number(r.total) < threshold;
+          }).length;
+          break;
+        }
+
+        case 'max_schnaepse': {
+          const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
+          progress = safeResults.filter(r => {
+            if (q.gameMode) {
+              const norm = normalizeMode(r.game_mode);
+              const targetNorm = normalizeMode(q.gameMode);
+              if (norm !== targetNorm && !(targetNorm === 'Teamwiegen' && (r.is_team_player || (r.game_mode || '').toLowerCase().includes('team')))) {
+                return false;
+              }
+            }
+            return r.schnaepse !== null && r.schnaepse !== undefined && Number(r.schnaepse) <= threshold;
+          }).length;
+          break;
+        }
+
+        case 'teamwiegen_count': {
+          // Genauso wie unter Meine Spiele Reiter Teamwiegen:
+          // Kombiniert game_results (wo user_id = userId) UND teamwiegen_players (verknüpfte Spiele)
+          const isTeamGame = (r: any): boolean => {
+            if (!r) return false;
+            if (r.is_team_player || r.is_team_member) return true;
+            const raw = String(r.game_mode || '').toLowerCase();
+            if (raw.includes('team')) return true;
+            const norm = normalizeMode(r.game_mode);
+            return norm === 'Teamwiegen';
+          };
+
+          const matchingTeamGames = safeResults.filter(isTeamGame);
+          const uniqueGameIds = new Set<string>();
+          matchingTeamGames.forEach(g => {
+            if (g.id) uniqueGameIds.add(String(g.id));
+          });
+          teamGameIds.forEach(id => {
+            if (id) uniqueGameIds.add(String(id));
+          });
+
+          progress = Math.max(matchingTeamGames.length, uniqueGameIds.size);
+          break;
+        }
+
+        case 'tournament_count': {
+          progress = safeResults.filter(r =>
+            r.is_tournament === true ||
+            r.tournament_id !== null ||
+            (r.game_mode || '').toLowerCase().includes('turnier')
+          ).length;
+          break;
+        }
+      }
+
+      const isCompleted = progress >= targetCount;
+
+      try {
+        await supabaseAdmin.from('user_quest_progress').upsert({
+          user_id: userId,
+          quest_id: q.id,
+          current_progress: Math.min(progress, targetCount),
+          is_completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id,quest_id' });
+      } catch (upsertErr) {
+        console.warn('Backend quest upsert warning:', upsertErr);
+      }
+
+      if (isCompleted) {
+        bonusXpEarned += q.xpReward;
+        completedQuestIds.add(q.id);
+
+        if ((q as any).titleReward && !unlockedTitles.has((q as any).titleReward)) {
+          try {
+            await supabaseAdmin.from('user_titles').upsert({
+              user_id: userId,
+              title: (q as any).titleReward,
+              created_at: new Date().toISOString()
+            }, { onConflict: 'user_id,title' });
+            unlockedTitles.add((q as any).titleReward);
+          } catch (tErr) {
+            console.warn('Backend title upsert warning:', tErr);
+          }
+        }
+      }
+    }
+
+    if (bonusXpEarned > 0 && profile) {
+      try {
+        const currentXp = Number(profile.xp) || 0;
+        const newXp = currentXp + bonusXpEarned;
+        let lvl = 1;
+        let cumulative = 0;
+        const requirements = [20, 30, 40, 50, 60, 75, 90, 110, 130];
+        for (let i = 0; i < requirements.length; i++) {
+          cumulative += requirements[i];
+          if (newXp >= cumulative) {
+            lvl = i + 2;
+          } else {
+            break;
+          }
+        }
+        await supabaseAdmin.from('profiles').update({ xp: newXp, level: lvl }).eq('id', userId);
+      } catch (profErr) {
+        console.warn('Backend profile xp update warning:', profErr);
+      }
+    }
+  } catch (err) {
+    console.error('serverEvaluateQuestsForUser error:', err);
+  }
+}
+
 // ─── 4. GET PROFILE DATA (GET /api/users/profile-data) ───
 async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -236,17 +533,59 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const [profRes, resultsRes, achRes, questRes, titlesRes] = await Promise.all([
+    // Vor dem Abruf Quests serverseitig evaluieren, damit alle Teamwiegenspiele & Spiele direkt einfließen
+    try {
+      await serverEvaluateQuestsForUser(userId);
+    } catch (evalErr) {
+      console.warn('serverEvaluateQuestsForUser in handleGetProfileData warning:', evalErr);
+    }
+
+    const [profRes, resultsRes, teamPlayersRes, achRes, questRes, titlesRes] = await Promise.all([
       supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
       supabaseAdmin.from('game_results').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabaseAdmin.from('teamwiegen_players').select('game_id').eq('user_id', userId),
       supabaseAdmin.from('achievements').select('*').eq('user_id', userId),
       supabaseAdmin.from('user_quest_progress').select('*').eq('user_id', userId),
       supabaseAdmin.from('user_titles').select('*').eq('user_id', userId)
     ]);
 
+    let mergedGameResults: any[] = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
+    const teamGameIds = (teamPlayersRes?.data || []).map((tp: any) => tp.game_id).filter(Boolean);
+
+    if (teamGameIds.length > 0) {
+      try {
+        const { data: teamGames } = await supabaseAdmin
+          .from('game_results')
+          .select('*')
+          .in('id', teamGameIds);
+
+        if (Array.isArray(teamGames) && teamGames.length > 0) {
+          const existingIds = new Set(mergedGameResults.map(r => r.id));
+          for (const tg of teamGames) {
+            if (!existingIds.has(tg.id)) {
+              mergedGameResults.push({
+                ...tg,
+                is_team_player: true
+              });
+              existingIds.add(tg.id);
+            }
+          }
+        }
+      } catch (tpErr) {
+        console.warn('teamGames fetch warning in handleGetProfileData:', tpErr);
+      }
+    }
+
+    // Chronologisch absteigend sortieren
+    mergedGameResults.sort((a, b) => {
+      const timeA = new Date(a.created_at || (a.date ? a.date.split('.').reverse().join('-') : 0)).getTime();
+      const timeB = new Date(b.created_at || (b.date ? b.date.split('.').reverse().join('-') : 0)).getTime();
+      return timeB - timeA;
+    });
+
     return res.status(200).json({
       profile: profRes?.data || null,
-      gameResults: resultsRes?.data || [],
+      gameResults: mergedGameResults,
       achievements: achRes?.data || [],
       questProgress: questRes?.data || [],
       quests: [],
@@ -306,11 +645,17 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     const payload = parseBody(req);
     const gameResultData = payload.gameResult || payload;
     const userId = payload.userId || payload.user_id || gameResultData.user_id;
+    const teamPlayerUserIds = payload.teamPlayerUserIds || gameResultData.teamPlayerUserIds;
+    const memberUserIds = payload.memberUserIds || gameResultData.memberUserIds;
+    const isTeamFlag = payload.isTeamGame || gameResultData.isTeamGame;
 
     const insertPayload = {
       ...gameResultData,
       user_id: userId || null
     };
+    delete (insertPayload as any).teamPlayerUserIds;
+    delete (insertPayload as any).memberUserIds;
+    delete (insertPayload as any).isTeamGame;
 
     const { data, error } = await supabaseAdmin
       .from('game_results')
@@ -322,8 +667,34 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ success: false, error: error.message });
     }
 
+    const savedGameId = data?.[0]?.id;
+
+    // Falls Spielmodus Teamwiegen ist, Verknüpfung in teamwiegen_players herstellen
+    const isTeamGame = (insertPayload.game_mode && String(insertPayload.game_mode).toLowerCase().includes('team')) || isTeamFlag;
+    if (savedGameId && isTeamGame) {
+      try {
+        const uidsToLink = new Set<string>();
+        if (userId) uidsToLink.add(userId);
+        if (Array.isArray(teamPlayerUserIds)) {
+          teamPlayerUserIds.forEach((uid: string) => { if (uid) uidsToLink.add(uid); });
+        }
+        if (Array.isArray(memberUserIds)) {
+          memberUserIds.forEach((uid: string) => { if (uid) uidsToLink.add(uid); });
+        }
+
+        if (uidsToLink.size > 0) {
+          const links = Array.from(uidsToLink).map(uid => ({
+            game_id: savedGameId,
+            user_id: uid
+          }));
+          await supabaseAdmin.from('teamwiegen_players').insert(links);
+        }
+      } catch (teamPlayerErr) {
+        console.warn('teamwiegen_players insert warning:', teamPlayerErr);
+      }
+    }
+
     if (payload.achievements && Array.isArray(payload.achievements) && payload.achievements.length > 0) {
-      const savedGameId = data?.[0]?.id;
       const achInserts = payload.achievements.map((ach: any) => ({
         user_id: userId,
         game_result_id: savedGameId,
@@ -336,6 +707,18 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         earned_together: ach.earnedTogether
       }));
       await supabaseAdmin.from('achievements').insert(achInserts);
+    }
+
+    // Quests nach Spielergebnis automatisch neu evaluieren
+    if (userId) {
+      serverEvaluateQuestsForUser(userId).catch(e => console.warn('Quest evaluation error after game:', e));
+    }
+    if (isTeamGame && payload.teamPlayerUserIds && Array.isArray(payload.teamPlayerUserIds)) {
+      for (const tpId of payload.teamPlayerUserIds) {
+        if (tpId && tpId !== userId) {
+          serverEvaluateQuestsForUser(tpId).catch(e => console.warn('Quest evaluation error for team player:', e));
+        }
+      }
     }
 
     return res.status(200).json({ 
@@ -417,8 +800,14 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
 async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
+    const body = parseBody(req);
+    const userId = body?.userId || safeQueryParam(req, 'userId');
+    if (userId) {
+      await serverEvaluateQuestsForUser(userId);
+    }
     return res.status(200).json({ success: true });
-  } catch {
+  } catch (err: any) {
+    console.error("handleEvaluateQuests error:", err);
     return res.status(200).json({ success: false });
   }
 }
@@ -721,6 +1110,21 @@ async function handleRepairDatabase(req: VercelRequest, res: VercelResponse) {
 
 // ─── 16. WIEGSCHAFTEN (GUILDS) HANDLERS ───
 
+// Helper: Filtert ausschließlich Standardspiel (500ml) Spiele
+function isStandardspiel500(rawMode?: string | null): boolean {
+  if (!rawMode) return true; // Standardspiel 500ml war der historische Standardwert
+  const trimmed = rawMode.trim();
+  const lower = trimmed.toLowerCase();
+  // Speedwiegen & Teamwiegen ausschließen
+  if (lower.includes('speed') || lower.includes('team')) return false;
+  // 0,33L Varianten ausschließen
+  if (lower.includes('0,33') || lower.includes('0.33') || lower.includes('0,3') || lower.includes('330') || lower.includes('33l')) {
+    return false;
+  }
+  // Standardspiel oder 500ml Kennzeichnung
+  return lower.includes('standard') || lower.includes('500') || lower === 'standardspiel';
+}
+
 // 16.1 GET /api/guilds/my-guild
 async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -851,7 +1255,7 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
       };
     });
 
-    // Aggregierte Statistiken aus game_results der Mitglieder berechnen
+    // Aggregierte Statistiken aus allen Standardspiel (500ml) Spielen der Mitglieder berechnen
     let stats = {
       gamesCount: 0,
       avg: 0,
@@ -863,10 +1267,13 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
     if (memberUserIds.length > 0) {
       const { data: memberGames } = await supabaseAdmin
         .from('game_results')
-        .select('avg, schnaepse, total')
+        .select('game_mode, avg, schnaepse, total')
         .in('user_id', memberUserIds);
 
-      const games = memberGames || [];
+      const allGames = memberGames || [];
+      // Nur Standardspiel 500 ml aller Mitglieder summieren & werten
+      const games = allGames.filter((g: any) => isStandardspiel500(g.game_mode));
+
       if (games.length > 0) {
         const count = games.length;
         const sumAvg = games.reduce((acc: number, g: any) => acc + (Number(g.avg) || 0), 0);
@@ -1374,16 +1781,19 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     const [guildsRes, membersRes, gamesRes] = await Promise.all([
       supabaseAdmin.from('guilds').select('*'),
       supabaseAdmin.from('guild_members').select('guild_id, user_id, role'),
-      supabaseAdmin.from('game_results').select('user_id, avg, schnaepse, total')
+      supabaseAdmin.from('game_results').select('user_id, game_mode, avg, schnaepse, total')
     ]);
 
     const allGuilds = guildsRes?.data || [];
     const allMembers = membersRes?.data || [];
     const allGames = gamesRes?.data || [];
 
+    // Nur Standardspiel (500ml) aller Mitglieder berücksichtigen
+    const standardGames = allGames.filter((g: any) => isStandardspiel500(g.game_mode));
+
     // Map: userId -> array of games
     const gamesByUser: Record<string, any[]> = {};
-    allGames.forEach((g: any) => {
+    standardGames.forEach((g: any) => {
       if (!g?.user_id) return;
       if (!gamesByUser[g.user_id]) gamesByUser[g.user_id] = [];
       gamesByUser[g.user_id].push(g);
@@ -1401,7 +1811,7 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       const gMembers = membersByGuild[g.id] || [];
       const memberCount = gMembers.length;
 
-      // Alle Spiele aller Mitglieder dieser Wiegschaft einsammeln
+      // Alle Standardspiele (500ml) aller Mitglieder dieser Wiegschaft einsammeln
       const guildGames: any[] = [];
       gMembers.forEach((m: any) => {
         const uGames = gamesByUser[m.user_id] || [];
@@ -1412,10 +1822,11 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       let avg = 0;
       let schnaepse = 0;
       let total = 0;
+      let sumSchnaepse = 0;
 
       if (gamesCount > 0) {
         const sumAvg = guildGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
-        const sumSchnaepse = guildGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+        sumSchnaepse = guildGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
         avg = Math.round((sumAvg / gamesCount) * 100) / 100;
         schnaepse = Math.round((sumSchnaepse / gamesCount) * 100) / 100;
         total = Math.round((avg + schnaepse) * 100) / 100;
@@ -1427,10 +1838,13 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         tag: g.tag,
         description: g.description || '',
         logo_url: g.logo_url || '',
+        memberCount,
         membersCount: memberCount,
         gamesCount,
         avg,
         schnaepse,
+        avgSchnaepse: schnaepse,
+        totalSchnaepse: sumSchnaepse,
         total,
         created_at: g.created_at
       };

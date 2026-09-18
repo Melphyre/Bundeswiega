@@ -28,8 +28,9 @@ export interface GuildLeaderboardEntry {
   }>;
   gamesCount: number;
   avg: number;
-  totalSchnaepse: number;
-  avgSchnaepse: number;
+  schnaepse?: number;
+  totalSchnaepse?: number;
+  avgSchnaepse?: number;
   total: number;
 }
 
@@ -117,10 +118,13 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           valA = a.gamesCount > 0 ? a.avg : 999999;
           valB = b.gamesCount > 0 ? b.avg : 999999;
           break;
-        case 'schnaepse':
-          valA = a.totalSchnaepse;
-          valB = b.totalSchnaepse;
+        case 'schnaepse': {
+          const schnaepseA = a.avgSchnaepse ?? a.schnaepse ?? (a.gamesCount > 0 && a.totalSchnaepse !== undefined ? a.totalSchnaepse / a.gamesCount : 0);
+          const schnaepseB = b.avgSchnaepse ?? b.schnaepse ?? (b.gamesCount > 0 && b.totalSchnaepse !== undefined ? b.totalSchnaepse / b.gamesCount : 0);
+          valA = a.gamesCount > 0 ? schnaepseA : 999999;
+          valB = b.gamesCount > 0 ? schnaepseB : 999999;
           break;
+        }
         case 'games':
           valA = a.gamesCount;
           valB = b.gamesCount;
@@ -229,8 +233,8 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
             [
               { key: 'total', label: 'Total' },
               { key: 'avg', label: 'Ø-Abstand' },
-              { key: 'schnaepse', label: 'Schnäpse' },
-              { key: 'games', label: 'Runden' },
+              { key: 'schnaepse', label: 'Ø-Schnäpse' },
+              { key: 'games', label: 'Spiele (500ml)' },
               { key: 'members', label: 'Mitglieder' }
             ] as const
           ).map(s => {
@@ -269,12 +273,12 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                 <th className="py-3 px-3 w-12 text-center">Rang</th>
                 <th className="py-3 px-3">Wiegschaft</th>
                 <th className="py-3 px-3 text-center">Mitglieder</th>
-                <th className="py-3 px-3 text-center">Runden</th>
+                <th className="py-3 px-3 text-center" title="Summe aller Standardspiele (500ml) aller Mitglieder">Spiele (500ml)</th>
                 <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('avg')}>
                   Ø-Abstand {sortBy === 'avg' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
-                <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('schnaepse')}>
-                  Schnäpse {sortBy === 'schnaepse' && (sortDir === 'asc' ? '▲' : '▼')}
+                <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('schnaepse')} title="Durchschnittliche Schnapszahl pro Spiel">
+                  Ø-Schnäpse {sortBy === 'schnaepse' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
                 <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('total')}>
                   Total {sortBy === 'total' && (sortDir === 'asc' ? '▲' : '▼')}
@@ -361,9 +365,15 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                       {guild.avg !== undefined ? `${guild.avg.toFixed(2)}g` : '-'}
                     </td>
 
-                    {/* Schnäpse */}
-                    <td className="py-3 px-3 text-right font-black font-mono text-amber-500">
-                      {guild.totalSchnaepse}
+                    {/* Ø-Schnäpse pro Standardspiel 500ml */}
+                    <td 
+                      className="py-3 px-3 text-right font-black font-mono text-amber-500" 
+                      title={guild.totalSchnaepse !== undefined ? `Gesamt: ${guild.totalSchnaepse} Schnäpse in ${guild.gamesCount} Standardspielen (500ml)` : 'Ø-Schnäpse pro Standardspiel (500ml)'}
+                    >
+                      {(() => {
+                        const val = guild.avgSchnaepse ?? guild.schnaepse ?? (guild.gamesCount > 0 && guild.totalSchnaepse !== undefined ? guild.totalSchnaepse / guild.gamesCount : 0);
+                        return typeof val === 'number' && !isNaN(val) ? val.toFixed(2) : '0.00';
+                      })()}
                     </td>
 
                     {/* Total */}
@@ -426,16 +436,24 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                <div className="text-[9px] opacity-60 uppercase font-bold">Runden</div>
+                <div className="text-[9px] opacity-60 uppercase font-bold">Spiele (500ml)</div>
                 <div className="font-black text-sm">{selectedGuild.gamesCount}</div>
               </div>
               <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
                 <div className="text-[9px] opacity-60 uppercase font-bold">Ø-Abstand</div>
                 <div className="font-black text-sm text-teal-600 dark:text-teal-400">{selectedGuild.avg.toFixed(2)}g</div>
               </div>
-              <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                <div className="text-[9px] opacity-60 uppercase font-bold">Schnäpse</div>
-                <div className="font-black text-sm text-amber-500">{selectedGuild.totalSchnaepse}</div>
+              <div 
+                className="p-2 rounded-xl bg-black/5 dark:bg-white/5" 
+                title={selectedGuild.totalSchnaepse !== undefined ? `Gesamt: ${selectedGuild.totalSchnaepse} Schnäpse in ${selectedGuild.gamesCount} Standardspielen (500ml)` : 'Ø-Schnäpse pro Standardspiel (500ml)'}
+              >
+                <div className="text-[9px] opacity-60 uppercase font-bold">Ø-Schnäpse</div>
+                <div className="font-black text-sm text-amber-500">
+                  {(() => {
+                    const val = selectedGuild.avgSchnaepse ?? selectedGuild.schnaepse ?? (selectedGuild.gamesCount > 0 && selectedGuild.totalSchnaepse !== undefined ? selectedGuild.totalSchnaepse / selectedGuild.gamesCount : 0);
+                    return typeof val === 'number' && !isNaN(val) ? val.toFixed(2) : '0.00';
+                  })()}
+                </div>
               </div>
               <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
                 <div className="text-[9px] opacity-60 uppercase font-bold">Total</div>

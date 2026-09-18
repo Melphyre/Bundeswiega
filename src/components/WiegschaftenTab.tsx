@@ -799,13 +799,16 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                 <span>Eigene Wiegschafts-Ergebnisse</span>
               </h5>
               <span className="text-[10px] font-mono font-bold opacity-60">
-                {data.stats?.gamesCount || 0} gewertete Spiele
+                {data.stats?.gamesCount || 0} gewertete Standardspiele (500ml)
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}>
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Runden</div>
+              <div 
+                className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}
+                title="Summe aller Standardspiele (500ml) aller Mitglieder der Wiegschaft"
+              >
+                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Standard (500ml)</div>
                 <div className="text-xl font-black">{data.stats?.gamesCount || 0}</div>
               </div>
 
@@ -816,10 +819,13 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                 </div>
               </div>
 
-              <div className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}>
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Gesamtschnäpse</div>
+              <div 
+                className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}
+                title={`Gesamt: ${data.stats?.totalSchnaepse || 0} Schnäpse`}
+              >
+                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Ø-Schnäpse</div>
                 <div className="text-xl font-black text-amber-500">
-                  {data.stats?.totalSchnaepse || 0}
+                  {data.stats?.avgSchnaepse !== undefined ? data.stats.avgSchnaepse.toFixed(2) : '0.00'}
                 </div>
               </div>
 

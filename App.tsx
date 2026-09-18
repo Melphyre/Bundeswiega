@@ -778,6 +778,73 @@ const App: React.FC = () => {
     }
   };
 
+  // Lädt alle Spielergebnisse inklusive der über teamwiegen_players verknüpften Spiele
+  const fetchUserGamesWithTeamwiegen = async (userId: string) => {
+    let combinedResults: any[] = [];
+    try {
+      const { data: directResults, error: dirErr } = await supabase
+        .from('game_results')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (dirErr) {
+        console.warn('game_results direct query warning:', dirErr.message || dirErr);
+      }
+      if (Array.isArray(directResults)) {
+        combinedResults = [...directResults];
+      }
+    } catch (e) {
+      console.warn('direct game_results fetch error:', e);
+    }
+
+    try {
+      const { data: teamPlayers, error: tpErr } = await supabase
+        .from('teamwiegen_players')
+        .select('game_id')
+        .eq('user_id', userId);
+
+      if (tpErr) {
+        console.warn('teamwiegen_players query warning:', tpErr.message || tpErr);
+      }
+
+      const teamGameIds = (teamPlayers || []).map((t: any) => t.game_id).filter(Boolean);
+      if (teamGameIds.length > 0) {
+        const { data: teamGames, error: tgErr } = await supabase
+          .from('game_results')
+          .select('*')
+          .in('id', teamGameIds);
+
+        if (tgErr) {
+          console.warn('teamGames fetch warning:', tgErr.message || tgErr);
+        }
+
+        if (Array.isArray(teamGames) && teamGames.length > 0) {
+          const existingIds = new Set(combinedResults.map(r => r.id));
+          for (const tg of teamGames) {
+            if (!existingIds.has(tg.id)) {
+              combinedResults.push({
+                ...tg,
+                is_team_player: true
+              });
+              existingIds.add(tg.id);
+            }
+          }
+        }
+      }
+    } catch (tpErr) {
+      console.warn('teamwiegen_players query error:', tpErr);
+    }
+
+    combinedResults.sort((a, b) => {
+      const timeA = new Date(a.created_at || (a.date ? a.date.split('.').reverse().join('-') : 0)).getTime();
+      const timeB = new Date(b.created_at || (b.date ? b.date.split('.').reverse().join('-') : 0)).getTime();
+      return timeB - timeA;
+    });
+
+    return combinedResults;
+  };
+
   const loadProfileStats = async (targetUserId?: string) => {
     if (!isSupabaseConfigured()) {
       setProfileStats({
@@ -831,14 +898,7 @@ const App: React.FC = () => {
     }
 
     try {
-      const { data: results, error: resErr } = await supabase
-        .from('game_results')
-        .select('user_id, game_mode, avg, schnaepse, total, time_seconds')
-        .eq('user_id', currentUserId);
-
-      if (resErr) {
-        console.warn('loadProfileStats game_results warning:', resErr.message || resErr);
-      }
+      const results = await fetchUserGamesWithTeamwiegen(currentUserId);
 
       const { count: achCount, error: achErr } = await supabase
         .from('achievements')
@@ -901,15 +961,7 @@ const App: React.FC = () => {
     }
 
     try {
-      const { data: resData, error: resErr } = await supabase
-        .from('game_results')
-        .select('*')
-        .eq('user_id', currentUserId)
-        .order('created_at', { ascending: false });
-
-      if (resErr) {
-        console.warn('loadMyProfileData game_results warning:', resErr.message || resErr);
-      }
+      const resData = await fetchUserGamesWithTeamwiegen(currentUserId);
       setMyGameData(Array.isArray(resData) ? resData : []);
 
       const { data: achData, error: achErr } = await supabase
@@ -953,20 +1005,8 @@ const App: React.FC = () => {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('game_results')
-        .select('*')
-        .eq('user_id', currentUserId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.warn('❌ game_results Fehler:', error.message);
-        setMyGameData([]);
-        return;
-      }
-
-      const safeData = Array.isArray(data) ? data : [];
-      console.log('game_results geladen:', safeData.length, 'Einträge');
+      const safeData = await fetchUserGamesWithTeamwiegen(currentUserId);
+      console.log('game_results (inkl. Teamwiegen) geladen:', safeData.length, 'Einträge');
       setMyGameData(safeData);
     } catch (err: any) {
       console.error('loadMyResults Exception:', err.message);
@@ -1074,7 +1114,7 @@ const App: React.FC = () => {
         loadProfileStats(userId),
         loadMyResults(userId),
         loadMyAchievements(userId),
-        profileTab === 'freunde' ? loadFriendships(userId) : Promise.resolve()
+        loadFriendships(userId)
       ]);
     })();
 
@@ -1320,10 +1360,11 @@ const App: React.FC = () => {
     }
   }, [gameState, isAppInstalled, isIOS, isAndroid]);
 
-  // Bei Login & Rückkehr ins Hauptmenü Nutzerprofil & Level-Up / Welcome prüfen
+  // Bei Login & Rückkehr ins Hauptmenü Nutzerprofil, Level-Up / Welcome & Freunde prüfen
   useEffect(() => {
     if (supabaseUser?.id && gameState === GameState.START) {
       loadUserProfile(supabaseUser.id);
+      loadFriendships(supabaseUser.id);
     }
   }, [supabaseUser?.id, gameState]);
   const [playerCount, setPlayerCount] = useState(2);
@@ -1366,7 +1407,7 @@ const App: React.FC = () => {
   const [recordsData, setRecordsData] = useState<any[][] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
-  const [activeRecordsTab, setActiveRecordsTab] = useState<'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements' | 'Wiegschaften'>('Standardspiel');
+  const [activeRecordsTab, setActiveRecordsTab] = useState<'Wiegschaften' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Achievements'>('Wiegschaften');
   const [activeAchSubTab, setActiveAchSubTab] = useState<'Alle' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen' | 'Turnier'>('Alle');
 
   const [activeStandardSubTab, setActiveStandardSubTab] = useState<'all' | 'highest_schnaepse' | 'best_avg' | 'best_total'>('all');
@@ -1592,6 +1633,7 @@ const App: React.FC = () => {
       await Promise.allSettled([
         loadUserProfile(supabaseUser.id),
         loadProfileStats(supabaseUser.id),
+        loadFriendships(supabaseUser.id),
         fetch('/api/users/list')
           .then(r => r.json())
           .then(data => setClerkUsers(data.users || []))
@@ -1788,7 +1830,15 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!supabaseUser?.id) return;
+    if (!supabaseUser?.id) {
+      setFriends([]);
+      setPendingRequests([]);
+      return;
+    }
+
+    // Freunde & ausstehende Anfragen direkt beim App-Start / Login laden
+    loadFriendships(supabaseUser.id);
+
     const channel = supabase
       .channel(`friendships_${supabaseUser.id}`)
       .on('postgres_changes', {
@@ -1797,7 +1847,7 @@ const App: React.FC = () => {
         table: 'friendships',
         filter: `receiver_id=eq.${supabaseUser.id}`
       }, () => {
-        loadFriendships();
+        loadFriendships(supabaseUser.id);
       })
       .on('postgres_changes', {
         event: '*',
@@ -1805,7 +1855,7 @@ const App: React.FC = () => {
         table: 'friendships',
         filter: `requester_id=eq.${supabaseUser.id}`
       }, () => {
-        loadFriendships();
+        loadFriendships(supabaseUser.id);
       })
       .subscribe();
     return () => {
@@ -2050,6 +2100,10 @@ const App: React.FC = () => {
 
         // Teamwiegen (falls Teams vorhanden sind)
         if (teams.length > 0 && Object.keys(teamMemberAccountLinks || {}).length > 0) {
+          const allTeamUserIds = Object.values(teamMemberAccountLinks || {})
+            .map((link: any) => link?.userId)
+            .filter(Boolean);
+
           for (const [memberId, accountLink] of Object.entries(teamMemberAccountLinks || {}) as [string, any][]) {
             const targetUserId = accountLink?.userId;
             if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
@@ -2058,7 +2112,10 @@ const App: React.FC = () => {
               if (member && team) {
                 const avg = member.avg || 0;
                 await saveForPlayer(targetUserId, member.name, avg, team.schnaepse || 0, 'Teamwiegen', {
-                  team_name: team.name
+                  team_name: team.name,
+                  isTeamGame: true,
+                  teamPlayerUserIds: allTeamUserIds,
+                  memberUserIds: allTeamUserIds
                 });
               }
             }
@@ -5971,25 +6028,105 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div>
-                {/* Mode Tabs */}
-                <div className="flex space-x-2 mb-6 border-b border-gray-500/10 pb-4 overflow-x-auto">
-                  {(['Standardspiel', 'Speedwiegen', 'Teamwiegen', 'Achievements', 'Wiegschaften'] as const).map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => {
-                        setActiveRecordsTab(tab);
-                        setSpeedwiegenSizeTab('500ml');
-                      }}
-                      className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap ${
-                        activeRecordsTab === tab 
-                          ? 'text-white shadow-md' 
-                          : 'opacity-50 hover:opacity-100'
-                      }`}
-                      style={{ backgroundColor: activeRecordsTab === tab ? BRAND_COLOR : 'transparent' }}
+                {/* Mode Tabs & Flaschengrößen-Schieberegler */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-gray-500/10 pb-4">
+                  <div className="flex space-x-2 overflow-x-auto pb-1 sm:pb-0">
+                    {([
+                      { id: 'Wiegschaften', label: 'Wiegschaft' },
+                      { id: 'Standardspiel', label: 'Standard' },
+                      { id: 'Speedwiegen', label: 'Speedwiegen' },
+                      { id: 'Teamwiegen', label: 'Teamwiegen' },
+                      { id: 'Achievements', label: 'Achievements' },
+                    ] as const).map(tab => (
+                      <button
+                        key={tab.id}
+                        id={`records-tab-${tab.id.toLowerCase()}`}
+                        onClick={() => {
+                          playGlobalClickSound();
+                          setActiveRecordsTab(tab.id);
+                        }}
+                        className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                          activeRecordsTab === tab.id 
+                            ? 'text-white shadow-md' 
+                            : 'opacity-50 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: activeRecordsTab === tab.id ? BRAND_COLOR : 'transparent' }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Schieberegler an der rechten oberen Ecke wenn Standard oder Speedwiegen aktiv */}
+                  {(activeRecordsTab === 'Standardspiel' || activeRecordsTab === 'Speedwiegen') && (
+                    <div
+                      id="records-volume-toggle-container"
+                      className="flex items-center self-end sm:self-auto gap-2 bg-black/5 dark:bg-white/5 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs"
                     >
-                      {tab}
-                    </button>
-                  ))}
+                      <button
+                        type="button"
+                        id="records-volume-btn-500ml"
+                        onClick={() => {
+                          playGlobalClickSound();
+                          if (activeRecordsTab === 'Standardspiel') setStandardspielSizeTab('500ml');
+                          else setSpeedwiegenSizeTab('500ml');
+                        }}
+                        className={`text-xs font-bold transition-all cursor-pointer ${
+                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '500ml'
+                            ? 'text-[#238183] font-black'
+                            : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        500ml
+                      </button>
+
+                      {/* Schieberegler Switch: Inaktiv (links) = 500ml, Aktiv (rechts) = 0,33L */}
+                      <button
+                        type="button"
+                        id="records-volume-switch"
+                        role="switch"
+                        aria-checked={(activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'}
+                        aria-label="Flaschengröße umschalten zwischen 500ml und 0,33L"
+                        onClick={() => {
+                          playGlobalClickSound();
+                          if (activeRecordsTab === 'Standardspiel') {
+                            setStandardspielSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
+                          } else {
+                            setSpeedwiegenSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
+                          }
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
+                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
+                            ? 'bg-[#238183]'
+                            : (darkMode ? 'bg-slate-700' : 'bg-gray-300')
+                        }`}
+                        title={(activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'Aktiv: 0,33L (Klicken für 500ml)' : 'Inaktiv: 500ml (Klicken für 0,33L)'}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                            (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L' ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+
+                      <button
+                        type="button"
+                        id="records-volume-btn-033l"
+                        onClick={() => {
+                          playGlobalClickSound();
+                          if (activeRecordsTab === 'Standardspiel') setStandardspielSizeTab('0,33L');
+                          else setSpeedwiegenSizeTab('0,33L');
+                        }}
+                        className={`text-xs font-bold transition-all cursor-pointer ${
+                          (activeRecordsTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
+                            ? 'text-[#238183] font-black'
+                            : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        0,33L
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Main Records viewport */}
@@ -6387,26 +6524,7 @@ const App: React.FC = () => {
                     if (activeRecordsTab === 'Speedwiegen') {
                       return (
                         <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
-                          <div className="flex flex-col space-y-1">
-                            <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
-                            <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
-                              {(['500ml', '0,33L'] as const).map(size => (
-                                <button
-                                  key={size}
-                                  onClick={() => setSpeedwiegenSizeTab(size)}
-                                  className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
-                                    speedwiegenSizeTab === size
-                                      ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                      : 'opacity-60 hover:opacity-100'
-                                  }`}
-                                >
-                                  {size === '500ml' ? '500 ml' : '0,33 L'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="text-center py-12 opacity-55">
+                          <div className="text-center py-16 opacity-55">
                             <i className="fas fa-stopwatch text-4xl mb-3 text-amber-500"></i>
                             <p className="font-bold text-sm">Keine Einträge für den {speedwiegenSizeTab === '500ml' ? '500 ml Modus' : '0,33 L Modus'} im Speedwiegen gefunden.</p>
                             <p className="text-[10px] opacity-75 mt-1">Spiele eine Runde Speedwiegen im entsprechenden Format und lade dein Ergebnis hoch!</p>
@@ -6480,27 +6598,8 @@ const App: React.FC = () => {
 
                     return (
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
-                        {/* Modus und Sub-Tabs selector */}
+                        {/* Statistikreiter selector */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-500/5 pb-4">
-                          <div className="flex flex-col space-y-1">
-                            <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
-                            <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
-                              {(['500ml', '0,33L'] as const).map(size => (
-                                <button
-                                  key={size}
-                                  onClick={() => setStandardspielSizeTab(size)}
-                                  className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
-                                    standardspielSizeTab === size
-                                      ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                      : 'opacity-60 hover:opacity-100'
-                                  }`}
-                                >
-                                  {size === '500ml' ? '500 ml' : '0,33 L'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
                           <div className="flex flex-col space-y-1">
                             <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Statistikreiter</span>
                             <div className={`flex flex-wrap gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
@@ -6513,8 +6612,11 @@ const App: React.FC = () => {
                                 return (
                                   <button
                                     key={subTab}
-                                    onClick={() => setActiveStandardSubTab(subTab)}
-                                    className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
+                                    onClick={() => {
+                                      playGlobalClickSound();
+                                      setActiveStandardSubTab(subTab);
+                                    }}
+                                    className={`py-1 px-3 rounded-lg font-black text-xs transition-all cursor-pointer ${
                                       activeStandardSubTab === subTab
                                         ? (darkMode ? 'bg-slate-700 text-white shadow' : 'bg-white text-gray-950 shadow')
                                         : 'opacity-60 hover:opacity-100'
@@ -6537,34 +6639,90 @@ const App: React.FC = () => {
                         ) : (
                           <>
                             {activeStandardSubTab === 'all' && (() => {
-                              const playerNames = Array.from(new Set(filtered.map(item => item.playerName))).sort();
-                              const currentActivePlayer = activePlayerNameTab && playerNames.includes(activePlayerNameTab)
+                              const rawPlayerNames = Array.from(new Set(filtered.map(item => item.playerName).filter(Boolean)));
+
+                              // Freunde Lookup Set
+                              const friendNamesLower = new Set(
+                                (isSignedIn && friends ? friends : []).map(f => (f.name || '').toLowerCase().trim())
+                              );
+                              const myUsernameLower = (supabaseUser?.user_metadata?.username || '').toLowerCase().trim();
+
+                              // Trennung in Freunde (und eigenes Profil) und restliche Spieler
+                              const friendPlayers: string[] = [];
+                              const otherPlayers: string[] = [];
+
+                              rawPlayerNames.forEach(name => {
+                                const trimmedLower = name.toLowerCase().trim();
+                                if (isSignedIn && (friendNamesLower.has(trimmedLower) || (myUsernameLower && trimmedLower === myUsernameLower))) {
+                                  friendPlayers.push(name);
+                                } else {
+                                  otherPlayers.push(name);
+                                }
+                              });
+
+                              // Innerhalb beider Gruppen alphabetisch sortieren
+                              friendPlayers.sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+                              otherPlayers.sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+
+                              const allSortedPlayers = [...friendPlayers, ...otherPlayers];
+                              const currentActivePlayer = activePlayerNameTab && allSortedPlayers.includes(activePlayerNameTab)
                                 ? activePlayerNameTab
-                                : (playerNames[0] || null);
+                                : (allSortedPlayers[0] || null);
 
                               return (
                                 <div className="space-y-4">
-                                  {/* Under-reiter for Names */}
-                                  <div className="flex flex-col space-y-1.5">
-                                    <span className="text-[10px] uppercase font-black opacity-40 tracking-wider">Spieler-Historie (Unterreiter)</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {playerNames.map(name => {
-                                        const isActive = name === currentActivePlayer;
-                                        const pGames = filtered.filter(f => f.playerName === name);
-                                        return (
-                                          <button
-                                            key={name}
-                                            onClick={() => setActivePlayerNameTab(name)}
-                                            className={`py-1.5 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                                              isActive
-                                                ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                                : (darkMode ? 'bg-slate-800 hover:bg-slate-750 text-gray-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-800')
-                                            }`}
-                                          >
-                                            {name} <span className="text-[9px] opacity-60">({pGames.length})</span>
-                                          </button>
-                                        );
-                                      })}
+                                  {/* Dropdown-Auswahl für Spieler */}
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-gray-500/10 bg-black/5 dark:bg-white/5">
+                                    <div className="space-y-0.5">
+                                      <label htmlFor="standardspiel-player-select" className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5 opacity-80">
+                                        <i className="fas fa-user-circle text-amber-500"></i>
+                                        <span>Spieler auswählen ({allSortedPlayers.length})</span>
+                                      </label>
+                                      <p className="text-[11px] opacity-60">
+                                        Wähle einen Spieler aus, um die Spielhistorie und Statistiken anzuzeigen.
+                                      </p>
+                                    </div>
+
+                                    <div className="w-full sm:w-auto min-w-[240px]">
+                                      <select
+                                        id="standardspiel-player-select"
+                                        value={currentActivePlayer || ''}
+                                        onChange={e => {
+                                          playGlobalClickSound();
+                                          setActivePlayerNameTab(e.target.value);
+                                        }}
+                                        className={`w-full py-2.5 px-3.5 rounded-xl font-bold text-xs md:text-sm border cursor-pointer shadow-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+                                          darkMode 
+                                            ? 'bg-slate-800 border-slate-700 text-white' 
+                                            : 'bg-white border-gray-300 text-gray-900'
+                                        }`}
+                                      >
+                                        {isSignedIn && friendPlayers.length > 0 && (
+                                          <optgroup label="👥 Freunde & Eigenes Profil">
+                                            {friendPlayers.map(name => {
+                                              const pGames = filtered.filter(f => f.playerName === name);
+                                              return (
+                                                <option key={name} value={name}>
+                                                  ⭐ {name} ({pGames.length} {pGames.length === 1 ? 'Spiel' : 'Spiele'})
+                                                </option>
+                                              );
+                                            })}
+                                          </optgroup>
+                                        )}
+
+                                        {otherPlayers.length > 0 && (
+                                          <optgroup label={isSignedIn && friendPlayers.length > 0 ? "👤 Alle weiteren Spieler" : "👤 Spieler"}>
+                                            {otherPlayers.map(name => {
+                                              const pGames = filtered.filter(f => f.playerName === name);
+                                              return (
+                                                <option key={name} value={name}>
+                                                  {name} ({pGames.length} {pGames.length === 1 ? 'Spiel' : 'Spiele'})
+                                                </option>
+                                              );
+                                            })}
+                                          </optgroup>
+                                        )}
+                                      </select>
                                     </div>
                                   </div>
 
@@ -7088,27 +7246,6 @@ const App: React.FC = () => {
 
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
-                      {activeRecordsTab === 'Speedwiegen' && (
-                        <div className="flex flex-col space-y-1">
-                          <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Becher-Format</span>
-                          <div className={`flex space-x-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
-                            {(['500ml', '0,33L'] as const).map(size => (
-                              <button
-                                key={size}
-                                onClick={() => setSpeedwiegenSizeTab(size)}
-                                className={`py-1 px-3 rounded-lg font-black text-xs transition-all ${
-                                  speedwiegenSizeTab === size
-                                    ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                    : 'opacity-60 hover:opacity-100'
-                                }`}
-                              >
-                                {size === '500ml' ? '500 ml' : '0,33 L'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
                       {activeRecordsTab === 'Speedwiegen' ? (
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                           <h4 className="text-sm font-black uppercase mb-1 tracking-wider text-yellow-500 flex items-center">

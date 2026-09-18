@@ -112,6 +112,11 @@ export function normalizeGameMode(rawMode?: string | null): string {
   const trimmed = rawMode.trim();
   const lower = trimmed.toLowerCase();
 
+  // Teamwiegen variants
+  if (lower.includes('team')) {
+    return 'Teamwiegen';
+  }
+
   // Speedwiegen variants
   if (lower.includes('speed')) {
     if (lower.includes('0,33') || lower.includes('0.33') || lower.includes('0,3') || lower.includes('330') || lower.includes('33l')) {
@@ -174,10 +179,10 @@ export function calculateUserModeStats(
   userId: string,
   selectedGameMode: string | 'alle'
 ): UserModeStats {
-  const userResults = (gameResults || []).filter(r => {
+  const userResults = (gameResults || []).filter((r: any) => {
     if (!r) return false;
     if (!userId) return true;
-    return !r.user_id || r.user_id === userId;
+    return !r.user_id || r.user_id === userId || r.is_team_player || r.is_team_member;
   });
 
   const modeFiltered = selectedGameMode === 'alle'

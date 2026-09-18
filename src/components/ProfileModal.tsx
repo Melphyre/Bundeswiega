@@ -153,6 +153,22 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     if (!effectiveUserId) return;
     try {
       setLoadingQuests(true);
+      // Quests neu auswerten (Frontend & Backend), damit Teamwiegenspiele & alle Spiele einfließen
+      try {
+        await processQuestsForUser(effectiveUserId);
+      } catch (procErr) {
+        console.warn('Frontend processQuestsForUser warning:', procErr);
+      }
+      try {
+        await fetch('/api/users/evaluate-quests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: effectiveUserId })
+        });
+      } catch {
+        // ignore
+      }
+
       const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
       if (res.ok) {
         const data = await res.json();
@@ -340,6 +356,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [joinQrValue, setJoinQrValue] = useState('');
   const [joinQrExpiry, setJoinQrExpiry] = useState<number | null>(null);
   const [joinQrRemainingSeconds, setJoinQrRemainingSeconds] = useState<number>(300);
+
+  // Flaschengröße Filter für Standardspiel & Speedwiegen (500ml vs 0,33L)
+  const [volumeFilter, setVolumeFilter] = useState<'500ml' | '0,33L'>(() => {
+    if (recordsSubTab && (recordsSubTab.includes('0,33') || recordsSubTab.includes('0.33'))) {
+      return '0,33L';
+    }
+    return '500ml';
+  });
 
   const generateJoinQrCode = () => {
     const currentId = effectiveUserId || supabaseUser?.id;
@@ -655,11 +679,36 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     }
   };
 
-  // Korrigierte Modus-Filterung
+  // Schieberegler für Flaschengröße (500ml vs 0,33L)
+  const getActiveCategory = (tab: string) => {
+    const l = (tab || '').toLowerCase();
+    if (l.includes('standard')) return 'standard';
+    if (l.includes('speed')) return 'speed';
+    if (l.includes('team')) return 'Teamwiegen';
+    return 'alle';
+  };
+
+  const activeCategory = getActiveCategory(recordsSubTab);
+
+  // Ermittle den effektiven Modus für Filterung & Statistik
+  const effectiveGameMode = (() => {
+    if (activeCategory === 'standard') {
+      return volumeFilter === '0,33L' ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)';
+    }
+    if (activeCategory === 'speed') {
+      return volumeFilter === '0,33L' ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+    }
+    if (activeCategory === 'Teamwiegen') {
+      return 'Teamwiegen';
+    }
+    return 'alle';
+  })();
+
+  // Modus-Filterung basierend auf aktuellem Reiter & Flaschengröße
   const filteredGames = (myGameData || []).filter(g => {
     if (!g) return false;
-    if (recordsSubTab === 'alle') return true;
-    return matchesGameMode(g.game_mode, recordsSubTab);
+    if (effectiveGameMode === 'alle') return true;
+    return matchesGameMode(g.game_mode, effectiveGameMode);
   });
 
   const sortedGames = [...filteredGames].sort((a, b) => {
@@ -689,16 +738,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     myGameData,
     myAchievementsData,
     supabaseUser?.id || '',
-    recordsSubTab
+    effectiveGameMode
   );
 
-  // Subtab-Liste für echtes Modus-Filtering
+  // Zusammengefasste Subtab-Liste
   const modeSubTabs = [
     { key: 'alle', label: 'Alle Modis' },
-    { key: 'Standardspiel (500ml)', label: 'Standard (500ml)' },
-    { key: 'Standardspiel (0,33L)', label: 'Standard (0.33L)' },
-    { key: 'Speedwiegen (500ml)', label: 'Speed (500ml)' },
-    { key: 'Speedwiegen (0,33L)', label: 'Speed (0.33L)' },
+    { key: 'standard', label: 'Standardspiel' },
+    { key: 'speed', label: 'Speedwiegen' },
     { key: 'Teamwiegen', label: 'Teamwiegen' }
   ];
 
@@ -1081,19 +1128,91 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             {/* TAB 2: MEINE REKORDE & STATS */}
             {profileTab === 'rekorde' && (
               <div className="space-y-6">
-                {/* Subtabs Modus-Filter */}
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {modeSubTabs.map(sub => (
-                    <button
-                      key={sub.key}
-                      onClick={() => setRecordsSubTab(sub.key)}
-                      className={`px-3 py-1.5 rounded-xl font-bold text-xs uppercase cursor-pointer transition-all flex-shrink-0 ${
-                        recordsSubTab === sub.key ? 'bg-[#238183] text-white shadow' : 'bg-black/10 dark:bg-white/10 hover:opacity-100 opacity-70'
-                      }`}
-                    >
-                      {sub.label}
-                    </button>
-                  ))}
+                {/* Subtabs Modus-Filter & Schieberegler */}
+                <div id="records-subtabs-container" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+                  <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">
+                    {modeSubTabs.map(sub => {
+                      const isSelected = activeCategory === sub.key;
+                      return (
+                        <button
+                          key={sub.key}
+                          id={`records-subtab-${sub.key}`}
+                          type="button"
+                          onClick={() => {
+                            playButtonSound();
+                            setRecordsSubTab(sub.key);
+                          }}
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs uppercase cursor-pointer transition-all flex-shrink-0 ${
+                            isSelected ? 'bg-[#238183] text-white shadow' : 'bg-black/10 dark:bg-white/10 hover:opacity-100 opacity-70'
+                          }`}
+                        >
+                          {sub.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Schieberegler an der rechten oberen Ecke (500ml vs 0,33L) */}
+                  {(activeCategory === 'standard' || activeCategory === 'speed') && (
+                    <div id="records-volume-toggle-container" className="flex items-center self-end sm:self-auto gap-2 bg-black/5 dark:bg-white/5 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs">
+                      <button
+                        type="button"
+                        id="records-volume-btn-500ml"
+                        onClick={() => {
+                          playButtonSound();
+                          setVolumeFilter('500ml');
+                        }}
+                        className={`text-xs font-bold transition-all cursor-pointer ${
+                          volumeFilter === '500ml'
+                            ? 'text-[#238183] font-black'
+                            : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        500ml
+                      </button>
+
+                      {/* Schieberegler Switch: Inaktiv (links) = 500ml, Aktiv (rechts) = 0,33L */}
+                      <button
+                        type="button"
+                        id="records-volume-switch"
+                        role="switch"
+                        aria-checked={volumeFilter === '0,33L'}
+                        aria-label="Flaschengröße umschalten zwischen 500ml und 0,33L"
+                        onClick={() => {
+                          playButtonSound();
+                          setVolumeFilter(prev => prev === '500ml' ? '0,33L' : '500ml');
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
+                          volumeFilter === '0,33L'
+                            ? 'bg-[#238183]'
+                            : (darkMode ? 'bg-slate-700' : 'bg-gray-300')
+                        }`}
+                        title={volumeFilter === '0,33L' ? 'Aktiv: 0,33L (Klicken für 500ml)' : 'Inaktiv: 500ml (Klicken für 0,33L)'}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                            volumeFilter === '0,33L' ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+
+                      <button
+                        type="button"
+                        id="records-volume-btn-033l"
+                        onClick={() => {
+                          playButtonSound();
+                          setVolumeFilter('0,33L');
+                        }}
+                        className={`text-xs font-bold transition-all cursor-pointer ${
+                          volumeFilter === '0,33L'
+                            ? 'text-[#238183] font-black'
+                            : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        0,33L
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Statistik-Karten (Case-Insensitive Check für Speedwiegen) */}
@@ -1104,14 +1223,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="text-2xl font-black text-amber-500">
-                      {recordsSubTab.toLowerCase().includes('speed')
+                      {effectiveGameMode.toLowerCase().includes('speed')
                         ? `${dynamicStats.bestTime ? dynamicStats.bestTime.toFixed(1) + 's' : '-'}`
                         : (dynamicStats.gamesPlayed && dynamicStats.gamesPlayed > 0
                             ? (dynamicStats.totalSchnaepse / dynamicStats.gamesPlayed).toFixed(1)
                             : '0.0')}
                     </div>
                     <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
-                      {recordsSubTab.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Ø Schnäpse pro Spiel'}
+                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Ø Schnäpse pro Spiel'}
                     </div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
@@ -1156,7 +1275,18 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       sortedGames.map((g, idx) => (
                         <div key={g.id || idx} className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${darkMode ? 'bg-slate-800/40 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
                           <div>
-                            <div className="text-sm font-black">{g.game_mode || 'Standard'}</div>
+                            <div className="text-sm font-black flex items-center gap-1.5">
+                              <span>{g.game_mode || 'Standard'}</span>
+                              {g.is_team_player && !g.team_name && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400 font-semibold">Team</span>
+                              )}
+                            </div>
+                            {g.team_name && (
+                              <div className="text-xs text-teal-600 dark:text-teal-400 font-semibold flex items-center gap-1 mt-0.5">
+                                <i className="fas fa-users text-[10px]"></i>
+                                <span>Team: {g.team_name}</span>
+                              </div>
+                            )}
                             {g.tournament_name && (
                               <div className="text-xs text-amber-500 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
                                 <span>🏆</span>

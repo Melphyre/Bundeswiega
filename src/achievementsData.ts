@@ -6,7 +6,7 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   title: string;
   description: string;
   icon: string;
-  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
   earnedTogether?: boolean;
 }> = [
   // Präzision

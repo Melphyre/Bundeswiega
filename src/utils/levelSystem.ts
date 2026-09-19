@@ -391,10 +391,19 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
     return { totalXp: 0, items };
   }
 
-  // 2. Special-Mode: Speedwiegen (Gibt nur pauschal 3 XP, keine weiteren Boni)
+  // 2. Special-Mode: Speedwiegen
   if (params.isSpeedMode) {
     items.push({ label: 'Speedwiegen abgeschlossen', xp: 3, icon: '⏱️' });
-    return { totalXp: 3, items };
+    if (params.avg !== undefined && params.avg !== null) {
+      const avg = Number(params.avg);
+      if (avg <= 1.0) items.push({ label: 'Präzisions-Bonus (Ø ≤ 1,0g)', xp: 4, icon: '🎯' });
+      else if (avg <= 2.5) items.push({ label: 'Präzisions-Bonus (Ø ≤ 2,5g)', xp: 2, icon: '✨' });
+    }
+    if (params.achievementsCount && params.achievementsCount > 0) {
+      items.push({ label: `${params.achievementsCount}x Achievement(s) errungen`, xp: params.achievementsCount * 5, icon: '🏆' });
+    }
+    const totalXp = items.reduce((sum, item) => sum + item.xp, 0);
+    return { totalXp, items };
   }
 
   // 3. Basis-XP für das Beenden eines normalen Spiels
@@ -440,6 +449,11 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
     items.push({ label: '2. Platz am Finaltable', xp: 5, icon: '🥈' });
   } else if (params.tournamentRank === 3) {
     items.push({ label: '3. Platz am Finaltable', xp: 3, icon: '🥉' });
+  }
+
+  // 8. Achievements in dieser Runde
+  if (params.achievementsCount && params.achievementsCount > 0) {
+    items.push({ label: `${params.achievementsCount}x Achievement(s) errungen`, xp: params.achievementsCount * 5, icon: '🏆' });
   }
 
   const totalXp = items.reduce((sum, item) => sum + item.xp, 0);

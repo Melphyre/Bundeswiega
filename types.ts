@@ -105,7 +105,7 @@ export interface Achievement {
   title: string;       // z.B. "Scharfschütze"
   description: string; // z.B. "3x hintereinander unter 5g Abstand"
   icon: string;        // Emoji oder FontAwesome-Klasse
-  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
   earnedBy: string[];  // Spielernamen die es bekommen haben
   earnedTogether?: boolean; // true wenn als Gruppe/Zusammenspiel erlangt
 }

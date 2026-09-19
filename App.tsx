@@ -1622,13 +1622,62 @@ const App: React.FC = () => {
     }
   };
 
+  const fetchAllProfiles = async () => {
+    try {
+      const res = await fetch('/api/users/list');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.users && Array.isArray(data.users) && data.users.length > 0) {
+          setClerkUsers(data.users);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Fehler beim Abruf von /api/users/list:', err);
+    }
+
+    // Direkter Supabase-Fallback, falls die API leer zurückgibt
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, username, email, avatar_url, title, level, xp, name_bg_color')
+          .order('username', { ascending: true });
+        if (!error && data && data.length > 0) {
+          setClerkUsers(data.map((p: any) => ({
+            id: p.id,
+            name: p.username || 'Spieler',
+            username: p.username || 'Spieler',
+            email: p.email || '',
+            role: p.role || 'user',
+            imageUrl: p.avatar_url || '',
+            title: p.title || '',
+            level: p.level || 1,
+            xp: p.xp || 0,
+            name_bg_color: p.name_bg_color || 'none',
+            name_glow: (p as any).name_glow || 'none'
+          })));
+        }
+      } catch (e) {
+        console.error('Fallback profile load error:', e);
+      }
+    }
+  };
+
   // Load clerk users list for player account mapping
   useEffect(() => {
-    fetch('/api/users/list')
-      .then(r => r.json())
-      .then(data => setClerkUsers(data.users || []))
-      .catch(err => console.error('Error fetching clerk users:', err));
+    fetchAllProfiles();
   }, []);
+
+  // Sync profile data when entering setup states
+  useEffect(() => {
+    if (gameState === GameState.PLAYER_NAMES || gameState === GameState.TEAM_SETUP) {
+      fetchAllProfiles();
+      if (supabaseUser?.id) {
+        loadFriendships(supabaseUser.id);
+      }
+    }
+  }, [gameState, supabaseUser?.id]);
 
   // Sync profile data when Profile Modal updates
   const refreshUserData = async () => {
@@ -1637,10 +1686,7 @@ const App: React.FC = () => {
         loadUserProfile(supabaseUser.id),
         loadProfileStats(supabaseUser.id),
         loadFriendships(supabaseUser.id),
-        fetch('/api/users/list')
-          .then(r => r.json())
-          .then(data => setClerkUsers(data.users || []))
-          .catch(() => {})
+        fetchAllProfiles()
       ]);
     }
   };
@@ -1929,9 +1975,11 @@ const App: React.FC = () => {
       .sort((a, b) => {
         const aIsFriend = friendUserIds.has(a.id);
         const bIsFriend = friendUserIds.has(b.id);
+        // Zunächst die Freunde, dann die anderen
         if (aIsFriend && !bIsFriend) return -1;
         if (!aIsFriend && bIsFriend) return 1;
-        return a.name.localeCompare(b.name, 'de');
+        // Alphabetisch sortiert
+        return (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' });
       });
   };
 
@@ -1939,10 +1987,22 @@ const App: React.FC = () => {
     if (!accountId) return;
     const match = clerkUsers.find(u => u.id === accountId);
     if (match) {
-      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, name: match.name, userId: match.id } : p));
+      setPlayers(prev => prev.map(p => p.id === playerId ? {
+        ...p,
+        name: match.name,
+        userId: match.id,
+        imageUrl: match.imageUrl,
+        title: match.title,
+        name_bg_color: match.name_bg_color
+      } : p));
       setPlayerAccountLinks(prev => ({
         ...prev,
-        [playerId]: { userId: match.id, userName: match.name, imageUrl: match.imageUrl }
+        [playerId]: {
+          userId: match.id,
+          userName: match.name,
+          imageUrl: match.imageUrl,
+          name_bg_color: match.name_bg_color
+        }
       }));
     }
   };
@@ -1960,18 +2020,31 @@ const App: React.FC = () => {
     if (!accountId) return;
     const match = clerkUsers.find(u => u.id === accountId);
     if (match) {
-      setTeams(prevTeams => prevTeams.map(t => t.id === teamId ? {
-        ...t,
-        members: t.members.map(m => m.id === memberId ? { ...m, name: match.name } : m)
-      } : t));
+      setPlayers(prevPlayers => prevPlayers.map(p => p.id === memberId ? {
+        ...p,
+        name: match.name,
+        userId: match.id,
+        imageUrl: match.imageUrl,
+        title: match.title,
+        name_bg_color: match.name_bg_color
+      } : p));
       setTeamMemberAccountLinks(prev => ({
         ...prev,
-        [memberId]: { userId: match.id, userName: match.name, imageUrl: match.imageUrl }
+        [memberId]: {
+          userId: match.id,
+          userName: match.name,
+          imageUrl: match.imageUrl,
+          name_bg_color: match.name_bg_color
+        }
       }));
     }
   };
 
   const unlinkTeamMemberAccount = (memberId: string) => {
+    setPlayers(prevPlayers => prevPlayers.map(p => p.id === memberId ? {
+      ...p,
+      userId: undefined
+    } : p));
     setTeamMemberAccountLinks(prev => {
       const copy = { ...prev };
       delete copy[memberId];
@@ -2259,39 +2332,70 @@ const App: React.FC = () => {
         if (activeTournamentTable !== null) return;
 
         // Standardspiel
-        for (const player of players) {
-          const targetUserId = player.userId || playerAccountLinks[player.id]?.userId;
-          if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
-            const avg = calculateAverageDistance(player.id, rounds);
-            await saveForPlayer(
-              targetUserId,
-              player.name,
+        if (teams.length === 0) {
+          const sortedPlayers = [...players].map(p => {
+            const avg = calculateAverageDistance(p.id, rounds);
+            const total = avg + p.schnaepse;
+            return {
+              id: p.id,
+              name: p.name,
               avg,
-              player.schnaepse,
-              isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)'
-            );
+              schnaepse: p.schnaepse,
+              total,
+              isDisqualified: p.isDisqualified
+            };
+          }).sort((a, b) => (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.total - b.total));
+
+          for (const player of players) {
+            const targetUserId = player.userId || playerAccountLinks[player.id]?.userId;
+            if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
+              const avg = calculateAverageDistance(player.id, rounds);
+              const rank = sortedPlayers.findIndex(sp => sp.id === player.id) + 1;
+              await saveForPlayer(
+                targetUserId,
+                player.name,
+                avg,
+                player.schnaepse,
+                isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)',
+                {
+                  rank,
+                  isWinner: rank === 1,
+                  disqualified: player.isDisqualified
+                }
+              );
+            }
           }
         }
 
         // Teamwiegen (falls Teams vorhanden sind)
-        if (teams.length > 0 && Object.keys(teamMemberAccountLinks || {}).length > 0) {
+        if (teams.length > 0) {
+          const sortedTeams = [...teams].sort((a, b) => a.points - b.points);
           const allTeamUserIds = Object.values(teamMemberAccountLinks || {})
             .map((link: any) => link?.userId)
             .filter(Boolean);
 
-          for (const [memberId, accountLink] of Object.entries(teamMemberAccountLinks || {}) as [string, any][]) {
-            const targetUserId = accountLink?.userId;
+          for (const player of players) {
+            const targetUserId = player.userId || teamMemberAccountLinks[player.id]?.userId || playerAccountLinks[player.id]?.userId;
             if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
-              const team = teams.find(t => t.members?.some((m: any) => m.id === memberId));
-              const member = team?.members?.find((m: any) => m.id === memberId);
-              if (member && team) {
-                const avg = member.avg || 0;
-                await saveForPlayer(targetUserId, member.name, avg, team.schnaepse || 0, 'Teamwiegen', {
-                  team_name: team.name,
-                  isTeamGame: true,
-                  teamPlayerUserIds: allTeamUserIds,
-                  memberUserIds: allTeamUserIds
-                });
+              const team = teams.find(t => t.playerIds?.includes(player.id));
+              if (team) {
+                const teamRank = sortedTeams.findIndex(st => st.id === team.id) + 1;
+                const avg = calculateAverageDistance(player.id, rounds);
+                await saveForPlayer(
+                  targetUserId,
+                  player.name || teamMemberAccountLinks[player.id]?.userName || 'Teamspieler',
+                  avg,
+                  team.points || 0,
+                  'Teamwiegen',
+                  {
+                    team_name: team.name,
+                    isTeamGame: true,
+                    teamPlayerUserIds: allTeamUserIds,
+                    memberUserIds: allTeamUserIds,
+                    rank: teamRank,
+                    isWinner: teamRank === 1
+                  }
+                );
               }
             }
           }
@@ -2315,9 +2419,9 @@ const App: React.FC = () => {
             targetSpeedUserId,
             speedPlayerName || 'Gast',
             avg,
-            timeSec,
+            0,
             speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)',
-            { levels: totalLevels, time_seconds: timeSec }
+            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true }
           );
         }
       }
@@ -2498,8 +2602,23 @@ const App: React.FC = () => {
       for (const p of playerResults) {
         try {
           const matchedUser = clerkUsers.find(u => u.username === p.name || u.name === p.name);
-          const resolvedUserId = (playerAccountLinks && playerAccountLinks[p.name]) || (matchedUser ? matchedUser.id : null);
-          await fetch('/api/users/save-game-result', {
+          const origPlayer = players.find(pl => pl.name === p.name || pl.id === (p as any).id);
+          const resolvedUserId = origPlayer?.userId || (origPlayer ? playerAccountLinks[origPlayer.id]?.userId : null) || (playerAccountLinks && playerAccountLinks[p.name]?.userId) || (matchedUser ? matchedUser.id : null);
+          const isFinalTable = targetTableId === 'table_final' || targetTableId === 'Final';
+
+          const playerAchievements = earnedAchievements
+            .filter(a => a.earnedBy?.includes(p.name))
+            .map(a => ({
+              id: a.id,
+              title: a.title,
+              description: a.description || '',
+              icon: a.icon || '',
+              rarity: a.rarity,
+              earnedBy: a.earnedBy,
+              earnedTogether: a.earnedTogether || false
+            }));
+
+          const res = await fetch('/api/users/save-game-result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2513,10 +2632,43 @@ const App: React.FC = () => {
                 is_guest: !resolvedUserId,
                 player_name: p.name,
                 tournament_name: activeTournamentTable.tournamentName,
-                tournament_table: targetTableId
-              }
+                tournament_table: targetTableId,
+                rank: p.rank,
+                isWinner: p.rank === 1,
+                tournamentRank: isFinalTable ? p.rank : undefined,
+                disqualified: (p as any).isDisqualified
+              },
+              achievements: playerAchievements
             })
           });
+
+          if (res.ok) {
+            const json = await res.json();
+            if (json.xpEarned !== undefined) {
+              setRoundPlayerXp(prev => ({
+                ...prev,
+                [p.name]: {
+                  xpEarned: json.xpEarned,
+                  newLevel: json.newLevel || 1,
+                  newXp: json.newXp || 0,
+                  levelUp: json.levelUp,
+                  xpBreakdown: json.xpBreakdown
+                }
+              }));
+            }
+            if (supabaseUser && resolvedUserId === supabaseUser.id) {
+              if (json.newLevel) setUserLevel(json.newLevel);
+              if (json.newXp !== undefined) setUserXp(json.newXp);
+              if (json.levelUp || (json.newLevel && json.newLevel > (userLevel || 1))) {
+                setLevelUpData({
+                  newLevel: json.newLevel,
+                  unlockedTitle: json.unlockedTitle || getTitleForLevel(json.newLevel)
+                });
+                setShowLevelUpModal(true);
+              }
+              loadProfileStats(resolvedUserId);
+            }
+          }
         } catch (e) {
           console.warn('Fehler beim Speichern des Turnierspieler-Ergebnisses:', e);
         }
@@ -3273,6 +3425,28 @@ const App: React.FC = () => {
           setEarnedAchievements(prev => {
             const updated = [...prev];
             finalAch.forEach(ach => {
+              const existing = updated.find(a => a.id === ach.id);
+              if (existing) {
+                ach.earnedBy.forEach(name => {
+                  if (!existing.earnedBy.includes(name)) {
+                    existing.earnedBy.push(name);
+                  }
+                });
+              } else {
+                updated.push({ ...ach });
+              }
+            });
+            return updated;
+          });
+          setShowAchievements(true);
+        }
+      } else if (teams.length > 0) {
+        const finalTeamAch = checkTeamAchievements(teams, players, rounds, true, earnedAchievements);
+        if (finalTeamAch && finalTeamAch.length > 0) {
+          setNewlyEarnedAchievements(finalTeamAch);
+          setEarnedAchievements(prev => {
+            const updated = [...prev];
+            finalTeamAch.forEach(ach => {
               const existing = updated.find(a => a.id === ach.id);
               if (existing) {
                 ach.earnedBy.forEach(name => {
@@ -4589,14 +4763,41 @@ const App: React.FC = () => {
                         className={`flex-1 py-2 px-2 rounded-xl border-2 bg-transparent font-bold text-xs cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
                       >
                         <option value="">Account wählen...</option>
-                        {getAvailableAccountsForDropdown(playerAccountLinks[p.id]?.userId).map(u => {
-                          const isFriend = friends.some(f => f.id === u.id);
-                          return (
+                        {(() => {
+                          const accounts = getAvailableAccountsForDropdown(playerAccountLinks[p.id]?.userId);
+                          const friendUserIds = new Set(friends.map(f => f.id));
+                          const friendsList = accounts.filter(u => friendUserIds.has(u.id));
+                          const othersList = accounts.filter(u => !friendUserIds.has(u.id));
+
+                          if (friendsList.length > 0) {
+                            return (
+                              <>
+                                <optgroup label="⭐ Freunde">
+                                  {friendsList.map(u => (
+                                    <option key={u.id} value={u.id}>
+                                      ⭐ {u.name}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                {othersList.length > 0 && (
+                                  <optgroup label="Weitere Accounts">
+                                    {othersList.map(u => (
+                                      <option key={u.id} value={u.id}>
+                                        {u.name}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </>
+                            );
+                          }
+
+                          return accounts.map(u => (
                             <option key={u.id} value={u.id}>
-                              {isFriend ? `⭐ ${u.name}` : u.name}
+                              {u.name}
                             </option>
-                          );
-                        })}
+                          ));
+                        })()}
                       </select>
                     </div>
                   ) : (
@@ -4776,14 +4977,41 @@ const App: React.FC = () => {
                                 className={`flex-1 py-1.5 px-2 rounded-xl border-2 bg-transparent font-bold text-[11px] cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
                               >
                                 <option value="">Account...</option>
-                                {getAvailableAccountsForDropdown(teamMemberAccountLinks[pid]?.userId).map(u => {
-                                  const isFriend = friends.some(f => f.id === u.id);
-                                  return (
+                                {(() => {
+                                  const accounts = getAvailableAccountsForDropdown(teamMemberAccountLinks[pid]?.userId);
+                                  const friendUserIds = new Set(friends.map(f => f.id));
+                                  const friendsList = accounts.filter(u => friendUserIds.has(u.id));
+                                  const othersList = accounts.filter(u => !friendUserIds.has(u.id));
+
+                                  if (friendsList.length > 0) {
+                                    return (
+                                      <>
+                                        <optgroup label="⭐ Freunde">
+                                          {friendsList.map(u => (
+                                            <option key={u.id} value={u.id}>
+                                              ⭐ {u.name}
+                                            </option>
+                                          ))}
+                                        </optgroup>
+                                        {othersList.length > 0 && (
+                                          <optgroup label="Weitere Accounts">
+                                            {othersList.map(u => (
+                                              <option key={u.id} value={u.id}>
+                                                {u.name}
+                                              </option>
+                                            ))}
+                                          </optgroup>
+                                        )}
+                                      </>
+                                    );
+                                  }
+
+                                  return accounts.map(u => (
                                     <option key={u.id} value={u.id}>
-                                      {isFriend ? `⭐ ${u.name}` : u.name}
+                                      {u.name}
                                     </option>
-                                  );
-                                })}
+                                  ));
+                                })()}
                               </select>
                             </div>
                           ) : (

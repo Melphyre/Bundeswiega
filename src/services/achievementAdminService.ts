@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
 
-export type AchievementRarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type AchievementRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type AchievementCategory = 
   | 'precision'
@@ -1133,6 +1133,12 @@ export function getRarityBadgeProps(rarity: AchievementRarity): {
         label: 'Gewöhnlich',
         badgeClass: 'bg-slate-700/60 text-slate-300 border-slate-600',
         dotColor: 'bg-slate-400'
+      };
+    case 'uncommon':
+      return {
+        label: 'Ungewöhnlich',
+        badgeClass: 'bg-emerald-900/40 text-emerald-300 border-emerald-500/50',
+        dotColor: 'bg-emerald-400'
       };
     case 'rare':
       return {

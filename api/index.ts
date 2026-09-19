@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { calculateGameXp, calculateLevelFromXp, getTitleForLevel } from '../src/utils/levelSystem';
 
 // ─── SUPABASE CLIENT SETUP ───
 let supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -178,7 +179,8 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           earned_with: ach.earnedBy || [],
           earned_together: !!ach.earnedTogether,
           date: safeDate,
-          game_result_id: savedResults?.[0]?.id || null
+          is_guest: true,
+          game_mode: gameMode || 'Standardspiel'
         }));
         await supabaseAdmin.from('achievements').insert(achInserts);
       }
@@ -642,10 +644,11 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     }
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color, name_glow')
+      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color')
       .order('username', { ascending: true });
 
     if (error || !profiles) {
+      console.error("handleUsersList DB error:", error);
       return res.status(200).json({ users: [] });
     }
 
@@ -660,7 +663,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       level: p.level || 1,
       xp: p.xp || 0,
       name_bg_color: p.name_bg_color || 'none',
-      name_glow: p.name_glow || 'none'
+      name_glow: (p as any).name_glow || 'none'
     }));
 
     return res.status(200).json({ users });
@@ -674,22 +677,42 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    if (!supabaseAdmin) return res.status(200).json({ success: false });
+    if (!supabaseAdmin) return res.status(200).json({ success: false, error: 'Database not initialized' });
 
     const payload = parseBody(req);
     const gameResultData = payload.gameResult || payload;
-    const userId = payload.userId || payload.user_id || gameResultData.user_id;
+    const userId = payload.userId || payload.user_id || gameResultData.user_id || null;
     const teamPlayerUserIds = payload.teamPlayerUserIds || gameResultData.teamPlayerUserIds;
     const memberUserIds = payload.memberUserIds || gameResultData.memberUserIds;
     const isTeamFlag = payload.isTeamGame || gameResultData.isTeamGame;
 
-    const insertPayload = {
-      ...gameResultData,
-      user_id: userId || null
+    // Nur Spalten verwenden, die in game_results tatsächlich existieren
+    const insertPayload: Record<string, any> = {
+      user_id: userId,
+      game_mode: gameResultData.game_mode || 'Standardspiel',
+      date: gameResultData.date || new Date().toLocaleDateString('de-DE'),
+      avg: Number(gameResultData.avg) || 0,
+      schnaepse: Number(gameResultData.schnaepse) || 0,
+      total: Number(gameResultData.total) || Math.round(((Number(gameResultData.avg) || 0) + (Number(gameResultData.schnaepse) || 0)) * 100) / 100,
+      is_guest: !userId,
+      player_name: gameResultData.player_name || payload.playerName || null
     };
-    delete (insertPayload as any).teamPlayerUserIds;
-    delete (insertPayload as any).memberUserIds;
-    delete (insertPayload as any).isTeamGame;
+
+    if (gameResultData.levels !== undefined && gameResultData.levels !== null) {
+      insertPayload.levels = Number(gameResultData.levels);
+    }
+    if (gameResultData.time_seconds !== undefined && gameResultData.time_seconds !== null) {
+      insertPayload.time_seconds = Number(gameResultData.time_seconds);
+    }
+    if (gameResultData.team_name) {
+      insertPayload.team_name = String(gameResultData.team_name);
+    }
+    if (gameResultData.tournament_name) {
+      insertPayload.tournament_name = String(gameResultData.tournament_name);
+    }
+    if (gameResultData.tournament_table) {
+      insertPayload.tournament_table = String(gameResultData.tournament_table);
+    }
 
     const { data, error } = await supabaseAdmin
       .from('game_results')
@@ -728,25 +751,149 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // Errungenschaften speichern (ohne ungültige game_result_id Spalte!)
     if (payload.achievements && Array.isArray(payload.achievements) && payload.achievements.length > 0) {
-      const achInserts = payload.achievements.map((ach: any) => ({
-        user_id: userId,
-        game_result_id: savedGameId,
-        achievement_id: ach.id,
-        title: ach.title,
-        description: ach.description,
-        icon: ach.icon,
-        rarity: ach.rarity,
-        earned_with: ach.earnedBy,
-        earned_together: ach.earnedTogether
-      }));
-      await supabaseAdmin.from('achievements').insert(achInserts);
+      try {
+        let existingAchIds = new Set<string>();
+        if (userId) {
+          const { data: existingRows } = await supabaseAdmin
+            .from('achievements')
+            .select('achievement_id')
+            .eq('user_id', userId);
+          if (existingRows) {
+            existingRows.forEach((r: any) => existingAchIds.add(r.achievement_id));
+          }
+        }
+
+        const safeDate = insertPayload.date || new Date().toLocaleDateString('de-DE');
+        const achInserts = payload.achievements
+          .filter((ach: any) => {
+            const achId = ach.id || ach.achievement_id;
+            if (!achId) return false;
+            // Keine doppelten Badges für denselben registrierten User
+            if (userId && existingAchIds.has(achId)) return false;
+            return true;
+          })
+          .map((ach: any) => ({
+            user_id: userId || null,
+            achievement_id: ach.id || ach.achievement_id,
+            title: ach.title || ach.id,
+            description: ach.description || '',
+            icon: ach.icon || '🏆',
+            rarity: ach.rarity || 'common',
+            game_mode: insertPayload.game_mode,
+            earned_with: ach.earnedBy || ach.earned_with || [],
+            earned_together: !!ach.earnedTogether,
+            date: safeDate,
+            is_guest: !userId,
+            player_name: insertPayload.player_name
+          }));
+
+        if (achInserts.length > 0) {
+          const { error: achErr } = await supabaseAdmin.from('achievements').insert(achInserts);
+          if (achErr) {
+            console.error("Fehler beim Speichern in achievements:", achErr);
+          }
+        }
+      } catch (achEx) {
+        console.error("Exception beim Speichern der Achievements:", achEx);
+      }
     }
 
-    // Quests nach Spielergebnis automatisch neu evaluieren
+    // XP & Level-Berechnung sowie Profil-Update für registrierte Nutzer
+    let xpEarned = 0;
+    let newLevel = 1;
+    let newXp = 0;
+    let levelUp = false;
+    let xpBreakdown: any[] = [];
+    let unlockedTitle: string | undefined = undefined;
+
     if (userId) {
-      serverEvaluateQuestsForUser(userId).catch(e => console.warn('Quest evaluation error after game:', e));
+      try {
+        const isSpeed = !!(
+          payload.isSpeedMode ||
+          gameResultData.isSpeedMode ||
+          (insertPayload.game_mode && String(insertPayload.game_mode).toLowerCase().includes('speed'))
+        );
+
+        const rank = gameResultData.rank !== undefined ? Number(gameResultData.rank) : payload.rank;
+        const isWinner = gameResultData.isWinner !== undefined ? Boolean(gameResultData.isWinner) : (rank === 1);
+        const tournamentRank = gameResultData.tournamentRank !== undefined ? Number(gameResultData.tournamentRank) : payload.tournamentRank;
+        const isDisqualified = Boolean(gameResultData.disqualified || gameResultData.isDisqualified || payload.disqualified);
+        const achCount = Array.isArray(payload.achievements) ? payload.achievements.length : 0;
+
+        const xpCalc = calculateGameXp({
+          avg: insertPayload.avg,
+          schnaepse: insertPayload.schnaepse,
+          isWinner,
+          rank,
+          tournamentRank,
+          isSpeedMode: isSpeed,
+          speedLevels: insertPayload.levels,
+          timeSeconds: insertPayload.time_seconds,
+          achievementsCount: achCount,
+          disqualified: isDisqualified
+        });
+
+        xpEarned = xpCalc.totalXp;
+        xpBreakdown = xpCalc.items;
+
+        // Aktuelles Profil abrufen
+        const { data: profile, error: profErr } = await supabaseAdmin
+          .from('profiles')
+          .select('id, xp, level, games_played, games_won, total_points, high_score, title, selected_title')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (profErr) {
+          console.warn('Fehler beim Abrufen des Profils für XP-Update:', profErr);
+        }
+
+        const currentXp = Number(profile?.xp || 0);
+        const currentLevel = Number(profile?.level || 1);
+        const currentGamesPlayed = Number(profile?.games_played || 0);
+        const currentGamesWon = Number(profile?.games_won || 0);
+        const currentTotalPoints = Number(profile?.total_points || 0);
+
+        newXp = currentXp + xpEarned;
+        const levelData = calculateLevelFromXp(newXp);
+        newLevel = levelData.level;
+        levelUp = newLevel > currentLevel;
+
+        const profileUpdates: Record<string, any> = {
+          xp: newXp,
+          level: newLevel,
+          games_played: currentGamesPlayed + 1,
+          games_won: isWinner ? currentGamesWon + 1 : currentGamesWon,
+          total_points: currentTotalPoints + (insertPayload.schnaepse || 0),
+          updated_at: new Date().toISOString()
+        };
+
+        if (levelUp) {
+          unlockedTitle = levelData.title || getTitleForLevel(newLevel);
+          if (!profile?.selected_title || profile.selected_title === profile.title) {
+            profileUpdates.title = unlockedTitle;
+          }
+        }
+
+        const { error: updateErr } = await supabaseAdmin
+          .from('profiles')
+          .update(profileUpdates)
+          .eq('id', userId);
+
+        if (updateErr) {
+          console.error('Fehler beim Aktualisieren der Profil-XP in profiles:', updateErr);
+        } else {
+          console.log(`Profil ${userId} erfolgreich aktualisiert: +${xpEarned} XP (neu: ${newXp} XP, Level ${newLevel})`);
+        }
+
+        // Quests nach Spielergebnis evaluieren
+        serverEvaluateQuestsForUser(userId).catch(e => console.warn('Quest evaluation error after game:', e));
+      } catch (xpErr) {
+        console.error('Fehler bei XP-Berechnung oder Profil-Update:', xpErr);
+      }
     }
+
     if (isTeamGame && payload.teamPlayerUserIds && Array.isArray(payload.teamPlayerUserIds)) {
       for (const tpId of payload.teamPlayerUserIds) {
         if (tpId && tpId !== userId) {
@@ -757,9 +904,12 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ 
       success: true, 
-      xpEarned: 0, 
-      newLevel: 1, 
-      newXp: 0 
+      xpEarned, 
+      newLevel, 
+      newXp,
+      levelUp,
+      xpBreakdown,
+      unlockedTitle
     });
   } catch (err: any) {
     console.error("handleSaveGameResult Crash:", err);
@@ -1282,7 +1432,7 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
     if (memberUserIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
-        .select('id, username, avatar_url, title, level, xp, name_bg_color, name_glow')
+        .select('id, username, avatar_url, title, level, xp, name_bg_color')
         .in('id', memberUserIds);
 
       (profiles || []).forEach((p: any) => {

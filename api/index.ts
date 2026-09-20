@@ -1319,66 +1319,60 @@ function isStandardspiel500(rawMode?: string | null): boolean {
   return lower.includes('standard') || lower.includes('500') || lower === 'standardspiel';
 }
 
-// 16.1 GET /api/guilds/my-guild
-async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
+// ─── 1. EIGENE WIEGSCHAFT LADEN (GET /api/guilds/my-guild) ───
+export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const userId = safeQueryParam(req, 'userId') || parseBody(req).userId;
+    const rawUserId = req.query.userId || req.query.user_id || safeQueryParam(req, 'userId') || safeQueryParam(req, 'user_id') || parseBody(req).userId;
+    const userId = Array.isArray(rawUserId) ? rawUserId[0] : (typeof rawUserId === 'string' ? rawUserId : null);
+
     if (!userId) {
-      return res.status(400).json({ inGuild: false, error: 'userId ist erforderlich' });
-    }
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
-    if (!isUuid) {
-      return res.status(200).json({ inGuild: false, guild: null, myRole: null, members: [], stats: null, pendingInvites: [] });
-    }
-    if (!supabaseAdmin) {
-      return res.status(200).json({ inGuild: false, guild: null, myRole: null, members: [], stats: null, pendingInvites: [] });
+      return res.status(200).json({ success: true, inGuild: false, guild: null, myRole: null, members: [], stats: null, pendingInvites: [] });
     }
 
-    // Prüfen, ob der Nutzer in einer Wiegschaft ist
-    const { data: memberEntry, error: memberErr } = await supabaseAdmin
+    if (!supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'Database not initialized', inGuild: false, guild: null, myRole: null, members: [], stats: null, pendingInvites: [] });
+    }
+
+    // A) Mitgliedschaft prüfen
+    const { data: memberRecord, error: memberErr } = await supabaseAdmin
       .from('guild_members')
-      .select('*')
+      .select('guild_id, role, joined_at')
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (memberErr) {
-      console.warn('handleGetMyGuild member check error:', memberErr);
+    // Offene Einladungen laden (für Einladungs-Übersicht)
+    const { data: rawInvites } = await supabaseAdmin
+      .from('guild_invites')
+      .select('id, guild_id, status, type, created_at')
+      .eq('user_id', userId)
+      .eq('status', 'pending');
+
+    const invites = rawInvites || [];
+    let enrichedInvites: any[] = [];
+    if (invites.length > 0) {
+      const guildIds = Array.from(new Set(invites.map((i: any) => i.guild_id)));
+      const { data: guildList } = await supabaseAdmin
+        .from('guilds')
+        .select('id, name, tag, description, logo_url')
+        .in('id', guildIds);
+
+      const gMap: Record<string, any> = {};
+      (guildList || []).forEach((g: any) => { gMap[g.id] = g; });
+
+      enrichedInvites = invites.map((inv: any) => ({
+        id: inv.id,
+        guild_id: inv.guild_id,
+        status: inv.status,
+        type: inv.type,
+        created_at: inv.created_at,
+        guild: gMap[inv.guild_id] || { name: 'Unbekannte Wiegschaft', tag: '???' }
+      }));
     }
 
-    // Zustand A: Nutzer ist in KEINER Wiegschaft
-    if (!memberEntry) {
-      // Offene Einladungen für diesen Nutzer laden
-      const { data: rawInvites } = await supabaseAdmin
-        .from('guild_invites')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'pending');
-
-      const invites = rawInvites || [];
-      let enrichedInvites: any[] = [];
-
-      if (invites.length > 0) {
-        const guildIds = Array.from(new Set(invites.map((i: any) => i.guild_id)));
-        const { data: guildList } = await supabaseAdmin
-          .from('guilds')
-          .select('id, name, tag, description, logo_url')
-          .in('id', guildIds);
-
-        const gMap: Record<string, any> = {};
-        (guildList || []).forEach((g: any) => { gMap[g.id] = g; });
-
-        enrichedInvites = invites.map((inv: any) => ({
-          id: inv.id,
-          guild_id: inv.guild_id,
-          status: inv.status,
-          type: inv.type,
-          created_at: inv.created_at,
-          guild: gMap[inv.guild_id] || { name: 'Unbekannte Wiegschaft', tag: '???' }
-        }));
-      }
-
+    if (memberErr || !memberRecord) {
       return res.status(200).json({
+        success: true,
         inGuild: false,
         guild: null,
         myRole: null,
@@ -1388,69 +1382,61 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Zustand B: Nutzer IST in einer Wiegschaft
-    const guildId = memberEntry.guild_id;
-    const myRole = memberEntry.role || 'member';
-
-    // Wiegschaftsdaten abrufen
+    // B) Wiegschafts-Details laden (Spalten aus der guilds-Tabelle)
     const { data: guild, error: guildErr } = await supabaseAdmin
       .from('guilds')
-      .select('*')
-      .eq('id', guildId)
+      .select('id, name, tag, description, logo_url, captain_id, level, xp, created_at')
+      .eq('id', memberRecord.guild_id)
       .maybeSingle();
 
     if (guildErr || !guild) {
       return res.status(200).json({
+        success: true,
         inGuild: false,
         guild: null,
         myRole: null,
         members: [],
         stats: null,
-        pendingInvites: []
+        pendingInvites: enrichedInvites
       });
     }
 
-    // Alle Mitglieder der Wiegschaft abrufen
-    const { data: rawMembers } = await supabaseAdmin
+    // C) Alle Mitglieder inklusive ihrer Profile-Informationen abrufen
+    const { data: membersRaw } = await supabaseAdmin
       .from('guild_members')
-      .select('*')
-      .eq('guild_id', guildId)
+      .select('id, guild_id, user_id, role, joined_at')
+      .eq('guild_id', guild.id)
       .order('joined_at', { ascending: true });
 
-    const memberList = rawMembers || [];
-    const memberUserIds = memberList.map((m: any) => m.user_id);
-
-    // Profile aller Mitglieder abrufen
-    let profileMap: Record<string, any> = {};
-    if (memberUserIds.length > 0) {
+    let members: any[] = [];
+    const memberUserIds = (membersRaw || []).map(m => m.user_id);
+    if (membersRaw && membersRaw.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
-        .select('id, username, avatar_url, title, level, xp, name_bg_color')
+        .select('id, username, display_name, avatar_url, title, level, xp, name_bg_color, name_glow')
         .in('id', memberUserIds);
 
-      (profiles || []).forEach((p: any) => {
-        if (p?.id) profileMap[p.id] = p;
+      const profileMap = new Map(profiles?.map((p: any) => [p.id, p]) || []);
+
+      members = membersRaw.map((m: any) => {
+        const prof: any = profileMap.get(m.user_id);
+        return {
+          id: m.id,
+          user_id: m.user_id,
+          role: m.role,
+          joined_at: m.joined_at,
+          username: prof?.username || prof?.display_name || 'Spieler',
+          avatar_url: prof?.avatar_url || null,
+          title: prof?.title || '',
+          level: prof?.level || 1,
+          xp: prof?.xp || 0,
+          name_bg_color: prof?.name_bg_color || 'none',
+          name_glow: prof?.name_glow || 'none'
+        };
       });
     }
 
-    const members = memberList.map((m: any) => {
-      const prof = profileMap[m.user_id] || {};
-      return {
-        id: m.id,
-        user_id: m.user_id,
-        role: m.role,
-        joined_at: m.joined_at,
-        username: prof.username || 'Spieler',
-        avatar_url: prof.avatar_url || '',
-        title: prof.title || '',
-        level: prof.level || 1,
-        xp: prof.xp || 0,
-        name_bg_color: prof.name_bg_color || 'none',
-        name_glow: prof.name_glow || 'none'
-      };
-    });
-
-    // Aggregierte Statistiken aus allen Standardspiel (500ml) Spielen der Mitglieder berechnen
+    // Aggregierte Statistiken (Standardspiel 500ml aller Mitglieder)
     let stats = {
       gamesCount: 0,
       avg: 0,
@@ -1466,7 +1452,6 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
         .in('user_id', memberUserIds);
 
       const allGames = memberGames || [];
-      // Nur Standardspiel 500 ml aller Mitglieder summieren & werten
       const games = allGames.filter((g: any) => isStandardspiel500(g.game_mode));
 
       if (games.length > 0) {
@@ -1488,16 +1473,45 @@ async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
+      success: true,
       inGuild: true,
-      guild,
-      myRole,
+      guild: {
+        ...guild,
+        myRole: memberRecord.role,
+        members
+      },
+      myRole: memberRecord.role,
       members,
       stats,
       pendingInvites: []
     });
   } catch (err: any) {
-    console.error("handleGetMyGuild Crash:", err);
-    return res.status(500).json({ inGuild: false, error: err?.message || 'Fehler beim Laden der Wiegschaft' });
+    console.error("Crash bei handleGetMyGuild:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Server error', guild: null, inGuild: false, members: [], stats: null, pendingInvites: [] });
+  }
+}
+
+// ─── 2. ALLE WIEGSCHAFTEN SUCHEN / LISTIERN (GET /api/guilds/list) ───
+export async function handleListGuilds(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    if (!supabaseAdmin) {
+      return res.status(200).json({ success: false, guilds: [] });
+    }
+
+    const { data: guilds, error } = await supabaseAdmin
+      .from('guilds')
+      .select('id, name, tag, description, logo_url, captain_id, level, xp, created_at')
+      .order('xp', { ascending: false });
+
+    if (error) {
+      return res.status(200).json({ success: false, error: error.message, guilds: [] });
+    }
+
+    return res.status(200).json({ success: true, guilds: guilds || [] });
+  } catch (err: any) {
+    console.error("Crash bei handleListGuilds:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Server error', guilds: [] });
   }
 }
 
@@ -1532,29 +1546,27 @@ async function ensureAvatarStorageUrl(logoUrlOrData: string, prefix = 'guilds'):
   }
 }
 
-// 16.2 POST /api/guilds/create
-async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
+// ─── 3. NEUE WIEGSCHAFT ERSTELLEN (POST /api/guilds/create) ───
+export async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Datenbank nicht verfügbar' });
+    if (!supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'Database not initialized' });
+    }
 
     const payload = parseBody(req);
-    const userId = payload.userId;
-    const name = (payload.name || '').trim();
-    const tag = (payload.tag || '').trim().toUpperCase();
-    const description = (payload.description || '').trim();
-    const rawLogoUrl = (payload.logo_url || '').trim();
-    const logo_url = await ensureAvatarStorageUrl(rawLogoUrl, `guilds/user_${userId}`);
+    const { userId, name, tag, description, logoUrl, logo_url } = payload;
 
     if (!userId || !name || !tag) {
-      return res.status(400).json({ success: false, error: 'Name, Kürzel und Benutzer-ID sind erforderlich' });
+      return res.status(200).json({ success: false, error: 'Name, Tag und User-ID sind erforderlich' });
     }
 
-    if (tag.length > 5) {
-      return res.status(400).json({ success: false, error: 'Das Kürzel/Tag darf maximal 5 Zeichen lang sein.' });
+    const cleanTag = String(tag).trim().toUpperCase();
+    if (cleanTag.length > 5) {
+      return res.status(200).json({ success: false, error: 'Das Kürzel darf maximal 5 Zeichen lang sein.' });
     }
 
-    // Prüfen, ob der Nutzer bereits in einer Wiegschaft ist
+    // A) Prüfen, ob der Nutzer bereits in einer Wiegschaft ist
     const { data: existingMember } = await supabaseAdmin
       .from('guild_members')
       .select('id')
@@ -1562,53 +1574,50 @@ async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
 
     if (existingMember) {
-      return res.status(400).json({ success: false, error: 'Du bist bereits Mitglied einer Wiegschaft.' });
+      return res.status(200).json({ success: false, error: 'Du bist bereits Mitglied einer Wiegschaft' });
     }
 
     // Prüfen, ob Name oder Kürzel bereits vergeben sind
     const { data: duplicateCheck } = await supabaseAdmin
       .from('guilds')
       .select('id, name, tag')
-      .or(`name.ilike.${encodeURIComponent(name)},tag.ilike.${encodeURIComponent(tag)}`)
+      .or(`name.ilike.${encodeURIComponent(String(name).trim())},tag.ilike.${encodeURIComponent(cleanTag)}`)
       .limit(1);
 
     if (duplicateCheck && duplicateCheck.length > 0) {
-      return res.status(400).json({ success: false, error: 'Eine Wiegschaft mit diesem Namen oder Kürzel existiert bereits.' });
+      return res.status(200).json({ success: false, error: 'Eine Wiegschaft mit diesem Namen oder Kürzel existiert bereits.' });
     }
 
-    // Neue Wiegschaft anlegen
-    const { data: newGuild, error: createErr } = await supabaseAdmin
+    const rawLogo = (logo_url || logoUrl || '👑').trim();
+    const effectiveLogo = await ensureAvatarStorageUrl(rawLogo, `guilds/user_${userId}`);
+
+    // B) Wiegschaft in 'guilds' anlegen
+    const { data: newGuild, error: guildErr } = await supabaseAdmin
       .from('guilds')
-      .insert({
-        name,
-        tag,
-        description,
-        logo_url,
+      .insert([{
+        name: String(name).trim(),
+        tag: cleanTag,
+        description: description ? String(description).trim() : '',
+        logo_url: effectiveLogo || '👑',
         captain_id: userId,
         level: 1,
         xp: 0
-      })
+      }])
       .select()
       .single();
 
-    if (createErr || !newGuild) {
-      throw createErr || new Error('Wiegschaft konnte nicht erstellt werden');
+    if (guildErr || !newGuild) {
+      return res.status(200).json({ success: false, error: guildErr?.message || 'Wiegschaft konnte nicht erstellt werden' });
     }
 
-    // Ersteller als 'captain' eintragen
-    const { error: memberErr } = await supabaseAdmin
-      .from('guild_members')
-      .insert({
-        guild_id: newGuild.id,
-        user_id: userId,
-        role: 'captain'
-      });
+    // C) Captain in 'guild_members' eintragen
+    await supabaseAdmin.from('guild_members').insert([{
+      guild_id: newGuild.id,
+      user_id: userId,
+      role: 'captain'
+    }]);
 
-    if (memberErr) {
-      console.error('Fehler beim Eintragen des Kapitäns:', memberErr);
-    }
-
-    // Eventuell bestehende offene Einladungen an diesen Nutzer löschen
+    // Offene Einladungen an diesen Nutzer löschen
     await supabaseAdmin
       .from('guild_invites')
       .delete()
@@ -1616,8 +1625,8 @@ async function handleCreateGuild(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ success: true, guild: newGuild });
   } catch (err: any) {
-    console.error("handleCreateGuild Crash:", err);
-    return res.status(500).json({ success: false, error: err?.message || 'Fehler beim Erstellen der Wiegschaft' });
+    console.error("Crash bei handleCreateGuild:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Server error' });
   }
 }
 
@@ -1713,45 +1722,57 @@ async function handleDeleteGuild(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// 16.5 POST /api/guilds/invite
-async function handleInviteToGuild(req: VercelRequest, res: VercelResponse) {
+// ─── 4. EINLADUNG / ANFRAGE HANDHABEN (POST /api/guilds/invite) ───
+export async function handleGuildInvite(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    if (!supabaseAdmin) return res.status(500).json({ success: false, error: 'Datenbank nicht verfügbar' });
-
     const payload = parseBody(req);
-    const { userId, guildId, username } = payload;
+    const { guildId, userId, type, status, username } = payload; // type: 'invite' | 'request', status: 'pending' | 'accepted' | 'declined'
 
-    if (!userId || !guildId || !username) {
-      return res.status(400).json({ success: false, error: 'userId, guildId und username sind erforderlich' });
+    if (!guildId) {
+      return res.status(200).json({ success: false, error: 'Guild ID fehlt' });
     }
 
-    // Berechtigungsprüfung: Kapitän & Vize-Kapitän dürfen einladen
-    const { data: caller } = await supabaseAdmin
-      .from('guild_members')
-      .select('role')
-      .eq('guild_id', guildId)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (!caller || (caller.role !== 'captain' && caller.role !== 'vize_captain')) {
-      return res.status(403).json({ success: false, error: 'Nur Kapitäne und Vize-Kapitäne dürfen Einladungen versenden.' });
+    if (!supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'Database not initialized' });
     }
 
-    // Zielnutzer in profiles suchen
-    const { data: targetProfile, error: profileErr } = await supabaseAdmin
-      .from('profiles')
-      .select('id, username')
-      .ilike('username', username.trim())
-      .maybeSingle();
+    let targetUserId = userId;
 
-    if (profileErr || !targetProfile) {
-      return res.status(404).json({ success: false, error: `Kein Spieler mit dem Namen "${username}" gefunden.` });
+    // Falls ein Username übergeben wurde (wie beim Einladen im WiegschaftenTab)
+    if (username) {
+      // Berechtigungsprüfung wenn von einem Kapitän/Vize eingeladen wird
+      if (userId) {
+        const { data: caller } = await supabaseAdmin
+          .from('guild_members')
+          .select('role')
+          .eq('guild_id', guildId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (caller && caller.role !== 'captain' && caller.role !== 'vize_captain') {
+          return res.status(200).json({ success: false, error: 'Nur Kapitäne und Vize-Kapitäne dürfen Einladungen versenden.' });
+        }
+      }
+
+      const { data: targetProfile, error: profileErr } = await supabaseAdmin
+        .from('profiles')
+        .select('id, username')
+        .ilike('username', String(username).trim())
+        .maybeSingle();
+
+      if (profileErr || !targetProfile) {
+        return res.status(200).json({ success: false, error: `Kein Spieler mit dem Namen "${username}" gefunden.` });
+      }
+
+      targetUserId = targetProfile.id;
     }
 
-    const targetUserId = targetProfile.id;
+    if (!targetUserId) {
+      return res.status(200).json({ success: false, error: 'Guild ID und User ID fehlen' });
+    }
 
-    // Prüfen, ob Zielnutzer bereits in einer Wiegschaft ist
+    // Prüfen, ob der Zielnutzer bereits in einer Wiegschaft ist
     const { data: targetMember } = await supabaseAdmin
       .from('guild_members')
       .select('guild_id')
@@ -1759,10 +1780,10 @@ async function handleInviteToGuild(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
 
     if (targetMember) {
-      return res.status(400).json({ success: false, error: `"${targetProfile.username}" ist bereits Mitglied einer Wiegschaft.` });
+      return res.status(200).json({ success: false, error: 'Der Spieler ist bereits Mitglied einer Wiegschaft.' });
     }
 
-    // Prüfen, ob bereits eine offene Einladung vorliegt
+    // Prüfen, ob bereits eine offene Einladung/Anfrage existiert
     const { data: existingInvite } = await supabaseAdmin
       .from('guild_invites')
       .select('id, status')
@@ -1772,27 +1793,35 @@ async function handleInviteToGuild(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
 
     if (existingInvite) {
-      return res.status(400).json({ success: false, error: `Es liegt bereits eine offene Einladung an "${targetProfile.username}" vor.` });
+      return res.status(200).json({ success: false, error: 'Es liegt bereits eine offene Einladung/Anfrage vor.' });
     }
 
-    // Einladung eintragen
-    const { error: inviteErr } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('guild_invites')
-      .insert({
+      .insert([{
         guild_id: guildId,
         user_id: targetUserId,
-        status: 'pending',
-        type: 'invite'
-      });
+        status: status || 'pending',
+        type: type || (username ? 'invite' : 'request')
+      }])
+      .select()
+      .single();
 
-    if (inviteErr) throw inviteErr;
+    if (error) {
+      return res.status(200).json({ success: false, error: error.message });
+    }
 
-    return res.status(200).json({ success: true, message: `Einladung an "${targetProfile.username}" versendet!` });
+    return res.status(200).json({
+      success: true,
+      invite: data,
+      message: username ? `Einladung an "${username}" versendet!` : 'Einladung/Anfrage erfolgreich übermittelt!'
+    });
   } catch (err: any) {
-    console.error("handleInviteToGuild Crash:", err);
-    return res.status(500).json({ success: false, error: err?.message || 'Fehler beim Versenden der Einladung' });
+    console.error("Crash bei handleGuildInvite:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Server error' });
   }
 }
+export const handleInviteToGuild = handleGuildInvite;
 
 // 16.6 POST /api/guilds/respond-invite
 async function handleRespondInvite(req: VercelRequest, res: VercelResponse) {
@@ -2171,6 +2200,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 4. Wiegschaften (Gilden) Routen
     if (pathname === '/guilds/my-guild') {
       return await handleGetMyGuild(req, res);
+    }
+    if (pathname === '/guilds/list') {
+      return await handleListGuilds(req, res);
     }
     if (pathname === '/guilds/create') {
       return await handleCreateGuild(req, res);

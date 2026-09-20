@@ -553,85 +553,63 @@ async function serverEvaluateQuestsForUser(userId: string) {
   }
 }
 
-// ─── 4. GET PROFILE DATA (GET /api/users/profile-data) ───
+// ─── GET USER PROFILE DATA (GET /api/users/profile-data) ───
 async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const userId = safeQueryParam(req, 'userId');
+    const rawUserId = req.query.userId || req.query.user_id || safeQueryParam(req, 'userId') || safeQueryParam(req, 'user_id');
+    const userId = Array.isArray(rawUserId) ? rawUserId[0] : (typeof rawUserId === 'string' ? rawUserId : null);
+
     if (!userId) {
-      return res.status(400).json({ error: 'userId is required', profile: null, gameResults: [], achievements: [] });
+      return res.status(200).json({ success: false, error: 'User ID missing', profile: null });
     }
 
     if (!supabaseAdmin) {
-      return res.status(200).json({
-        profile: null, gameResults: [], achievements: [], questProgress: [], quests: [], userTitles: [], titles: []
-      });
+      return res.status(200).json({ success: false, error: 'Database not initialized', profile: null });
     }
 
-    // Vor dem Abruf Quests serverseitig evaluieren, damit alle Teamwiegenspiele & Spiele direkt einfließen
+    // 1. Profil abrufen
+    const { data: profile, error: profErr } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profErr) {
+      console.error("Fehler beim Abrufen von profiles:", profErr);
+      return res.status(200).json({ success: false, error: profErr.message, profile: null });
+    }
+
+    if (!profile) {
+      return res.status(200).json({ success: false, error: 'Profil nicht gefunden', profile: null });
+    }
+
+    // 2. Erreichte Titles abrufen (falls user_titles existiert)
+    let unlockedTitles: string[] = [];
     try {
-      await serverEvaluateQuestsForUser(userId);
-    } catch (evalErr) {
-      console.warn('serverEvaluateQuestsForUser in handleGetProfileData warning:', evalErr);
-    }
-
-    const [profRes, resultsRes, teamPlayersRes, achRes, questRes, titlesRes] = await Promise.all([
-      supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
-      supabaseAdmin.from('game_results').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabaseAdmin.from('teamwiegen_players').select('game_id').eq('user_id', userId),
-      supabaseAdmin.from('achievements').select('*').eq('user_id', userId),
-      supabaseAdmin.from('user_quest_progress').select('*').eq('user_id', userId),
-      supabaseAdmin.from('user_titles').select('*').eq('user_id', userId)
-    ]);
-
-    let mergedGameResults: any[] = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
-    const teamGameIds = (teamPlayersRes?.data || []).map((tp: any) => tp.game_id).filter(Boolean);
-
-    if (teamGameIds.length > 0) {
-      try {
-        const { data: teamGames } = await supabaseAdmin
-          .from('game_results')
-          .select('*')
-          .in('id', teamGameIds);
-
-        if (Array.isArray(teamGames) && teamGames.length > 0) {
-          const existingIds = new Set(mergedGameResults.map(r => r.id));
-          for (const tg of teamGames) {
-            if (!existingIds.has(tg.id)) {
-              mergedGameResults.push({
-                ...tg,
-                is_team_player: true
-              });
-              existingIds.add(tg.id);
-            }
-          }
-        }
-      } catch (tpErr) {
-        console.warn('teamGames fetch warning in handleGetProfileData:', tpErr);
+      const { data: titlesData } = await supabaseAdmin
+        .from('user_titles')
+        .select('title')
+        .eq('user_id', userId);
+      
+      if (titlesData) {
+        unlockedTitles = titlesData.map((t: any) => t.title);
       }
+    } catch (tErr) {
+      console.warn("Konnte user_titles nicht laden:", tErr);
     }
 
-    // Chronologisch absteigend sortieren
-    mergedGameResults.sort((a, b) => {
-      const timeA = new Date(a.created_at || (a.date ? a.date.split('.').reverse().join('-') : 0)).getTime();
-      const timeB = new Date(b.created_at || (b.date ? b.date.split('.').reverse().join('-') : 0)).getTime();
-      return timeB - timeA;
+    return res.status(200).json({
+      success: true,
+      profile: {
+        ...profile,
+        unlockedTitles
+      }
     });
 
-    return res.status(200).json({
-      profile: profRes?.data || null,
-      gameResults: mergedGameResults,
-      achievements: achRes?.data || [],
-      questProgress: questRes?.data || [],
-      quests: [],
-      userTitles: titlesRes?.data || [],
-      titles: []
-    });
   } catch (err: any) {
-    console.error("handleGetProfileData Crash:", err);
-    return res.status(200).json({
-      profile: null, gameResults: [], achievements: [], questProgress: [], quests: [], userTitles: [], titles: []
-    });
+    console.error("Crash bei handleGetProfileData:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Server-Fehler beim Laden des Profils', profile: null });
   }
 }
 

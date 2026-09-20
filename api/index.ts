@@ -677,7 +677,9 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    if (!supabaseAdmin) return res.status(200).json({ success: false, error: 'Database not initialized' });
+    if (!supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'Database not initialized' });
+    }
 
     const payload = parseBody(req);
     const gameResultData = payload.gameResult || payload;
@@ -685,8 +687,9 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     const teamPlayerUserIds = payload.teamPlayerUserIds || gameResultData.teamPlayerUserIds;
     const memberUserIds = payload.memberUserIds || gameResultData.memberUserIds;
     const isTeamFlag = payload.isTeamGame || gameResultData.isTeamGame;
+    const isTeamGame = isTeamFlag || (gameResultData.game_mode && String(gameResultData.game_mode).includes('Team'));
 
-    // Nur Spalten verwenden, die in game_results tatsächlich existieren
+    // 1. Nutzdaten für game_results zusammenbauen
     const insertPayload: Record<string, any> = {
       user_id: userId,
       game_mode: gameResultData.game_mode || 'Standardspiel',
@@ -698,6 +701,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       player_name: gameResultData.player_name || payload.playerName || null
     };
 
+    // Optionale Felder explizit prüfen und korrekt zuweisen
     if (gameResultData.levels !== undefined && gameResultData.levels !== null) {
       insertPayload.levels = Number(gameResultData.levels);
     }
@@ -714,44 +718,37 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       insertPayload.tournament_table = String(gameResultData.tournament_table);
     }
 
+    // Speichern in game_results
     const { data, error } = await supabaseAdmin
       .from('game_results')
-      .insert(insertPayload)
+      .insert([insertPayload])
       .select();
 
     if (error) {
       console.error("Fehler beim Speichern in game_results:", error);
-      return res.status(400).json({ success: false, error: error.message });
+      return res.status(200).json({ success: false, error: error.message });
     }
 
     const savedGameId = data?.[0]?.id;
 
-    // Falls Spielmodus Teamwiegen ist, Verknüpfung in teamwiegen_players herstellen
-    const isTeamGame = (insertPayload.game_mode && String(insertPayload.game_mode).toLowerCase().includes('team')) || isTeamFlag;
-    if (savedGameId && isTeamGame) {
-      try {
-        const uidsToLink = new Set<string>();
-        if (userId) uidsToLink.add(userId);
-        if (Array.isArray(teamPlayerUserIds)) {
-          teamPlayerUserIds.forEach((uid: string) => { if (uid) uidsToLink.add(uid); });
-        }
-        if (Array.isArray(memberUserIds)) {
-          memberUserIds.forEach((uid: string) => { if (uid) uidsToLink.add(uid); });
-        }
+    // 2. Teamwiegen: Verknüpfung in 'teamwiegen_players'
+    if (isTeamGame && savedGameId) {
+      const allMembers = Array.from(new Set([
+        ...(teamPlayerUserIds || []),
+        ...(memberUserIds || []),
+        ...(userId ? [userId] : [])
+      ])).filter(Boolean);
 
-        if (uidsToLink.size > 0) {
-          const links = Array.from(uidsToLink).map(uid => ({
-            game_id: savedGameId,
-            user_id: uid
-          }));
-          await supabaseAdmin.from('teamwiegen_players').insert(links);
-        }
-      } catch (teamPlayerErr) {
-        console.warn('teamwiegen_players insert warning:', teamPlayerErr);
+      if (allMembers.length > 0) {
+        const teamRows = allMembers.map(uid => ({
+          game_id: savedGameId,
+          user_id: uid
+        }));
+        await supabaseAdmin.from('teamwiegen_players').insert(teamRows);
       }
     }
 
-    // Errungenschaften speichern (ohne ungültige game_result_id Spalte!)
+    // 3. Errungenschaften in 'achievements' speichern
     if (payload.achievements && Array.isArray(payload.achievements) && payload.achievements.length > 0) {
       try {
         let existingAchIds = new Set<string>();
@@ -766,28 +763,34 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         }
 
         const safeDate = insertPayload.date || new Date().toLocaleDateString('de-DE');
+        
         const achInserts = payload.achievements
           .filter((ach: any) => {
             const achId = ach.id || ach.achievement_id;
             if (!achId) return false;
-            // Keine doppelten Badges für denselben registrierten User
             if (userId && existingAchIds.has(achId)) return false;
             return true;
           })
-          .map((ach: any) => ({
-            user_id: userId || null,
-            achievement_id: ach.id || ach.achievement_id,
-            title: ach.title || ach.id,
-            description: ach.description || '',
-            icon: ach.icon || '🏆',
-            rarity: ach.rarity || 'common',
-            game_mode: insertPayload.game_mode,
-            earned_with: ach.earnedBy || ach.earned_with || [],
-            earned_together: !!ach.earnedTogether,
-            date: safeDate,
-            is_guest: !userId,
-            player_name: insertPayload.player_name
-          }));
+          .map((ach: any) => {
+            // Umwandlung in sauberes JS-Array für Postgres text[] "earned_with"
+            const rawEarnedWith = ach.earnedBy || ach.earned_with || [];
+            const earnedWithArr = Array.isArray(rawEarnedWith) ? rawEarnedWith : [String(rawEarnedWith)];
+
+            return {
+              user_id: userId || null,
+              achievement_id: ach.id || ach.achievement_id,
+              title: ach.title || ach.id,
+              description: ach.description || '',
+              icon: ach.icon || '🏆',
+              rarity: ach.rarity || 'common',
+              game_mode: insertPayload.game_mode,
+              earned_with: earnedWithArr,
+              earned_together: Boolean(ach.earnedTogether),
+              date: safeDate,
+              is_guest: !userId,
+              player_name: insertPayload.player_name
+            };
+          });
 
         if (achInserts.length > 0) {
           const { error: achErr } = await supabaseAdmin.from('achievements').insert(achInserts);
@@ -800,7 +803,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // XP & Level-Berechnung sowie Profil-Update für registrierte Nutzer
+    // 4. XP-Berechnung & Profil-Update
     let xpEarned = 0;
     let newLevel = 1;
     let newXp = 0;
@@ -838,56 +841,46 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         xpEarned = xpCalc.totalXp;
         xpBreakdown = xpCalc.items;
 
-        // Aktuelles Profil abrufen
         const { data: profile, error: profErr } = await supabaseAdmin
           .from('profiles')
-          .select('id, xp, level, games_played, games_won, total_points, high_score, title, selected_title')
+          .select('id, xp, level, games_played, games_won, total_points, title, selected_title')
           .eq('id', userId)
           .maybeSingle();
 
-        if (profErr) {
-          console.warn('Fehler beim Abrufen des Profils für XP-Update:', profErr);
-        }
+        if (!profErr && profile) {
+          const currentXp = Number(profile.xp || 0);
+          const currentLevel = Number(profile.level || 1);
+          const currentGamesPlayed = Number(profile.games_played || 0);
+          const currentGamesWon = Number(profile.games_won || 0);
+          const currentTotalPoints = Number(profile.total_points || 0);
 
-        const currentXp = Number(profile?.xp || 0);
-        const currentLevel = Number(profile?.level || 1);
-        const currentGamesPlayed = Number(profile?.games_played || 0);
-        const currentGamesWon = Number(profile?.games_won || 0);
-        const currentTotalPoints = Number(profile?.total_points || 0);
+          newXp = currentXp + xpEarned;
+          const levelData = calculateLevelFromXp(newXp);
+          newLevel = levelData.level;
+          levelUp = newLevel > currentLevel;
 
-        newXp = currentXp + xpEarned;
-        const levelData = calculateLevelFromXp(newXp);
-        newLevel = levelData.level;
-        levelUp = newLevel > currentLevel;
+          const profileUpdates: Record<string, any> = {
+            xp: newXp,
+            level: newLevel,
+            games_played: currentGamesPlayed + 1,
+            games_won: isWinner ? currentGamesWon + 1 : currentGamesWon,
+            total_points: currentTotalPoints + (insertPayload.schnaepse || 0),
+            updated_at: new Date().toISOString()
+          };
 
-        const profileUpdates: Record<string, any> = {
-          xp: newXp,
-          level: newLevel,
-          games_played: currentGamesPlayed + 1,
-          games_won: isWinner ? currentGamesWon + 1 : currentGamesWon,
-          total_points: currentTotalPoints + (insertPayload.schnaepse || 0),
-          updated_at: new Date().toISOString()
-        };
-
-        if (levelUp) {
-          unlockedTitle = levelData.title || getTitleForLevel(newLevel);
-          if (!profile?.selected_title || profile.selected_title === profile.title) {
-            profileUpdates.title = unlockedTitle;
+          if (levelUp) {
+            unlockedTitle = levelData.title || getTitleForLevel(newLevel);
+            if (!profile.selected_title || profile.selected_title === profile.title) {
+              profileUpdates.title = unlockedTitle;
+            }
           }
+
+          await supabaseAdmin
+            .from('profiles')
+            .update(profileUpdates)
+            .eq('id', userId);
         }
 
-        const { error: updateErr } = await supabaseAdmin
-          .from('profiles')
-          .update(profileUpdates)
-          .eq('id', userId);
-
-        if (updateErr) {
-          console.error('Fehler beim Aktualisieren der Profil-XP in profiles:', updateErr);
-        } else {
-          console.log(`Profil ${userId} erfolgreich aktualisiert: +${xpEarned} XP (neu: ${newXp} XP, Level ${newLevel})`);
-        }
-
-        // Quests nach Spielergebnis evaluieren
         serverEvaluateQuestsForUser(userId).catch(e => console.warn('Quest evaluation error after game:', e));
       } catch (xpErr) {
         console.error('Fehler bei XP-Berechnung oder Profil-Update:', xpErr);
@@ -913,7 +906,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err: any) {
     console.error("handleSaveGameResult Crash:", err);
-    return res.status(500).json({ success: false, error: err?.message });
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
   }
 }
 

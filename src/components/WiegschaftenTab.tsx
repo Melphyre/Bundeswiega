@@ -106,12 +106,12 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
-  // Wappen-Upload States (Supabase Storage: Bucket 'avatars')
+  // Wappen-Upload States
   const [directWappenLoading, setDirectWappenLoading] = useState(false);
   const [createWappenLoading, setCreateWappenLoading] = useState(false);
   const [editWappenLoading, setEditWappenLoading] = useState(false);
 
-  // Hilfsfunktion: Bild in Supabase Storage Bucket 'avatars' hochladen und öffentliche URL für SQL zurückgeben
+  // Upload Hilfsfunktion
   const uploadWappenToStorage = async (file: File, prefix: string): Promise<string> => {
     if (!file) throw new Error('Keine Datei ausgewählt');
     if (file.size > 5 * 1024 * 1024) {
@@ -125,7 +125,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
 
     const filePath = `guilds/${prefix}_${Date.now()}.${fileExt}`;
 
-    // 1. In Supabase Storage 'avatars' Bucket speichern
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, file, {
@@ -138,7 +137,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
       throw new Error(uploadError.message || 'Fehler beim Hochladen in Supabase Storage avatars');
     }
 
-    // 2. Öffentliche HTTPS-URL abrufen (in SQL wird nur diese Verlinkung gespeichert)
     const { data: urlData } = supabase.storage
       .from('avatars')
       .getPublicUrl(filePath);
@@ -150,17 +148,14 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     return urlData.publicUrl;
   };
 
-  // Direkt-Upload auf das Wappen in der Wiegschaftskarte
   const handleDirectWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !data?.guild || !userId) return;
 
     setDirectWappenLoading(true);
-    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    setStatusFeedback('⏳ Wappen wird hochgeladen...');
     try {
       const publicUrl = await uploadWappenToStorage(file, data.guild.id);
-
-      // In der SQL-Datenbank lediglich die Verlinkung zum Storage-Bild speichern
       const res = await fetch('/api/guilds/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -173,18 +168,15 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
 
       const resJson = await res.json();
       if (!res.ok || !resJson.success) {
-        throw new Error(resJson.error || 'Fehler beim Speichern der Verlinkung in der Datenbank');
+        throw new Error(resJson.error || 'Fehler beim Speichern');
       }
 
       setData(prev => prev && prev.guild ? {
         ...prev,
-        guild: {
-          ...prev.guild,
-          logo_url: publicUrl
-        }
+        guild: { ...prev.guild, logo_url: publicUrl }
       } : prev);
       setEditLogoUrl(publicUrl);
-      setStatusFeedback('✅ Wappen erfolgreich im Supabase Storage (avatars) gespeichert und in der Datenbank verlinkt!');
+      setStatusFeedback('✅ Wappen erfolgreich aktualisiert!');
     } catch (err: any) {
       console.error('Wappen-Upload Fehler:', err);
       setStatusFeedback(`❌ Fehler beim Wappen-Upload: ${err.message || 'Unbekannter Fehler'}`);
@@ -194,17 +186,16 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Upload bei "Wiegschaft gründen"
   const handleCreateWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setCreateWappenLoading(true);
-    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    setStatusFeedback('⏳ Wappen wird hochgeladen...');
     try {
       const publicUrl = await uploadWappenToStorage(file, `create_${userId || 'temp'}`);
       setCreateLogoUrl(publicUrl);
-      setStatusFeedback('✅ Wappen in Supabase Storage (avatars) gespeichert! Beim Gründen wird die Verlinkung in SQL gespeichert.');
+      setStatusFeedback('✅ Wappen hochgeladen!');
     } catch (err: any) {
       console.error('Wappen-Upload Fehler:', err);
       setStatusFeedback(`❌ Upload fehlgeschlagen: ${err.message || 'Unbekannter Fehler'}`);
@@ -214,17 +205,16 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Upload bei "Bearbeiten"
   const handleEditWappenUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !data?.guild) return;
 
     setEditWappenLoading(true);
-    setStatusFeedback('⏳ Wappen wird in Supabase Storage (avatars) hochgeladen...');
+    setStatusFeedback('⏳ Wappen wird hochgeladen...');
     try {
       const publicUrl = await uploadWappenToStorage(file, `edit_${data.guild.id}`);
       setEditLogoUrl(publicUrl);
-      setStatusFeedback('✅ Wappen in Supabase Storage (avatars) hochgeladen! Klicke auf "Änderungen speichern", um den Link in der SQL-Datenbank zu aktualisieren.');
+      setStatusFeedback('✅ Wappen hochgeladen! Speichere deine Änderungen ab.');
     } catch (err: any) {
       console.error('Wappen-Upload Fehler:', err);
       setStatusFeedback(`❌ Upload fehlgeschlagen: ${err.message || 'Unbekannter Fehler'}`);
@@ -247,6 +237,34 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
       if (!res.ok && json.error) {
         throw new Error(json.error);
       }
+
+      // Supabase Direct-Fallback/Enrichment für Spielernamen & Avatare
+      if (json.inGuild && Array.isArray(json.members) && json.members.length > 0) {
+        const memberUserIds = json.members.map((m: any) => m.user_id).filter(Boolean);
+        if (memberUserIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url, selected_title, xp, level, name_bg_color')
+            .in('id', memberUserIds);
+
+          if (profiles && profiles.length > 0) {
+            const profileMap = new Map(profiles.map(p => [p.id, p]));
+            json.members = json.members.map((m: any) => {
+              const p = profileMap.get(m.user_id);
+              return {
+                ...m,
+                username: p?.username || m.username || 'Spieler',
+                avatar_url: p?.avatar_url || m.avatar_url || '',
+                title: p?.selected_title || m.title || '',
+                xp: p?.xp ?? m.xp ?? 0,
+                level: p?.level ?? m.level ?? 1,
+                name_bg_color: p?.name_bg_color || m.name_bg_color
+              };
+            });
+          }
+        }
+      }
+
       setData(json);
 
       if (json.inGuild && json.guild) {
@@ -267,7 +285,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     fetchGuildData();
   }, [fetchGuildData]);
 
-  // Wiegschaft erstellen
   const handleCreateGuild = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId) return;
@@ -276,12 +293,8 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     const name = createName.trim();
     const tag = createTag.trim().toUpperCase();
 
-    if (!name) {
-      setCreateError('Bitte gib einen Namen für die Wiegschaft ein.');
-      return;
-    }
-    if (!tag) {
-      setCreateError('Bitte gib ein Kürzel/Tag für die Wiegschaft ein.');
+    if (!name || !tag) {
+      setCreateError('Bitte gib Name und Kürzel ein.');
       return;
     }
     if (tag.length > 5) {
@@ -316,7 +329,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Auf Einladung reagieren (annehmen / ablehnen)
   const handleRespondInvite = async (inviteId: string, action: 'accept' | 'reject') => {
     if (!userId) return;
     setActionLoading(`invite_${inviteId}`);
@@ -340,7 +352,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Mitglied einladen (Kapitän & Vize-Kapitän)
   const handleInviteMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !data?.guild?.id) return;
@@ -373,7 +384,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Mitglied verwalten (Kick, Befördern, Degradieren)
   const handleManageMember = async (targetUserId: string, action: 'kick' | 'promote_vize' | 'demote_member') => {
     if (!userId || !data?.guild?.id) return;
     setActionLoading(`member_${targetUserId}_${action}`);
@@ -401,7 +411,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Wiegschaft verlassen
   const handleLeaveGuild = async () => {
     if (!userId || !data?.guild?.id) return;
     setActionLoading('leave');
@@ -430,7 +439,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Wiegschaft bearbeiten (Kapitän)
   const handleUpdateGuild = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !data?.guild?.id) return;
@@ -477,7 +485,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
     }
   };
 
-  // Wiegschaft auflösen (Kapitän)
   const handleDeleteGuild = async () => {
     if (!userId || !data?.guild?.id) return;
     setActionLoading('delete');
@@ -549,7 +556,7 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
           🏰
         </div>
         <p className="text-xs sm:text-sm font-semibold leading-relaxed">
-          Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zu sammen und messt euch mit Wiegschaften auf der ganzen Welt.
+          Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zusammen und messt euch mit Wiegschaften auf der ganzen Welt.
         </p>
       </div>
 
@@ -560,19 +567,16 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────
-          ZUSTAND A: NUTZER IST IN KEINER WIEGSCHAFT
-         ───────────────────────────────────────────────────────────── */}
+      {/* ZUSTAND A: NICHT IN WIEGSCHAFT */}
       {!data?.inGuild && (
         <div id="wiegschaft-not-in-guild-view" className="space-y-6">
-          {/* Header Callout */}
           <div className={`p-5 rounded-2xl border text-center relative overflow-hidden ${darkMode ? 'bg-gradient-to-b from-slate-800/80 to-slate-800/40 border-slate-700' : 'bg-gradient-to-b from-teal-50 to-white border-teal-100'}`}>
             <div className="text-4xl mb-2">🏰</div>
             <h4 className="text-lg font-black uppercase tracking-wide" style={{ color: BRAND_COLOR }}>
               Keiner Wiegschaft beigetreten
             </h4>
             <p className="text-xs sm:text-sm opacity-80 max-w-lg mx-auto mt-2 leading-relaxed">
-              Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zu sammen und messt euch mit Wiegschaften auf der ganzen Welt.
+              Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zusammen und messt euch mit Wiegschaften auf der ganzen Welt.
             </p>
           </div>
 
@@ -715,19 +719,11 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                 />
               </div>
 
-              {/* Logo / Wappen Auswahl */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold opacity-75 block">
-                    Wappen / Logo der Wiegschaft
-                  </label>
-                  <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold flex items-center space-x-1">
-                    <i className="fas fa-shield-alt text-[9px]"></i>
-                    <span>Storage: avatars</span>
-                  </span>
-                </div>
+                <label className="text-[11px] font-bold opacity-75 block">
+                  Wappen / Logo der Wiegschaft
+                </label>
 
-                {/* Vorschau & Upload-Button (Supabase Storage: Bucket 'avatars') */}
                 <div className="flex items-center space-x-3 p-3 rounded-xl border border-gray-500/20 bg-black/5 dark:bg-white/5">
                   <div className="w-14 h-14 rounded-xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden shadow-xs relative">
                     {createWappenLoading ? (
@@ -756,13 +752,9 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                       onChange={handleCreateWappenUpload}
                       disabled={createWappenLoading}
                     />
-                    <p className="text-[10px] opacity-65 leading-tight">
-                      Wird in Supabase Storage <span className="font-semibold text-teal-600 dark:text-teal-400">avatars</span> gespeichert. In SQL wird nur die Verlinkung hinterlegt.
-                    </p>
                   </div>
                 </div>
 
-                {/* Vorlagen */}
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold opacity-60">Oder Vorlage wählen:</span>
                   <div className="flex flex-wrap gap-2">
@@ -778,555 +770,296 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                     ))}
                   </div>
                 </div>
-
-                <input
-                  id="create-guild-logo-url"
-                  type="text"
-                  placeholder="Oder Bild-URL direkt einfügen (https://...)"
-                  value={createLogoUrl.startsWith('http') ? createLogoUrl : ''}
-                  onChange={e => setCreateLogoUrl(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                />
               </div>
 
               <button
-                id="btn-submit-create-guild"
                 type="submit"
                 disabled={createLoading}
-                className="w-full py-3 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-md hover:opacity-90 active:scale-98 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
-                style={{ backgroundColor: BRAND_COLOR }}
+                className="w-full py-3 rounded-xl bg-[#238183] text-white font-black text-xs uppercase tracking-wider hover:opacity-90 active:scale-98 transition-all cursor-pointer shadow-md disabled:opacity-50"
               >
-                {createLoading ? (
-                  <>
-                    <i className="fas fa-spinner animate-spin"></i>
-                    <span>Gründung wird eingetragen...</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-hammer"></i>
-                    <span>Wiegschaft jetzt gründen</span>
-                  </>
-                )}
+                {createLoading ? 'Wiegschaft wird gegründet...' : '🏰 Wiegschaft jetzt gründen'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────
-          ZUSTAND B: NUTZER IST IN EINER WIEGSCHAFT
-         ───────────────────────────────────────────────────────────── */}
+      {/* ZUSTAND B: IN WIEGSCHAFT */}
       {data?.inGuild && data.guild && (
-        <div id="wiegschaft-in-guild-view" className="space-y-6">
-          {/* Wiegschafts-Header Karte */}
-          <div className={`p-5 rounded-3xl border shadow-sm relative overflow-hidden ${darkMode ? 'bg-slate-800/80 border-slate-700 text-white' : 'bg-white border-slate-200 text-gray-900'}`}>
+        <div id="wiegschaft-active-guild-view" className="space-y-6">
+          {/* Hauptkarte der Wiegschaft */}
+          <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200'} shadow-sm space-y-4`}>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-4">
-                <div className="relative group">
-                  <div
-                    id="guild-current-wappen-display"
-                    className="w-16 h-16 rounded-2xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-3xl shadow flex-shrink-0 overflow-hidden relative"
-                    title={isCaptain ? 'Wappen ändern (Speichert im Storage avatars, Link in SQL)' : undefined}
-                  >
-                    {directWappenLoading ? (
-                      <i className="fas fa-spinner animate-spin text-[#238183] text-xl"></i>
-                    ) : data.guild.logo_url && data.guild.logo_url.startsWith('http') ? (
-                      <img src={data.guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{data.guild.logo_url || '🏰'}</span>
-                    )}
+                <div className="relative group w-16 h-16 rounded-2xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-3xl flex-shrink-0 overflow-hidden shadow">
+                  {data.guild.logo_url && data.guild.logo_url.startsWith('http') ? (
+                    <img src={data.guild.logo_url} alt="Guild Logo" className="w-full h-full object-cover" />
+                  ) : (
+                    <span>{data.guild.logo_url || '🏰'}</span>
+                  )}
 
-                    {isCaptain && !directWappenLoading && (
-                      <label
-                        htmlFor="guild-wappen-direct-upload"
-                        className="absolute inset-0 bg-black/65 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer text-center p-1"
-                        title="Neues Wappen hochladen (Storage: avatars)"
-                      >
-                        <i className="fas fa-camera text-xs mb-0.5"></i>
-                        <span className="text-[8px] font-black uppercase tracking-tight leading-tight">Wappen ändern</span>
-                      </label>
-                    )}
-                  </div>
-                  {isCaptain && (
-                    <input
-                      id="guild-wappen-direct-upload"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleDirectWappenUpload}
-                      disabled={directWappenLoading}
-                    />
+                  {canManage && (
+                    <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold cursor-pointer transition-opacity">
+                      {directWappenLoading ? <i className="fas fa-spinner animate-spin"></i> : <i className="fas fa-camera"></i>}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleDirectWappenUpload} disabled={directWappenLoading} />
+                    </label>
                   )}
                 </div>
+
                 <div>
-                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                    <h4 className="text-xl font-black uppercase tracking-tight">{data.guild.name}</h4>
-                    <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-black bg-teal-500/20 text-teal-600 dark:text-teal-400 border border-teal-500/30">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-lg font-black">{data.guild.name}</h3>
+                    <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-[#238183]/10 text-[#238183] border border-[#238183]/20">
                       [{data.guild.tag}]
                     </span>
                   </div>
                   {data.guild.description && (
-                    <p className="text-xs opacity-75 mt-1 max-w-md">{data.guild.description}</p>
+                    <p className="text-xs opacity-75 mt-0.5">{data.guild.description}</p>
                   )}
-                  <div className="flex items-center space-x-3 text-[11px] opacity-60 mt-2">
-                    <span>Gegründet: {new Date(data.guild.created_at).toLocaleDateString('de-DE')}</span>
-                    <span>•</span>
-                    <span className="font-bold flex items-center space-x-1">
-                      <span>Deine Rolle:</span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${isCaptain ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : isVize ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-gray-500/20 opacity-80'}`}>
-                        {isCaptain ? '👑 Kapitän' : isVize ? '⚔️ Vize-Kapitän' : '🛡️ Mitglied'}
-                      </span>
-                    </span>
-                  </div>
                 </div>
               </div>
 
-              {/* Header Buttons: Bearbeiten (nur Kapitän) oder Verlassen (Mitglieder & Vize) */}
-              <div className="flex items-center space-x-2 self-stretch sm:self-auto justify-end">
-                {isCaptain ? (
+              {/* Aktions-Buttons für Kapitän & Mitglieder */}
+              <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                {isCaptain && (
                   <button
-                    id="btn-toggle-edit-guild"
                     onClick={() => setIsEditing(!isEditing)}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all flex items-center space-x-1.5 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl border border-gray-500/30 font-bold text-xs hover:bg-gray-500/10 flex items-center space-x-1 cursor-pointer"
                   >
                     <i className="fas fa-edit"></i>
-                    <span>{isEditing ? 'Schließen' : 'Bearbeiten'}</span>
+                    <span>{isEditing ? 'Abbrechen' : 'Bearbeiten'}</span>
+                  </button>
+                )}
+
+                {isCaptain ? (
+                  <button
+                    onClick={() => setShowDeleteModal(true)}
+                    className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/30 font-bold text-xs hover:bg-red-500/20 cursor-pointer"
+                  >
+                    Auflösen
                   </button>
                 ) : (
                   <button
-                    id="btn-leave-guild-open"
                     onClick={() => setShowLeaveModal(true)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-red-500 border border-red-500/30 hover:bg-red-500/10 active:scale-95 transition-all flex items-center space-x-1.5 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/30 font-bold text-xs hover:bg-red-500/20 cursor-pointer"
                   >
-                    <i className="fas fa-sign-out-alt"></i>
-                    <span>Austreten</span>
+                    Verlassen
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Bearbeitungsformular (nur Kapitän) */}
-            {isEditing && isCaptain && (
-              <div id="wiegschaft-edit-form" className={`mt-5 pt-5 border-t border-gray-500/15 space-y-4`}>
-                <h5 className="font-black text-xs uppercase tracking-wider text-teal-600 dark:text-teal-400 flex items-center space-x-1.5">
-                  <i className="fas fa-wrench"></i>
-                  <span>Wiegschafts-Daten bearbeiten</span>
-                </h5>
-
-                {editError && (
-                  <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold">
-                    {editError}
+            {/* Wiegschaft Bearbeiten Formular (Kapitän) */}
+            {isEditing && (
+              <form onSubmit={handleUpdateGuild} className="p-4 rounded-xl bg-black/5 dark:bg-white/5 border border-gray-500/20 space-y-3 pt-4">
+                <h5 className="text-xs font-black uppercase tracking-wider">Wiegschaft bearbeiten</h5>
+                {editError && <p className="text-xs text-red-500 font-bold">{editError}</p>}
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    placeholder="Name"
+                    className={`p-2 rounded-lg border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-300'}`}
+                  />
+                  <input
+                    type="text"
+                    maxLength={5}
+                    value={editTag}
+                    onChange={e => setEditTag(e.target.value.toUpperCase())}
+                    placeholder="TAG"
+                    className={`p-2 rounded-lg border text-xs font-mono font-bold ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-300'}`}
+                  />
+                  <div className="flex items-center space-x-2">
+                    <label className="px-3 py-2 rounded-lg bg-[#238183] text-white text-xs font-bold cursor-pointer hover:opacity-90 flex-shrink-0">
+                      <span>Wappen Ändern</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={handleEditWappenUpload} disabled={editWappenLoading} />
+                    </label>
                   </div>
-                )}
+                </div>
 
-                <form onSubmit={handleUpdateGuild} className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[11px] font-bold opacity-75">Name</label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={40}
-                        value={editName}
-                        onChange={e => setEditName(e.target.value)}
-                        className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold opacity-75">Kürzel (max. 5)</label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={5}
-                        value={editTag}
-                        onChange={e => setEditTag(e.target.value.toUpperCase())}
-                        className={`w-full p-2.5 rounded-xl border text-xs font-mono font-bold uppercase focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                      />
-                    </div>
-                  </div>
+                <textarea
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  placeholder="Beschreibung"
+                  rows={2}
+                  className={`w-full p-2 rounded-lg border text-xs ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-300'}`}
+                />
 
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold opacity-75">Beschreibung</label>
-                    <textarea
-                      rows={2}
-                      maxLength={160}
-                      value={editDescription}
-                      onChange={e => setEditDescription(e.target.value)}
-                      className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-bold opacity-75 block">Wappen / Logo der Wiegschaft</label>
-                      <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold flex items-center space-x-1">
-                        <i className="fas fa-shield-alt text-[9px]"></i>
-                        <span>Storage: avatars</span>
-                      </span>
-                    </div>
-
-                    {/* Vorschau & Upload-Button (Supabase Storage: avatars) */}
-                    <div className="flex items-center space-x-3 p-3 rounded-xl border border-gray-500/20 bg-black/5 dark:bg-white/5">
-                      <div className="w-14 h-14 rounded-xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden shadow-xs relative">
-                        {editWappenLoading ? (
-                          <i className="fas fa-spinner animate-spin text-[#238183]"></i>
-                        ) : editLogoUrl && editLogoUrl.startsWith('http') ? (
-                          <img src={editLogoUrl} alt="Wappen Vorschau" className="w-full h-full object-cover" />
-                        ) : (
-                          <span>{editLogoUrl || '🏰'}</span>
-                        )}
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <label
-                          htmlFor="edit-guild-wappen-file"
-                          className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer active:scale-95 transition-all shadow-xs ${
-                            editWappenLoading ? 'opacity-50 cursor-not-allowed bg-gray-500' : 'bg-[#238183] hover:opacity-90'
-                          }`}
-                        >
-                          <i className="fas fa-upload text-[11px]"></i>
-                          <span>{editWappenLoading ? 'Wird gespeichert...' : 'Neues Wappen hochladen'}</span>
-                        </label>
-                        <input
-                          id="edit-guild-wappen-file"
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleEditWappenUpload}
-                          disabled={editWappenLoading}
-                        />
-                        <p className="text-[10px] opacity-65 leading-tight">
-                          Wird in Storage <span className="font-semibold text-teal-600 dark:text-teal-400">avatars</span> gespeichert und der Link in der SQL-Datenbank hinterlegt.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Vorlagen */}
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold opacity-60">Oder Vorlage wählen:</span>
-                      <div className="flex flex-wrap gap-2">
-                        {PRESET_CRESTS.map(crest => (
-                          <button
-                            key={crest}
-                            type="button"
-                            onClick={() => setEditLogoUrl(crest)}
-                            className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all cursor-pointer border ${editLogoUrl === crest ? 'border-teal-500 bg-teal-500/20 scale-105' : 'border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
-                          >
-                            {crest}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <input
-                      type="text"
-                      placeholder="Oder Bild-URL direkt eingeben (https://...)"
-                      value={editLogoUrl.startsWith('http') ? editLogoUrl : ''}
-                      onChange={e => setEditLogoUrl(e.target.value)}
-                      className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      type="button"
-                      id="btn-open-delete-guild"
-                      onClick={() => setShowDeleteModal(true)}
-                      className="text-red-500 hover:text-red-600 font-bold text-xs flex items-center space-x-1.5 cursor-pointer"
-                    >
-                      <i className="fas fa-trash-alt"></i>
-                      <span>Wiegschaft auflösen</span>
-                    </button>
-
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditing(false)}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
-                      >
-                        Abbrechen
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={editLoading}
-                        className="px-4 py-2 rounded-xl text-white font-black text-xs uppercase tracking-wide shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: BRAND_COLOR }}
-                      >
-                        {editLoading ? 'Speichern...' : 'Änderungen sichern'}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="px-4 py-2 bg-[#238183] text-white rounded-lg text-xs font-bold hover:opacity-90"
+                >
+                  {editLoading ? 'Speichere...' : 'Änderungen speichern'}
+                </button>
+              </form>
             )}
           </div>
 
-          {/* Aggregierte Wiegschafts-Ergebnisse */}
-          <div id="wiegschaft-stats-card" className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-            <div className="flex items-center justify-between">
-              <h5 className="font-black text-xs uppercase tracking-wider flex items-center space-x-2">
-                <i className="fas fa-chart-line text-[#238183]"></i>
-                <span>Eigene Wiegschafts-Ergebnisse</span>
+          {/* Mitglied einladen (Kapitän & Vize) */}
+          {canManage && (
+            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
+              <h5 className="text-xs font-black uppercase tracking-wide flex items-center space-x-2">
+                <i className="fas fa-user-plus text-[#238183]"></i>
+                <span>Mitglied einladen</span>
               </h5>
-              <span className="text-[10px] font-mono font-bold opacity-60">
-                {data.stats?.gamesCount || 0} gewertete Standardspiele (500ml)
-              </span>
+              
+              <form onSubmit={handleInviteMember} className="flex gap-2">
+                <input
+                  type="text"
+                  value={inviteUsername}
+                  onChange={e => setInviteUsername(e.target.value)}
+                  placeholder="Spielername eingeben..."
+                  className={`flex-1 p-2.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300'}`}
+                />
+                <button
+                  type="submit"
+                  disabled={inviteLoading || !inviteUsername.trim()}
+                  className="px-4 py-2.5 bg-[#238183] text-white font-bold text-xs rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                >
+                  {inviteLoading ? 'Lädt...' : 'Einladen'}
+                </button>
+              </form>
+
+              {inviteMsg && (
+                <p className={`text-xs font-bold ${inviteMsg.type === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {inviteMsg.text}
+                </p>
+              )}
             </div>
+          )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div 
-                className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}
-                title="Summe aller Standardspiele (500ml) aller Mitglieder der Wiegschaft"
-              >
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Standard (500ml)</div>
-                <div className="text-xl font-black">{data.stats?.gamesCount || 0}</div>
-              </div>
+          {/* Mitgliederliste */}
+          <div className="space-y-3">
+            <h5 className="text-xs font-black uppercase tracking-wider opacity-80 flex items-center justify-between">
+              <span>Mitglieder ({data.members?.length || 0})</span>
+            </h5>
 
-              <div className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}>
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Avg Abstand</div>
-                <div className="text-xl font-black text-teal-600 dark:text-teal-400">
-                  {data.stats?.avg !== undefined ? data.stats.avg.toFixed(2) : '0.00'}
-                </div>
-              </div>
-
-              <div 
-                className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}
-                title={`Gesamt: ${data.stats?.totalSchnaepse || 0} Schnäpse`}
-              >
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Ø-Schnäpse</div>
-                <div className="text-xl font-black text-amber-500">
-                  {data.stats?.avgSchnaepse !== undefined ? data.stats.avgSchnaepse.toFixed(2) : '0.00'}
-                </div>
-              </div>
-
-              <div className={`p-3 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-gray-200'}`}>
-                <div className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1">Total Wert</div>
-                <div className="text-xl font-black" style={{ color: BRAND_COLOR }}>
-                  {data.stats?.total !== undefined ? data.stats.total.toFixed(2) : '0.00'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Mitgliederliste & Verwaltung */}
-          <div id="wiegschaft-members-card" className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
-            <div className="flex items-center justify-between">
-              <h5 className="font-black text-xs uppercase tracking-wider flex items-center space-x-2">
-                <i className="fas fa-users text-[#238183]"></i>
-                <span>Mitglieder ({data.members.length})</span>
-              </h5>
-            </div>
-
-            <div className="space-y-2">
-              {data.members.map(member => {
-                const isSelf = member.user_id === userId;
-                const memberIsCaptain = member.role === 'captain';
-                const memberIsVize = member.role === 'vize_captain';
+            <div className="grid grid-cols-1 gap-2.5">
+              {data.members?.map(m => {
+                const isMemberCaptain = m.role === 'captain';
+                const isMemberVize = m.role === 'vize_captain';
 
                 return (
                   <div
-                    key={member.id}
-                    id={`guild-member-row-${member.user_id}`}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${darkMode ? 'bg-slate-900/80 border-slate-700/70' : 'bg-white border-gray-200'}`}
+                    key={m.id}
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-white border-gray-200'}`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
                       <PlayerAvatar
-                        url={member.avatar_url}
-                        name={member.username}
-                        className="w-9 h-9 border flex-shrink-0"
-                        style={{ borderColor: BRAND_COLOR }}
+                        url={m.avatar_url}
+                        name={m.username}
+                        className="w-10 h-10 border shadow-xs flex-shrink-0"
                       />
                       <div className="min-w-0">
-                        <div className="flex items-center space-x-1.5 flex-wrap">
+                        <div className="flex items-center space-x-2">
                           <PlayerNameTag
-                            name={member.username}
-                            colorKey={member.name_bg_color || 'none'}
-                            className="px-2 py-0.5 text-xs font-bold"
+                            name={m.username}
+                            bgColor={m.name_bg_color}
+                            className="font-black text-xs truncate"
                           />
-                          <PlayerLevelBadge level={member.level || 1} size="xs" />
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                              memberIsCaptain
-                                ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                                : memberIsVize
-                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                                : 'bg-gray-500/10 opacity-70'
-                            }`}
-                          >
-                            {memberIsCaptain ? '👑 Kapitän' : memberIsVize ? '⚔️ Vize' : 'Mitglied'}
-                          </span>
+                          {isMemberCaptain && <span className="text-xs" title="Kapitän">👑</span>}
+                          {isMemberVize && <span className="text-xs" title="Vize-Kapitän">🛡️</span>}
                         </div>
-                        <div className="text-[10px] opacity-50 truncate mt-0.5">
-                          Beigetreten: {new Date(member.joined_at).toLocaleDateString('de-DE')}
-                        </div>
+                        {m.title && <p className="text-[10px] opacity-60 truncate">{m.title}</p>}
                       </div>
                     </div>
 
-                    {/* Aktions-Buttons für dieses Mitglied (nur wenn Ausführender Berechtigung hat) */}
-                    {canManage && !isSelf && !memberIsCaptain && (
-                      <div className="flex items-center space-x-1.5 flex-shrink-0">
-                        {/* Rolle ändern: Befördern / Degradieren */}
-                        {isCaptain && (
-                          <>
-                            {memberIsVize ? (
-                              <button
-                                id={`btn-demote-${member.user_id}`}
-                                title="Zum Mitglied degradieren"
-                                disabled={actionLoading === `member_${member.user_id}_demote_member`}
-                                onClick={() => handleManageMember(member.user_id, 'demote_member')}
-                                className="px-2 py-1 rounded-lg text-[10px] font-bold border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 active:scale-95 cursor-pointer disabled:opacity-50"
-                              >
-                                Vize entziehen
-                              </button>
-                            ) : (
-                              <button
-                                id={`btn-promote-${member.user_id}`}
-                                title="Zum Vize-Kapitän befördern"
-                                disabled={actionLoading === `member_${member.user_id}_promote_vize`}
-                                onClick={() => handleManageMember(member.user_id, 'promote_vize')}
-                                className="px-2 py-1 rounded-lg text-[10px] font-bold border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 active:scale-95 cursor-pointer disabled:opacity-50"
-                              >
-                                ⚔️ Zum Vize
-                              </button>
-                            )}
-                          </>
-                        )}
+                    <div className="flex items-center space-x-2 flex-shrink-0">
+                      <PlayerLevelBadge level={m.level || 1} />
 
-                        {/* Mitglied kicken (Kapitän kann alle Nicht-Kapitäne kicken; Vize kann nur normale Mitglieder kicken) */}
-                        {(isCaptain || (isVize && !memberIsVize)) && (
+                      {/* Verwaltungsknöpfe für Kapitän */}
+                      {isCaptain && m.user_id !== userId && (
+                        <div className="flex items-center space-x-1 pl-2 border-l border-gray-500/20">
+                          {m.role === 'member' && (
+                            <button
+                              onClick={() => handleManageMember(m.user_id, 'promote_vize')}
+                              title="Zum Vize-Kapitän befördern"
+                              className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-xs cursor-pointer"
+                            >
+                              👑
+                            </button>
+                          )}
+                          {m.role === 'vize_captain' && (
+                            <button
+                              onClick={() => handleManageMember(m.user_id, 'demote_member')}
+                              title="Zum Mitglied degradieren"
+                              className="p-1.5 rounded-lg bg-gray-500/10 text-gray-500 hover:bg-gray-500/20 text-xs cursor-pointer"
+                            >
+                              ⬇️
+                            </button>
+                          )}
                           <button
-                            id={`btn-kick-${member.user_id}`}
+                            onClick={() => handleManageMember(m.user_id, 'kick')}
                             title="Aus Wiegschaft entfernen"
-                            disabled={actionLoading === `member_${member.user_id}_kick`}
-                            onClick={() => {
-                              if (confirm(`Möchtest du "${member.username}" wirklich aus der Wiegschaft entfernen?`)) {
-                                handleManageMember(member.user_id, 'kick');
-                              }
-                            }}
-                            className="w-7 h-7 rounded-lg text-red-500 hover:bg-red-500/10 border border-red-500/20 flex items-center justify-center text-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                            className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 text-xs cursor-pointer"
                           >
                             <i className="fas fa-user-minus"></i>
                           </button>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Neue Mitglieder einladen (Kapitän & Vize-Kapitän) */}
-          {canManage && (
-            <div id="wiegschaft-invite-form-card" className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-3`}>
-              <h5 className="font-black text-xs uppercase tracking-wider flex items-center space-x-2">
-                <i className="fas fa-paper-plane text-[#238183]"></i>
-                <span>Mitglied einladen</span>
-              </h5>
-              <p className="text-xs opacity-70">
-                Gib den Benutzernamen des Spielers ein, den du in die Wiegschaft einladen möchtest.
-              </p>
-
-              {inviteMsg && (
-                <div
-                  className={`p-3 rounded-xl border text-xs font-bold ${
-                    inviteMsg.type === 'success'
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                      : 'bg-red-500/10 border-red-500/30 text-red-500'
-                  }`}
-                >
-                  {inviteMsg.text}
-                </div>
-              )}
-
-              <form onSubmit={handleInviteMember} className="flex gap-2">
-                <input
-                  id="input-invite-username"
-                  type="text"
-                  required
-                  placeholder="Benutzername eingeben..."
-                  value={inviteUsername}
-                  onChange={e => setInviteUsername(e.target.value)}
-                  className={`flex-1 p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-[#238183] ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-300 text-black'}`}
-                />
-                <button
-                  id="btn-send-guild-invite"
-                  type="submit"
-                  disabled={inviteLoading}
-                  className="px-4 py-2.5 rounded-xl text-white font-bold text-xs shadow hover:opacity-90 active:scale-95 transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  {inviteLoading ? (
-                    <i className="fas fa-spinner animate-spin"></i>
-                  ) : (
-                    <>
-                      <i className="fas fa-paper-plane"></i>
-                      <span>Einladen</span>
-                    </>
-                  )}
-                </button>
-              </form>
+      {/* MODAL: Wiegschaft auflösen */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 ${darkMode ? 'bg-slate-900 border border-slate-700 text-white' : 'bg-white text-black'}`}>
+            <h4 className="font-black text-base text-red-500">Wiegschaft auflösen?</h4>
+            <p className="text-xs opacity-80 leading-relaxed">
+              Möchtest du die Wiegschaft wirklich auflösen? Alle Mitglieder werden entfernt und der Name wird wieder frei.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleDeleteGuild}
+                disabled={actionLoading === 'delete'}
+                className="flex-1 py-2.5 bg-red-500 text-white font-bold text-xs rounded-xl hover:bg-red-600 cursor-pointer"
+              >
+                {actionLoading === 'delete' ? 'Lösche...' : 'Ja, auflösen'}
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-2.5 bg-gray-500/20 font-bold text-xs rounded-xl hover:bg-gray-500/30 cursor-pointer"
+              >
+                Abbrechen
+              </button>
             </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {/* MODAL: Wiegschaft auflösen (Bestätigung) */}
-          {showDeleteModal && (
-            <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-              <div className={`p-6 rounded-3xl max-w-md w-full border-2 space-y-4 shadow-2xl ${darkMode ? 'bg-slate-900 border-red-500/50 text-white' : 'bg-white border-red-500/40 text-gray-900'}`}>
-                <div className="flex items-center space-x-3 text-red-500">
-                  <i className="fas fa-exclamation-triangle text-2xl"></i>
-                  <h4 className="font-black text-base uppercase">Wiegschaft auflösen?</h4>
-                </div>
-                <p className="text-xs opacity-80 leading-relaxed">
-                  Bist du sicher, dass du die Wiegschaft <strong>"{data.guild.name}"</strong> unwiderruflich auflösen möchtest? Alle Mitglieder werden entlassen und alle offenen Einladungen gelöscht.
-                </p>
-                <div className="flex items-center justify-end space-x-2 pt-2">
-                  <button
-                    onClick={() => setShowDeleteModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
-                  >
-                    Abbrechen
-                  </button>
-                  <button
-                    disabled={actionLoading === 'delete'}
-                    onClick={handleDeleteGuild}
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {actionLoading === 'delete' ? 'Löschen...' : 'Ja, auflösen'}
-                  </button>
-                </div>
-              </div>
+      {/* MODAL: Wiegschaft verlassen */}
+      {showLeaveModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className={`p-6 rounded-2xl max-w-sm w-full space-y-4 ${darkMode ? 'bg-slate-900 border border-slate-700 text-white' : 'bg-white text-black'}`}>
+            <h4 className="font-black text-base text-amber-500">Wiegschaft verlassen?</h4>
+            <p className="text-xs opacity-80 leading-relaxed">
+              Möchtest du diese Wiegschaft wirklich verlassen?
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleLeaveGuild}
+                disabled={actionLoading === 'leave'}
+                className="flex-1 py-2.5 bg-amber-500 text-white font-bold text-xs rounded-xl hover:bg-amber-600 cursor-pointer"
+              >
+                {actionLoading === 'leave' ? 'Verlasse...' : 'Ja, verlassen'}
+              </button>
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="flex-1 py-2.5 bg-gray-500/20 font-bold text-xs rounded-xl hover:bg-gray-500/30 cursor-pointer"
+              >
+                Abbrechen
+              </button>
             </div>
-          )}
-
-          {/* MODAL: Wiegschaft verlassen (Bestätigung) */}
-          {showLeaveModal && (
-            <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-              <div className={`p-6 rounded-3xl max-w-md w-full border-2 space-y-4 shadow-2xl ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
-                <div className="flex items-center space-x-3 text-amber-500">
-                  <i className="fas fa-sign-out-alt text-2xl"></i>
-                  <h4 className="font-black text-base uppercase">Wiegschaft verlassen?</h4>
-                </div>
-                <p className="text-xs opacity-80 leading-relaxed">
-                  Möchtest du die Wiegschaft <strong>"{data.guild.name}"</strong> wirklich verlassen? Du kannst später nur wieder beitreten, wenn du erneut eingeladen wirst.
-                </p>
-                <div className="flex items-center justify-end space-x-2 pt-2">
-                  <button
-                    onClick={() => setShowLeaveModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
-                  >
-                    Abbrechen
-                  </button>
-                  <button
-                    disabled={actionLoading === 'leave'}
-                    onClick={handleLeaveGuild}
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {actionLoading === 'leave' ? 'Verlassen...' : 'Ja, verlassen'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       )}
     </div>

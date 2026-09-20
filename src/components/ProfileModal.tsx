@@ -1250,16 +1250,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     </div>
                   );
                 })()}
-
-                {/* 🎯 Level Aufgaben & Quests */}
+                
+{/* 🎯 Level Aufgaben & Quests */}
                 {(() => {
                   const stats = extractProfileStats(profileStats);
                   const currentXp = stats.xp;
                   const levelInfo = calculateLevelFromXp(currentXp);
                   return (
                     <QuestList
+                      userId={effectiveUserId}
                       userLevel={levelInfo.level}
                       questProgresses={questProgresses}
+                      loading={loadingQuests}
+                      onQuestUpdated={loadQuestProgress}
                     />
                   );
                 })()}
@@ -1353,7 +1356,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           }`}
                         />
                       </button>
-
                       <button
                         type="button"
                         id="records-volume-btn-033l"

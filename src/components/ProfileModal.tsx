@@ -168,14 +168,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       } catch {
         // ignore
       }
-
-      const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
+const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
       if (res.ok) {
         const data = await res.json();
         const incomingQuests = Array.isArray(data.questProgress) ? data.questProgress : (Array.isArray(data.quests) ? data.quests : []);
+        
+        // Wenn die API Quests liefert, nutze diese, ansonsten Fallback auf Supabase
         if (incomingQuests.length > 0) {
           setQuestProgresses(incomingQuests);
+        } else {
+          const { data: qpData } = await supabase.from('user_quest_progress').select('*').eq('user_id', effectiveUserId);
+          if (Array.isArray(qpData)) {
+            setQuestProgresses(qpData);
+          }
         }
+
         const incomingTitles = Array.isArray(data.userTitles) ? data.userTitles : (Array.isArray(data.titles) ? data.titles : []);
         if (incomingTitles.length > 0) {
           setUserTitles(incomingTitles);
@@ -183,7 +190,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       } else {
         // Fallback direkt auf Supabase
         const { data: qpData } = await supabase.from('user_quest_progress').select('*').eq('user_id', effectiveUserId);
-        if (Array.isArray(qpData) && qpData.length > 0) {
+        if (Array.isArray(qpData)) {
           setQuestProgresses(qpData);
         }
       }
@@ -191,7 +198,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       console.warn('Could not load quest progress:', e);
       try {
         const { data: qpData } = await supabase.from('user_quest_progress').select('*').eq('user_id', effectiveUserId);
-        if (Array.isArray(qpData) && qpData.length > 0) {
+        if (Array.isArray(qpData)) {
           setQuestProgresses(qpData);
         }
       } catch {
@@ -207,7 +214,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       loadQuestProgress();
     }
   }, [showProfileModal, effectiveUserId, loadQuestProgress]);
-
   const [localFriends, setLocalFriends] = useState<Friend[]>(propFriends || []);
   const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>(propPendingRequests || []);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
@@ -1250,7 +1256,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     </div>
                   );
                 })()}
-                
+
 {/* 🎯 Level Aufgaben & Quests */}
                 {(() => {
                   const stats = extractProfileStats(profileStats);

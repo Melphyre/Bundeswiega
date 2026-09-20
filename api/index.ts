@@ -1018,19 +1018,129 @@ async function handleDeleteUser(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// ─── 10. EVALUATE QUESTS (POST /api/users/evaluate-quests) ───
+// ─── 10. EVALUATE QUESTS (POST/GET /api/users/evaluate-quests) ───
 async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const body = parseBody(req);
-    const userId = body?.userId || safeQueryParam(req, 'userId');
-    if (userId) {
-      await serverEvaluateQuestsForUser(userId);
+    const rawUserId = req.body?.userId || req.query?.userId || safeQueryParam(req, 'userId');
+    const userId = Array.isArray(rawUserId) ? rawUserId[0] : (typeof rawUserId === 'string' ? rawUserId : null);
+
+    if (!userId || !supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'User ID or Database missing' });
     }
-    return res.status(200).json({ success: true });
+
+    // 1. Profil laden, um aktuelles XP / Level zu ermitteln
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('xp')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const userXp = profile?.xp || 0;
+    const userLevel = calculateLevelFromXp(userXp).level;
+
+    // 2. Alle verfügbaren Quests aus der Datenbank laden
+    const { data: allQuests, error: qErr } = await supabaseAdmin
+      .from('quests')
+      .select('*');
+
+    if (qErr || !allQuests) {
+      return res.status(200).json({ success: false, error: 'Quests konnten nicht geladen werden' });
+    }
+
+    // 3. Bisherigen Fortschritt des Nutzers laden
+    const { data: existingProgress } = await supabaseAdmin
+      .from('user_quest_progress')
+      .select('*')
+      .eq('user_id', userId);
+
+    const progressMap = new Map<string, any>();
+    if (existingProgress) {
+      existingProgress.forEach((p: any) => progressMap.set(p.quest_id, p));
+    }
+
+    // 4. Spiele / Statistiken des Nutzers für die Auswertung laden
+    const { data: userGames } = await supabaseAdmin
+      .from('game_results')
+      .select('*')
+      .eq('user_id', userId);
+
+    const gamesCount = userGames?.length || 0;
+    const totalSchnaepse = userGames?.reduce((sum: number, g: any) => sum + (Number(g.schnaepse) || 0), 0) || 0;
+
+    let totalXpGained = 0;
+    const updatedQuests = [];
+
+    // 5. Quests durchgehen und prüfen
+    for (const quest of allQuests) {
+      const questMinLevel = quest.min_level || quest.required_level || 1;
+      const prog = progressMap.get(quest.id);
+
+      // Regel A: Wenn die Quest bereits abgeschlossen wurde -> NICHTS MEHR ÄNDERN / KEINE XP AGAIN
+      if (prog?.is_completed) {
+        updatedQuests.push({ ...quest, user_progress: prog });
+        continue;
+      }
+
+      // Regel B: Quest ist neu und das Level des Nutzers ist noch ZU NIEDRIG -> Überspringen
+      if (!prog && userLevel < questMinLevel) {
+        continue; // Erscheint noch nicht für diesen Nutzer
+      }
+
+      // Aktuellen Zielwert berechnen (Beispiel-Metriken je nach Quest-Typ)
+      let calculatedProgress = prog?.current_progress || 0;
+      
+      if (quest.type === 'games_played' || quest.metric === 'games') {
+        calculatedProgress = Math.max(calculatedProgress, gamesCount);
+      } else if (quest.type === 'schnaepse' || quest.metric === 'schnaepse') {
+        calculatedProgress = Math.max(calculatedProgress, totalSchnaepse);
+      }
+
+      // Ziel erreicht?
+      const targetValue = quest.target_value || quest.condition_value || 1;
+      const isNowCompleted = calculatedProgress >= targetValue;
+
+      if (isNowCompleted) {
+        calculatedProgress = targetValue;
+        const rewardXp = quest.xp_reward || quest.reward_xp || 50;
+        totalXpGained += rewardXp;
+      }
+
+      // In Datenbank abspeichern / aktualisieren (upsert)
+      const newProgressData = {
+        user_id: userId,
+        quest_id: quest.id,
+        current_progress: calculatedProgress,
+        is_completed: isNowCompleted,
+        completed_at: isNowCompleted ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString()
+      };
+
+      await supabaseAdmin
+        .from('user_quest_progress')
+        .upsert(newProgressData, { onConflict: 'user_id,quest_id' });
+
+      updatedQuests.push({ ...quest, user_progress: newProgressData });
+    }
+
+    // 6. Falls neue XP gewonnen wurden -> User Profile aktualisieren
+    if (totalXpGained > 0) {
+      const newXp = userXp + totalXpGained;
+      await supabaseAdmin
+        .from('profiles')
+        .update({ xp: newXp, level: calculateLevelFromXp(newXp).level })
+        .eq('id', userId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      xpGained: totalXpGained,
+      quests: updatedQuests
+    });
+
   } catch (err: any) {
-    console.error("handleEvaluateQuests error:", err);
-    return res.status(200).json({ success: false });
+    console.error("Crash in handleEvaluateQuests:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Fehler bei Quest-Auswertung' });
   }
 }
 

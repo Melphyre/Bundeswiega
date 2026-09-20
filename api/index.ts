@@ -1,6 +1,56 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { calculateGameXp, calculateLevelFromXp, getTitleForLevel } from '../src/utils/levelSystem';
+
+// ─── UTILS: LEVEL SYSTEM (Direkt in API integriert) ───
+export function getTitleForLevel(level: number): string {
+  if (level >= 50) return 'Legende';
+  if (level >= 30) return 'Großmeister';
+  if (level >= 20) return 'Meister';
+  if (level >= 10) return 'Fortgeschrittener';
+  if (level >= 5) return 'Anfänger';
+  return 'Neuling';
+}
+
+export function calculateLevelFromXp(xp: number): { level: number; title: string } {
+  const safeXp = Math.max(0, Number(xp) || 0);
+  const level = Math.floor(Math.sqrt(safeXp / 50)) + 1;
+  const title = getTitleForLevel(level);
+  return { level, title };
+}
+
+export function calculateGameXp(params: {
+  avg?: number;
+  schnaepse?: number;
+  isWinner?: boolean;
+  rank?: number;
+  tournamentRank?: number;
+  isSpeedMode?: boolean;
+  speedLevels?: number;
+  timeSeconds?: number;
+  achievementsCount?: number;
+  disqualified?: boolean;
+}) {
+  if (params.disqualified) {
+    return { totalXp: 0, items: [] };
+  }
+
+  let totalXp = 20; // Base XP
+  const items: any[] = [{ label: 'Spiel absolviert', xp: 20 }];
+
+  if (params.isWinner) {
+    totalXp += 30;
+    items.push({ label: 'Sieg bonus', xp: 30 });
+  }
+
+  const schnaepse = Number(params.schnaepse) || 0;
+  if (schnaepse > 0) {
+    const schnapsXp = schnaepse * 5;
+    totalXp += schnapsXp;
+    items.push({ label: `Schnäpse (${schnaepse})`, xp: schnapsXp });
+  }
+
+  return { totalXp, items };
+}
 
 // ─── SUPABASE CLIENT SETUP ───
 let supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';

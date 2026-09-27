@@ -1457,6 +1457,63 @@ function isStandardspiel500(rawMode?: string | null): boolean {
   return lower.includes('standard') || lower.includes('500') || lower === 'standardspiel';
 }
 
+// Berechnet die aggregierten Statistiken aller Spieler, die keiner Wiegschaft angehören
+async function calculateFreePlayersStats(): Promise<{
+  gamesCount: number;
+  avg: number;
+  totalSchnaepse: number;
+  avgSchnaepse: number;
+  total: number;
+}> {
+  const defaultStats = {
+    gamesCount: 0,
+    avg: 0,
+    totalSchnaepse: 0,
+    avgSchnaepse: 0,
+    total: 0
+  };
+
+  if (!supabaseAdmin) return defaultStats;
+
+  try {
+    const { data: allMembers } = await supabaseAdmin
+      .from('guild_members')
+      .select('user_id');
+
+    const guildMemberIds = new Set((allMembers || []).map((m: any) => m.user_id).filter(Boolean));
+
+    const { data: allGames } = await supabaseAdmin
+      .from('game_results')
+      .select('user_id, game_mode, avg, schnaepse, total');
+
+    const freeGames = (allGames || []).filter((g: any) => {
+      if (g.user_id && guildMemberIds.has(g.user_id)) return false;
+      return isStandardspiel500(g.game_mode);
+    });
+
+    if (freeGames.length > 0) {
+      const count = freeGames.length;
+      const sumAvg = freeGames.reduce((acc: number, g: any) => acc + (Number(g.avg) || 0), 0);
+      const sumSchnaepse = freeGames.reduce((acc: number, g: any) => acc + (Number(g.schnaepse) || 0), 0);
+      const avgVal = Math.round((sumAvg / count) * 100) / 100;
+      const avgSchnaepseVal = Math.round((sumSchnaepse / count) * 100) / 100;
+      const totalVal = Math.round((avgVal + avgSchnaepseVal) * 100) / 100;
+
+      return {
+        gamesCount: count,
+        avg: avgVal,
+        totalSchnaepse: sumSchnaepse,
+        avgSchnaepse: avgSchnaepseVal,
+        total: totalVal
+      };
+    }
+  } catch (err) {
+    console.error("Fehler beim Berechnen der Freispieler-Statistiken:", err);
+  }
+
+  return defaultStats;
+}
+
 // ─── 1. EIGENE WIEGSCHAFT LADEN (GET /api/guilds/my-guild) ───
 export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -1465,7 +1522,8 @@ export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) 
     const userId = Array.isArray(rawUserId) ? rawUserId[0] : (typeof rawUserId === 'string' ? rawUserId : null);
 
     if (!userId) {
-      return res.status(200).json({ success: true, inGuild: false, guild: null, myRole: null, members: [], stats: null, pendingInvites: [] });
+      const freeStats = await calculateFreePlayersStats();
+      return res.status(200).json({ success: true, inGuild: false, guild: null, myRole: null, members: [], stats: freeStats, freePlayersStats: freeStats, pendingInvites: [] });
     }
 
     if (!supabaseAdmin) {
@@ -1509,13 +1567,15 @@ export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) 
     }
 
     if (memberErr || !memberRecord) {
+      const freeStats = await calculateFreePlayersStats();
       return res.status(200).json({
         success: true,
         inGuild: false,
         guild: null,
         myRole: null,
         members: [],
-        stats: null,
+        stats: freeStats,
+        freePlayersStats: freeStats,
         pendingInvites: enrichedInvites
       });
     }
@@ -1528,13 +1588,15 @@ export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) 
       .maybeSingle();
 
     if (guildErr || !guild) {
+      const freeStats = await calculateFreePlayersStats();
       return res.status(200).json({
         success: true,
         inGuild: false,
         guild: null,
         myRole: null,
         members: [],
-        stats: null,
+        stats: freeStats,
+        freePlayersStats: freeStats,
         pendingInvites: enrichedInvites
       });
     }
@@ -2174,17 +2236,25 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, leaderboard: [] });
     }
 
-    const [guildsRes, membersRes, gamesRes] = await Promise.all([
+    const [guildsRes, membersRes, gamesRes, profilesRes] = await Promise.all([
       supabaseAdmin.from('guilds').select('*'),
       supabaseAdmin.from('guild_members').select('guild_id, user_id, role'),
-      supabaseAdmin.from('game_results').select('user_id, game_mode, avg, schnaepse, total')
+      supabaseAdmin.from('game_results').select('user_id, player_name, game_mode, avg, schnaepse, total, is_guest'),
+      supabaseAdmin.from('profiles').select('id, username, display_name, avatar_url, title, selected_title, level, xp, name_bg_color, name_glow')
     ]);
 
     const allGuilds = guildsRes?.data || [];
     const allMembers = membersRes?.data || [];
     const allGames = gamesRes?.data || [];
+    const allProfiles = profilesRes?.data || [];
 
-    // Nur Standardspiel (500ml) aller Mitglieder berücksichtigen
+    // Map: userId -> Profile
+    const profileMap: Record<string, any> = {};
+    allProfiles.forEach((p: any) => {
+      if (p?.id) profileMap[p.id] = p;
+    });
+
+    // Nur Standardspiel (500ml) berücksichtigen
     const standardGames = allGames.filter((g: any) => isStandardspiel500(g.game_mode));
 
     // Map: userId -> array of games
@@ -2228,6 +2298,23 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         total = Math.round((avg + schnaepse) * 100) / 100;
       }
 
+      // Vollständige Kader-Mitgliederliste mit Name, Titel, Design und Level
+      const detailedMembers = gMembers.map((m: any) => {
+        const p = profileMap[m.user_id];
+        return {
+          id: m.id || `gm_${m.guild_id}_${m.user_id}`,
+          user_id: m.user_id,
+          role: m.role,
+          username: p?.username || p?.display_name || 'Mitglied',
+          avatar_url: p?.avatar_url || '',
+          title: p?.selected_title || p?.title || '',
+          level: p?.level || 1,
+          name_bg_color: p?.name_bg_color || 'none',
+          name_glow: p?.name_glow || 'none',
+          isGuest: false
+        };
+      });
+
       return {
         id: g.id,
         name: g.name,
@@ -2242,11 +2329,112 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         avgSchnaepse: schnaepse,
         totalSchnaepse: sumSchnaepse,
         total,
-        created_at: g.created_at
+        created_at: g.created_at,
+        members: detailedMembers
       };
     });
 
-    // Sortierung nach Total aufsteigend (niedrigeres Total = besser im Wiegen!)
+    // ─── Fiktive Wiegschaft der "Freien Spieler" berechnen & einfügen ───
+    try {
+      const guildMemberUserIds = new Set(allMembers.map((m: any) => m.user_id).filter(Boolean));
+      // Alle Standardspiele (500ml) von Spielern & Gästen, die keiner Wiegschaft angehören
+      const freePlayersGames = standardGames.filter((g: any) => {
+        if (g?.user_id && guildMemberUserIds.has(g.user_id)) return false;
+        return true;
+      });
+
+      // Eindeutige freie registrierte Spieler ermitteln
+      const freeUserIds = new Set<string>();
+      // Eindeutige Gast-Spielernamen ermitteln
+      const guestPlayerNames = new Set<string>();
+
+      freePlayersGames.forEach((g: any) => {
+        if (g?.user_id) {
+          freeUserIds.add(String(g.user_id));
+        } else if (g?.player_name) {
+          guestPlayerNames.add(String(g.player_name).trim());
+        }
+      });
+
+      // Auch Profile hinzuziehen, falls noch keine Spiele vorhanden aber registriert & frei
+      allProfiles.forEach((p: any) => {
+        if (p?.id && !guildMemberUserIds.has(p.id)) {
+          freeUserIds.add(String(p.id));
+        }
+      });
+
+      const freeGamesCount = freePlayersGames.length;
+      let freeAvg = 0;
+      let freeSchnaepse = 0;
+      let freeTotalSchnaepse = 0;
+      let freeTotal = 0;
+
+      if (freeGamesCount > 0) {
+        const sumAvg = freePlayersGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
+        freeTotalSchnaepse = freePlayersGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+        freeAvg = Math.round((sumAvg / freeGamesCount) * 100) / 100;
+        freeSchnaepse = Math.round((freeTotalSchnaepse / freeGamesCount) * 100) / 100;
+        freeTotal = Math.round((freeAvg + freeSchnaepse) * 100) / 100;
+      }
+
+      // 1. Registrierte freie Spieler
+      const freeMembers: any[] = Array.from(freeUserIds).map(rawUid => {
+        const uid = String(rawUid);
+        const p = profileMap[uid];
+        return {
+          id: `free_${uid}`,
+          user_id: uid,
+          role: 'member',
+          username: p?.username || p?.display_name || 'Freier Spieler',
+          avatar_url: p?.avatar_url || '',
+          title: p?.selected_title || p?.title || '',
+          level: p?.level || 1,
+          name_bg_color: p?.name_bg_color || 'none',
+          name_glow: p?.name_glow || 'none',
+          isGuest: false
+        };
+      });
+
+      // 2. Alle Gäste auflisten, da diese ebenfalls in die Statistik eingerechnet werden
+      const guestMembers: any[] = Array.from(guestPlayerNames).map((gName, idx) => ({
+        id: `guest_${idx}_${encodeURIComponent(gName)}`,
+        user_id: null,
+        role: 'guest',
+        username: gName || 'Gast',
+        avatar_url: '',
+        title: 'Gast',
+        level: 1,
+        name_bg_color: 'none',
+        name_glow: 'none',
+        isGuest: true
+      }));
+
+      // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
+      const allFreeKader = [...freeMembers, ...guestMembers];
+
+      leaderboard.push({
+        id: 'free_players',
+        name: 'Freie Spieler',
+        tag: 'FREI',
+        description: 'Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft (zum allgemeinen Vergleich).',
+        logo_url: '🍺',
+        memberCount: Math.max(allFreeKader.length, 1),
+        membersCount: Math.max(allFreeKader.length, 1),
+        gamesCount: freeGamesCount,
+        avg: freeAvg,
+        schnaepse: freeSchnaepse,
+        avgSchnaepse: freeSchnaepse,
+        totalSchnaepse: freeTotalSchnaepse,
+        total: freeTotal,
+        created_at: new Date(0).toISOString(),
+        isVirtual: true,
+        members: allFreeKader
+      });
+    } catch (freeErr) {
+      console.error("Fehler beim Hinzufügen der fiktiven Wiegschaft der Freien Spieler:", freeErr);
+    }
+
+    // Sortierung standardmäßig von klein nach groß (niedrigeres Total / avg = besser im Wiegen!)
     // Wiegschaften ohne Spiele werden hinten einsortiert
     leaderboard.sort((a: any, b: any) => {
       if (a.gamesCount === 0 && b.gamesCount === 0) return a.name.localeCompare(b.name);

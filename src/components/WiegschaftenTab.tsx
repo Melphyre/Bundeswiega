@@ -50,6 +50,7 @@ interface GuildData {
   myRole: 'captain' | 'vize_captain' | 'member' | null;
   members: GuildMember[];
   stats: GuildStats | null;
+  freePlayersStats?: GuildStats | null;
   pendingInvites: Array<{
     id: string;
     guild_id: string;
@@ -77,6 +78,7 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<GuildData | null>(null);
+  const [freeStats, setFreeStats] = useState<GuildStats | null>(null);
 
   // Zustand A: Erstellen
   const [createName, setCreateName] = useState('');
@@ -266,6 +268,41 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
       }
 
       setData(json);
+
+      if (!json.inGuild) {
+        if (json.freePlayersStats || json.stats) {
+          setFreeStats(json.freePlayersStats || json.stats);
+        } else {
+          try {
+            const { data: allMembers } = await supabase.from('guild_members').select('user_id');
+            const guildMemberIds = new Set((allMembers || []).map((m: any) => m.user_id).filter(Boolean));
+            const { data: allGames } = await supabase.from('game_results').select('user_id, game_mode, avg, schnaepse, total');
+            const freeGames = (allGames || []).filter((g: any) => {
+              if (g.user_id && guildMemberIds.has(g.user_id)) return false;
+              const mode = (g.game_mode || '').toLowerCase();
+              if (mode.includes('speed') || mode.includes('team') || mode.includes('0,3') || mode.includes('0.3') || mode.includes('330')) return false;
+              return mode.includes('standard') || mode.includes('500') || !g.game_mode;
+            });
+            if (freeGames.length > 0) {
+              const count = freeGames.length;
+              const sumAvg = freeGames.reduce((acc: number, g: any) => acc + (Number(g.avg) || 0), 0);
+              const sumSchnaepse = freeGames.reduce((acc: number, g: any) => acc + (Number(g.schnaepse) || 0), 0);
+              const avgVal = Math.round((sumAvg / count) * 100) / 100;
+              const avgSchnaepseVal = Math.round((sumSchnaepse / count) * 100) / 100;
+              const totalVal = Math.round((avgVal + avgSchnaepseVal) * 100) / 100;
+              setFreeStats({
+                gamesCount: count,
+                avg: avgVal,
+                totalSchnaepse: sumSchnaepse,
+                avgSchnaepse: avgSchnaepseVal,
+                total: totalVal
+              });
+            }
+          } catch (statErr) {
+            console.warn('Fallback Freispieler-Statistiken:', statErr);
+          }
+        }
+      }
 
       if (json.inGuild && json.guild) {
         setEditName(json.guild.name || '');
@@ -560,6 +597,63 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
         </p>
       </div>
 
+      {/* Neuer Absatz darunter: Nur für freie Spieler (ohne Wiegschaft) */}
+      {!data?.inGuild && (
+        <div
+          id="wiegschaft-free-player-banner"
+          className={`p-4 sm:p-5 rounded-2xl border space-y-3 shadow-sm ${
+            darkMode
+              ? 'bg-slate-800/80 border-slate-700/80 text-slate-100'
+              : 'bg-gradient-to-r from-teal-50 to-white border-teal-200/80 text-teal-950'
+          }`}
+        >
+          <div className="flex items-center space-x-3.5 sm:space-x-4">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center text-2xl flex-shrink-0">
+              🍺
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                Da du keiner Wiegschaft angehörst, bist du ein freier Spieler
+              </p>
+              <p className="text-[11px] opacity-70">
+                Hier siehst du die durchschnittlichen Ergebnisse aller Spieler, die nicht in einer Wiegschaft sind:
+              </p>
+            </div>
+          </div>
+
+          {/* Stats-Grid der freien Spieler */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-gray-500/20">
+            <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Spiele Gesamt</div>
+              <div className="text-base font-black mt-0.5" style={{ color: BRAND_COLOR }}>
+                {freeStats?.gamesCount ?? 0}
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø AVG</div>
+              <div className="text-base font-black mt-0.5" style={{ color: BRAND_COLOR }}>
+                {freeStats?.avg != null ? Number(freeStats.avg).toFixed(2) : '0.00'}
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø Schnäpse</div>
+              <div className="text-base font-black mt-0.5 text-amber-500">
+                {freeStats?.avgSchnaepse != null ? Number(freeStats.avgSchnaepse).toFixed(2) : '0.00'}
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø Total</div>
+              <div className="text-base font-black mt-0.5 text-emerald-500">
+                {freeStats?.total != null ? Number(freeStats.total).toFixed(2) : '0.00'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {statusFeedback && (
         <div id="wiegschaft-toast-feedback" className="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-600 dark:text-teal-400 text-xs font-bold flex items-center justify-between">
           <span>{statusFeedback}</span>
@@ -570,16 +664,6 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
       {/* ZUSTAND A: NICHT IN WIEGSCHAFT */}
       {!data?.inGuild && (
         <div id="wiegschaft-not-in-guild-view" className="space-y-6">
-          <div className={`p-5 rounded-2xl border text-center relative overflow-hidden ${darkMode ? 'bg-gradient-to-b from-slate-800/80 to-slate-800/40 border-slate-700' : 'bg-gradient-to-b from-teal-50 to-white border-teal-100'}`}>
-            <div className="text-4xl mb-2">🏰</div>
-            <h4 className="text-lg font-black uppercase tracking-wide" style={{ color: BRAND_COLOR }}>
-              Keiner Wiegschaft beigetreten
-            </h4>
-            <p className="text-xs sm:text-sm opacity-80 max-w-lg mx-auto mt-2 leading-relaxed">
-              Schließe dich mit anderen Wiegebegeisternden zu Wiegschaften zusammen und messt euch mit Wiegschaften auf der ganzen Welt.
-            </p>
-          </div>
-
           {/* Offene Einladungen */}
           <div id="wiegschaft-invites-section" className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
             <div className="flex items-center justify-between">
@@ -930,6 +1014,39 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
               )}
             </div>
           )}
+
+{/* Stats-Grid der Wiegschaft */}
+{data.stats && (
+  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-500/20">
+    <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Spiele Gesamt</div>
+      <div className="text-base font-black mt-0.5" style={{ color: BRAND_COLOR }}>
+        {data.stats.gamesCount ?? 0}
+      </div>
+    </div>
+
+    <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø AVG</div>
+      <div className="text-base font-black mt-0.5" style={{ color: BRAND_COLOR }}>
+        {data.stats.avg != null ? Number(data.stats.avg).toFixed(2) : '0.00'}
+      </div>
+    </div>
+
+    <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø Schnäpse</div>
+      <div className="text-base font-black mt-0.5 text-amber-500">
+        {data.stats.avgSchnaepse != null ? Number(data.stats.avgSchnaepse).toFixed(2) : '0.00'}
+      </div>
+    </div>
+
+    <div className={`p-2.5 rounded-xl border text-center ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Ø Total</div>
+      <div className="text-base font-black mt-0.5 text-emerald-500">
+        {data.stats.total != null ? Number(data.stats.total).toFixed(2) : '0.00'}
+      </div>
+    </div>
+  </div>
+)}
 
           {/* Mitgliederliste */}
           <div className="space-y-3">

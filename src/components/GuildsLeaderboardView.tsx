@@ -3,6 +3,7 @@ import { BRAND_COLOR } from '../constants';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
+import { PlayerTitleBadge } from './PlayerTitleBadge';
 
 export interface GuildLeaderboardEntry {
   id: string;
@@ -13,18 +14,22 @@ export interface GuildLeaderboardEntry {
   captain_id: string;
   created_at: string;
   memberCount: number;
+  isVirtual?: boolean;
   captain?: {
     username: string;
     avatar_url: string;
   };
   members?: Array<{
     id: string;
-    user_id: string;
+    user_id: string | null;
     role: string;
     username: string;
-    avatar_url: string;
-    level: number;
+    avatar_url?: string;
+    title?: string;
+    level?: number;
     name_bg_color?: string;
+    name_glow?: string;
+    isGuest?: boolean;
   }>;
   gamesCount: number;
   avg: number;
@@ -49,8 +54,9 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<GuildLeaderboardEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  // Bei total und avg immer von klein nach groß (asc), da kleiner = besser!
   const [sortBy, setSortBy] = useState<SortField>('total');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedGuild, setSelectedGuild] = useState<GuildLeaderboardEntry | null>(null);
   const [userGuildId, setUserGuildId] = useState<string | null>(null);
 
@@ -92,8 +98,13 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortBy(field);
-      // For average distance, lower is usually better (ascending)
-      setSortDir(field === 'avg' ? 'asc' : 'desc');
+      // Bei total & avg immer von klein nach groß (aufsteigend) beginnen:
+      // Je kleiner der avg oder der Total, desto besser die Wiegschaft!
+      if (field === 'total' || field === 'avg') {
+        setSortDir('asc');
+      } else {
+        setSortDir('desc');
+      }
     }
   };
 
@@ -114,9 +125,9 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
       let valB = 0;
       switch (sortBy) {
         case 'avg':
-          // If no games, push to bottom
-          valA = a.gamesCount > 0 ? a.avg : 999999;
-          valB = b.gamesCount > 0 ? b.avg : 999999;
+          // Bei Abstand: kleiner ist besser. Wiegschaften ohne Spiele nach hinten schieben
+          valA = a.gamesCount > 0 ? a.avg : (sortDir === 'asc' ? 999999 : -999999);
+          valB = b.gamesCount > 0 ? b.avg : (sortDir === 'asc' ? 999999 : -999999);
           break;
         case 'schnaepse': {
           const schnaepseA = a.avgSchnaepse ?? a.schnaepse ?? (a.gamesCount > 0 && a.totalSchnaepse !== undefined ? a.totalSchnaepse / a.gamesCount : 0);
@@ -135,8 +146,9 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           break;
         case 'total':
         default:
-          valA = a.total;
-          valB = b.total;
+          // Bei Total: kleiner ist besser. Wiegschaften ohne Spiele nach hinten schieben
+          valA = a.gamesCount > 0 ? a.total : (sortDir === 'asc' ? 999999 : -999999);
+          valB = b.gamesCount > 0 ? b.total : (sortDir === 'asc' ? 999999 : -999999);
           break;
       }
       return sortDir === 'asc' ? valA - valB : valB - valA;
@@ -183,7 +195,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
               Wiegschaften Rangliste
             </h3>
             <p className="text-xs opacity-75">
-              Aggregierte Werte aller Mitglieder und Spiele pro Wiegschaft
+              Aggregierte Werte aller Mitglieder und Spiele pro Wiegschaft (kleineres Total & Ø-Abstand = besser)
             </p>
           </div>
         </div>
@@ -231,11 +243,11 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           <span className="text-[11px] font-bold opacity-50 mr-1 flex-shrink-0">Sortierung:</span>
           {(
             [
-              { key: 'total', label: 'Total' },
-              { key: 'avg', label: 'Ø-Abstand' },
-              { key: 'schnaepse', label: 'Ø-Schnäpse' },
-              { key: 'games', label: 'Spiele (500ml)' },
-              { key: 'members', label: 'Mitglieder' }
+              { key: 'total', label: 'Total', hint: 'klein → groß' },
+              { key: 'avg', label: 'Ø-Abstand', hint: 'klein → groß' },
+              { key: 'schnaepse', label: 'Ø-Schnäpse', hint: 'groß → klein' },
+              { key: 'games', label: 'Spiele (500ml)', hint: 'groß → klein' },
+              { key: 'members', label: 'Mitglieder', hint: 'groß → klein' }
             ] as const
           ).map(s => {
             const isActive = sortBy === s.key;
@@ -244,6 +256,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                 key={s.key}
                 id={`btn-sort-guild-${s.key}`}
                 onClick={() => handleSort(s.key)}
+                title={`Sortieren nach ${s.label} (${s.hint})`}
                 className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer flex-shrink-0 flex items-center space-x-1 ${
                   isActive
                     ? 'bg-[#238183] text-white shadow-sm'
@@ -274,16 +287,37 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                 <th className="py-3 px-3">Wiegschaft</th>
                 <th className="py-3 px-3 text-center">Mitglieder</th>
                 <th className="py-3 px-3 text-center" title="Summe aller Standardspiele (500ml) aller Mitglieder">Spiele (500ml)</th>
-                <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('avg')}>
-                  Ø-Abstand {sortBy === 'avg' && (sortDir === 'asc' ? '▲' : '▼')}
+                <th
+                  className="py-3 px-3 text-right cursor-pointer select-none"
+                  onClick={() => handleSort('avg')}
+                  title="Ø-Abstand sortieren (Je kleiner, desto besser)"
+                >
+                  <span className="flex items-center justify-end space-x-1">
+                    <span>Ø-Abstand</span>
+                    <span className="text-[10px] opacity-75">{sortBy === 'avg' ? (sortDir === 'asc' ? '▲ (klein)' : '▼ (groß)') : '↕'}</span>
+                  </span>
                 </th>
-                <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('schnaepse')} title="Durchschnittliche Schnapszahl pro Spiel">
-                  Ø-Schnäpse {sortBy === 'schnaepse' && (sortDir === 'asc' ? '▲' : '▼')}
+                <th
+                  className="py-3 px-3 text-right cursor-pointer select-none"
+                  onClick={() => handleSort('schnaepse')}
+                  title="Durchschnittliche Schnapszahl pro Spiel"
+                >
+                  <span className="flex items-center justify-end space-x-1">
+                    <span>Ø-Schnäpse</span>
+                    <span className="text-[10px] opacity-75">{sortBy === 'schnaepse' ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                  </span>
                 </th>
-                <th className="py-3 px-3 text-right cursor-pointer" onClick={() => handleSort('total')}>
-                  Total {sortBy === 'total' && (sortDir === 'asc' ? '▲' : '▼')}
+                <th
+                  className="py-3 px-3 text-right cursor-pointer select-none font-black"
+                  onClick={() => handleSort('total')}
+                  title="Total sortieren (Je kleiner, desto besser)"
+                >
+                  <span className="flex items-center justify-end space-x-1">
+                    <span>Total</span>
+                    <span className="text-[10px] opacity-75">{sortBy === 'total' ? (sortDir === 'asc' ? '▲ (klein)' : '▼ (groß)') : '↕'}</span>
+                  </span>
                 </th>
-                <th className="py-3 px-3 text-center">Details</th>
+                <th className="py-3 px-3 text-center">Kader</th>
               </tr>
             </thead>
             <tbody>
@@ -300,12 +334,18 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                   rankBadge = <span className="text-base" title="3. Platz">🥉</span>;
                 }
 
+                const isVirtual = guild.isVirtual || guild.id === 'free_players';
+
                 return (
                   <tr
                     key={guild.id}
                     id={`guild-leaderboard-row-${guild.id}`}
                     className={`border-b border-gray-500/10 transition-colors ${
-                      isUserGuild
+                      isVirtual
+                        ? darkMode
+                          ? 'bg-amber-500/10 border-l-4 border-l-amber-500/70 hover:bg-amber-500/15'
+                          : 'bg-amber-50/70 border-l-4 border-l-amber-500 hover:bg-amber-100/60'
+                        : isUserGuild
                         ? darkMode
                           ? 'bg-teal-500/15 border-l-4 border-l-teal-400 hover:bg-teal-500/20'
                           : 'bg-teal-50 border-l-4 border-l-teal-500 hover:bg-teal-100/50'
@@ -320,30 +360,44 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                     {/* Wiegschaft Name & Tag */}
                     <td className="py-3 px-3">
                       <div className="flex items-center space-x-3">
-                        <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0 overflow-hidden ${
+                          isVirtual
+                            ? 'bg-amber-500/20 border border-amber-500/30 text-amber-500'
+                            : 'bg-teal-500/10 border border-teal-500/20'
+                        }`}>
                           {guild.logo_url && guild.logo_url.startsWith('http') ? (
                             <img src={guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
                           ) : (
-                            <span>{guild.logo_url || '🏰'}</span>
+                            <span>{guild.logo_url || (isVirtual ? '🍺' : '🏰')}</span>
                           )}
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <span className="font-black text-sm truncate">{guild.name}</span>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-gray-500/15">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-black ${
+                              isVirtual ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-gray-500/15'
+                            }`}>
                               [{guild.tag}]
                             </span>
-                            {isUserGuild && (
+                            {isVirtual ? (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                Allgemeiner Vergleich
+                              </span>
+                            ) : isUserGuild ? (
                               <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-teal-500 text-white">
                                 Deine Wiegschaft
                               </span>
-                            )}
+                            ) : null}
                           </div>
-                          {guild.captain && (
+                          {isVirtual ? (
+                            <div className="text-[10px] opacity-60 truncate mt-0.5 text-amber-700 dark:text-amber-300">
+                              Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft
+                            </div>
+                          ) : guild.captain ? (
                             <div className="text-[10px] opacity-60 truncate mt-0.5">
                               Kapitän: {guild.captain.username}
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -399,24 +453,24 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
         </div>
       )}
 
-      {/* DETAIL MODAL: Mitglieder einer Wiegschaft ansehen */}
+      {/* DETAIL MODAL: Mitglieder einer Wiegschaft ansehen (Kader-Liste) */}
       {selectedGuild && (
         <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className={`p-6 rounded-3xl max-w-lg w-full border shadow-2xl space-y-4 max-h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+          <div className={`p-6 rounded-3xl max-w-xl w-full border shadow-2xl space-y-4 max-h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-gray-500/15">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-2xl bg-teal-500/20 flex items-center justify-center text-2xl flex-shrink-0">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${selectedGuild.isVirtual ? 'bg-amber-500/20 text-amber-500' : 'bg-teal-500/20'}`}>
                   {selectedGuild.logo_url && selectedGuild.logo_url.startsWith('http') ? (
                     <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl" />
                   ) : (
-                    <span>{selectedGuild.logo_url || '🏰'}</span>
+                    <span>{selectedGuild.logo_url || (selectedGuild.isVirtual ? '🍺' : '🏰')}</span>
                   )}
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
                     <h4 className="font-black text-base uppercase">{selectedGuild.name}</h4>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-teal-500/20 text-teal-600 dark:text-teal-400">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${selectedGuild.isVirtual ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-teal-500/20 text-teal-600 dark:text-teal-400'}`}>
                       [{selectedGuild.tag}]
                     </span>
                   </div>
@@ -461,42 +515,98 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
               </div>
             </div>
 
-            {/* Kader Mitgliederliste */}
+            {/* Kader Mitgliederliste: Name, Profilbild, Titel, Design und Level für alle Mitglieder */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              <h5 className="font-black text-xs uppercase tracking-wider opacity-60 flex items-center space-x-1.5 pt-2">
-                <i className="fas fa-users text-[#238183]"></i>
-                <span>Mitglieder ({selectedGuild.members?.length || selectedGuild.memberCount})</span>
-              </h5>
+              <div className="flex items-center justify-between pt-2 pb-1">
+                <h5 className="font-black text-xs uppercase tracking-wider opacity-60 flex items-center space-x-1.5">
+                  <i className="fas fa-users text-[#238183]"></i>
+                  <span>Kader & Mitglieder ({selectedGuild.members?.length || selectedGuild.memberCount})</span>
+                </h5>
+              </div>
 
               {selectedGuild.members && selectedGuild.members.length > 0 ? (
-                selectedGuild.members.map(m => (
-                  <div
-                    key={m.id || m.user_id}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}
-                  >
-                    <div className="flex items-center space-x-2.5">
-                      <PlayerAvatar url={m.avatar_url} name={m.username} className="w-8 h-8 rounded-lg" />
-                      <div>
-                        <div className="flex items-center space-x-1.5">
-                          <PlayerNameTag name={m.username} colorKey={m.name_bg_color || 'none'} className="text-xs font-bold px-2 py-0.5" />
-                          <PlayerLevelBadge level={m.level || 1} size="xs" />
-                        </div>
-                      </div>
-                    </div>
+                selectedGuild.members.map(m => {
+                  const isGuest = m.isGuest || !m.user_id;
 
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                        m.role === 'captain'
-                          ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                          : m.role === 'vize_captain'
-                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                          : 'bg-gray-500/10 opacity-70'
+                  return (
+                    <div
+                      key={m.id || m.user_id || m.username}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 ${
+                        isGuest
+                          ? darkMode
+                            ? 'bg-slate-800/40 border-dashed border-slate-700/60'
+                            : 'bg-gray-50/70 border-dashed border-gray-300'
+                          : darkMode
+                          ? 'bg-slate-800/60 border-slate-700'
+                          : 'bg-gray-50 border-gray-200'
                       }`}
                     >
-                      {m.role === 'captain' ? '👑 Kapitän' : m.role === 'vize_captain' ? '⚔️ Vize' : 'Mitglied'}
-                    </span>
-                  </div>
-                ))
+                      {/* Profilbild, NameTag mit Design, Titel & Level */}
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        {isGuest ? (
+                          <div className="w-8 h-8 rounded-lg bg-gray-500/20 text-gray-500 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                            👤
+                          </div>
+                        ) : (
+                          <PlayerAvatar url={m.avatar_url || ''} name={m.username} className="w-8 h-8 rounded-lg flex-shrink-0" />
+                        )}
+
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                            {/* Name & Design (Farbe / Neon-Glow des Namens) */}
+                            <PlayerNameTag
+                              name={m.username}
+                              colorKey={m.name_bg_color || 'none'}
+                              glowKey={m.name_glow || 'none'}
+                              className="text-xs font-bold px-2 py-0.5"
+                            />
+
+                            {/* Titel */}
+                            {m.title && (
+                              <PlayerTitleBadge title={m.title} size="sm" />
+                            )}
+
+                            {/* Level (immer anzeigen, für Gäste "(Gast)") */}
+                            {isGuest ? (
+                              <span className="text-[10px] font-bold opacity-50 px-1.5 py-0.2 rounded bg-gray-500/10">
+                                (Gast)
+                              </span>
+                            ) : (
+                              <PlayerLevelBadge level={m.level || 1} size="xs" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Rollen-Badge */}
+                      <div className="flex-shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase whitespace-nowrap ${
+                            isGuest
+                              ? 'bg-gray-500/15 text-gray-400 border border-gray-500/20'
+                              : selectedGuild.isVirtual
+                              ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                              : m.role === 'captain'
+                              ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                              : m.role === 'vize_captain'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                              : 'bg-gray-500/10 opacity-70'
+                          }`}
+                        >
+                          {isGuest
+                            ? '👤 Gast-Spieler'
+                            : selectedGuild.isVirtual
+                            ? '🍺 Freier Spieler'
+                            : m.role === 'captain'
+                            ? '👑 Kapitän'
+                            : m.role === 'vize_captain'
+                            ? '⚔️ Vize'
+                            : 'Mitglied'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="text-center py-4 opacity-50 text-xs">Keine Mitgliederdetails verfügbar</div>
               )}

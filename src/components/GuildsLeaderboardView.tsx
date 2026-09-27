@@ -4,6 +4,7 @@ import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { PlayerTitleBadge } from './PlayerTitleBadge';
+import { supabase } from '../supabaseClient';
 
 export interface GuildLeaderboardEntry {
   id: string;
@@ -58,6 +59,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
   const [sortBy, setSortBy] = useState<SortField>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedGuild, setSelectedGuild] = useState<GuildLeaderboardEntry | null>(null);
+  const [modalMembersLoading, setModalMembersLoading] = useState(false);
   const [userGuildId, setUserGuildId] = useState<string | null>(null);
 
   const fetchLeaderboard = async () => {
@@ -82,12 +84,231 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
         }
       }
     } catch (e: any) {
-      console.error('Fehler beim Abrufen der Wiegschaften-Tabelle:', e);
-      setError(e?.message || 'Tabelle konnte nicht geladen werden.');
+      console.warn('API /api/guilds/leaderboard fehlgeschlagen, starte Supabase-Fallback:', e);
+      // Supabase Direct Fallback
+      try {
+        const [guildsRes, membersRes, gamesRes, profilesRes] = await Promise.all([
+          supabase.from('guilds').select('*'),
+          supabase.from('guild_members').select('id, guild_id, user_id, role, joined_at'),
+          supabase.from('game_results').select('user_id, player_name, game_mode, avg, schnaepse, total, is_guest'),
+          supabase.from('profiles').select('id, username, display_name, avatar_url, selected_title, active_title, title, xp, level, name_bg_color')
+        ]);
+
+        const allGuilds = guildsRes?.data || [];
+        const allMembers = membersRes?.data || [];
+        const allGames = gamesRes?.data || [];
+        const allProfiles = profilesRes?.data || [];
+
+        const profileMap = new Map((allProfiles || []).map((p: any) => [String(p.id), p]));
+
+        const standardGames = allGames.filter((g: any) => {
+          if (!g?.game_mode) return true;
+          const m = String(g.game_mode).toLowerCase();
+          if (m.includes('speed') || m.includes('team') || m.includes('0,3') || m.includes('0.3') || m.includes('330')) return false;
+          return m.includes('standard') || m.includes('500') || m.includes('einzel') || m === 'normal';
+        });
+
+        const gamesByUser: Record<string, any[]> = {};
+        standardGames.forEach((g: any) => {
+          if (!g?.user_id) return;
+          const uid = String(g.user_id);
+          if (!gamesByUser[uid]) gamesByUser[uid] = [];
+          gamesByUser[uid].push(g);
+        });
+
+        const membersByGuild: Record<string, any[]> = {};
+        allMembers.forEach((m: any) => {
+          if (!m?.guild_id) return;
+          if (!membersByGuild[m.guild_id]) membersByGuild[m.guild_id] = [];
+          membersByGuild[m.guild_id].push(m);
+        });
+
+        const fallbackLb: GuildLeaderboardEntry[] = allGuilds.map((g: any) => {
+          const gMembers = membersByGuild[g.id] || [];
+          const guildGames: any[] = [];
+          gMembers.forEach((m: any) => {
+            const uid = String(m.user_id || '');
+            const uGames = gamesByUser[uid] || [];
+            guildGames.push(...uGames);
+          });
+
+          const gamesCount = guildGames.length;
+          let avg = 0;
+          let schnaepse = 0;
+          let sumSchnaepse = 0;
+          let total = 0;
+
+          if (gamesCount > 0) {
+            const sumAvg = guildGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
+            sumSchnaepse = guildGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+            avg = Math.round((sumAvg / gamesCount) * 100) / 100;
+            schnaepse = Math.round((sumSchnaepse / gamesCount) * 100) / 100;
+            total = Math.round((avg + schnaepse) * 100) / 100;
+          }
+
+          const detailedMembers = gMembers.map((m: any) => {
+            const uid = String(m.user_id || '');
+            const p = profileMap.get(uid);
+            const resolvedName = p?.username || p?.display_name || 'Spieler';
+            return {
+              id: m.id || `gm_${m.guild_id}_${uid}`,
+              user_id: uid,
+              role: m.role || 'member',
+              username: resolvedName,
+              avatar_url: p?.avatar_url || '',
+              title: p?.selected_title || p?.active_title || p?.title || '',
+              level: p?.level ?? 1,
+              name_bg_color: p?.name_bg_color || 'none',
+              name_glow: (p as any)?.name_glow || 'none',
+              isGuest: false
+            };
+          });
+
+          return {
+            id: g.id,
+            name: g.name,
+            tag: g.tag,
+            description: g.description || '',
+            logo_url: g.logo_url || '',
+            captain_id: g.captain_id || '',
+            created_at: g.created_at || '',
+            memberCount: gMembers.length,
+            gamesCount,
+            avg,
+            schnaepse,
+            avgSchnaepse: schnaepse,
+            totalSchnaepse: sumSchnaepse,
+            total,
+            members: detailedMembers
+          };
+        });
+
+        setLeaderboard(fallbackLb);
+      } catch (fbErr: any) {
+        console.error('Supabase Fallback fehlgeschlagen:', fbErr);
+        setError(e?.message || 'Tabelle konnte nicht geladen werden.');
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  // Exakt wie unter "Profil verwalten / meine Wiegschaft" in WiegschaftenTab.tsx:
+  // Automatisches Direkt-Laden und Enrichment der Mitglieder einer Wiegschaft aus Supabase
+  useEffect(() => {
+    if (!selectedGuild) return;
+
+    let isMounted = true;
+
+    const loadOrEnrichMembers = async () => {
+      // 1. Virtuelle Wiegschaft der freien Spieler
+      if (selectedGuild.isVirtual) {
+        if (!selectedGuild.members || selectedGuild.members.length === 0) return;
+        const regUserIds = selectedGuild.members
+          .filter(m => !m.isGuest && m.user_id)
+          .map(m => String(m.user_id));
+
+        if (regUserIds.length > 0) {
+          try {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('id, username, display_name, avatar_url, selected_title, active_title, title, xp, level, name_bg_color')
+              .in('id', regUserIds);
+
+            if (!isMounted || !profiles || profiles.length === 0) return;
+            const pMap = new Map(profiles.map(p => [String(p.id), p]));
+
+            setSelectedGuild(prev => {
+              if (!prev || prev.id !== selectedGuild.id || !prev.members) return prev;
+              const enriched = prev.members.map(m => {
+                if (m.isGuest || !m.user_id) return m;
+                const p = pMap.get(String(m.user_id));
+                if (!p) return m;
+                return {
+                  ...m,
+                  username: p.username || p.display_name || m.username || 'Freier Spieler',
+                  avatar_url: p.avatar_url || m.avatar_url || '',
+                  title: p.selected_title || p.active_title || p.title || m.title || '',
+                  level: p.level ?? m.level ?? 1,
+                  name_bg_color: p.name_bg_color || m.name_bg_color || 'none'
+                };
+              });
+              return { ...prev, members: enriched };
+            });
+          } catch (e) {
+            console.warn('Enrichment freie Spieler:', e);
+          }
+        }
+        return;
+      }
+
+      // 2. Reguläre Wiegschaften: Mitglieder und Profile wie in WiegschaftenTab.tsx abrufen
+      setModalMembersLoading(true);
+      try {
+        const { data: membersRaw, error: memErr } = await supabase
+          .from('guild_members')
+          .select('id, guild_id, user_id, role, joined_at')
+          .eq('guild_id', selectedGuild.id)
+          .order('joined_at', { ascending: true });
+
+        if (memErr) throw memErr;
+
+        if (membersRaw && membersRaw.length > 0) {
+          const memberUserIds = membersRaw.map(m => String(m.user_id)).filter(Boolean);
+          const { data: profiles, error: profErr } = await supabase
+            .from('profiles')
+            .select('id, username, display_name, avatar_url, selected_title, active_title, title, xp, level, name_bg_color')
+            .in('id', memberUserIds);
+
+          if (profErr) throw profErr;
+
+          const profileMap = new Map((profiles || []).map(p => [String(p.id), p]));
+
+          const enrichedList = membersRaw.map((m: any) => {
+            const uid = String(m.user_id || '');
+            const p = profileMap.get(uid);
+            const resolvedName = p?.username || p?.display_name || 'Spieler';
+
+            return {
+              id: m.id || `gm_${m.guild_id}_${uid}`,
+              user_id: uid,
+              role: m.role || 'member',
+              username: resolvedName,
+              avatar_url: p?.avatar_url || '',
+              title: p?.selected_title || p?.active_title || p?.title || '',
+              level: p?.level ?? 1,
+              name_bg_color: p?.name_bg_color || 'none',
+              name_glow: (p as any)?.name_glow || 'none',
+              isGuest: false
+            };
+          });
+
+          if (isMounted) {
+            setSelectedGuild(prev => {
+              if (!prev || prev.id !== selectedGuild.id) return prev;
+              return {
+                ...prev,
+                memberCount: enrichedList.length,
+                members: enrichedList
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Fehler beim Laden/Enrichment der Wiegschafts-Mitglieder:', err);
+      } finally {
+        if (isMounted) {
+          setModalMembersLoading(false);
+        }
+      }
+    };
+
+    loadOrEnrichMembers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedGuild?.id]);
 
   useEffect(() => {
     fetchLeaderboard();
@@ -522,9 +743,20 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                   <i className="fas fa-users text-[#238183]"></i>
                   <span>Kader & Mitglieder ({selectedGuild.members?.length || selectedGuild.memberCount})</span>
                 </h5>
+                {modalMembersLoading && (
+                  <span className="text-[10px] text-teal-500 font-semibold flex items-center gap-1">
+                    <i className="fas fa-spinner fa-spin"></i>
+                    <span>Synchronisiere...</span>
+                  </span>
+                )}
               </div>
 
-              {selectedGuild.members && selectedGuild.members.length > 0 ? (
+              {modalMembersLoading && (!selectedGuild.members || selectedGuild.members.length === 0) ? (
+                <div className="flex flex-col items-center justify-center py-6 space-y-2 opacity-60">
+                  <i className="fas fa-spinner fa-spin text-teal-500 text-xl"></i>
+                  <span className="text-xs">Mitgliederdaten werden geladen...</span>
+                </div>
+              ) : selectedGuild.members && selectedGuild.members.length > 0 ? (
                 selectedGuild.members.map(m => {
                   const isGuest = m.isGuest || !m.user_id;
 

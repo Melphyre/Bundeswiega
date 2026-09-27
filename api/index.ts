@@ -1513,7 +1513,6 @@ async function calculateFreePlayersStats(): Promise<{
 
   return defaultStats;
 }
-
 // ─── 1. EIGENE WIEGSCHAFT LADEN (GET /api/guilds/my-guild) ───
 export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -1613,29 +1612,34 @@ export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) 
     if (membersRaw && membersRaw.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
-        .select('id, username, display_name, avatar_url, title, level, xp, name_bg_color, name_glow')
+        .select('id, username, display_name, avatar_url, title, selected_title, active_title, level, xp, name_bg_color')
         .in('id', memberUserIds);
 
-      const profileMap = new Map(profiles?.map((p: any) => [p.id, p]) || []);
+      const profileMap = new Map(profiles?.map((p: any) => [String(p.id), p]) || []);
 
       members = membersRaw.map((m: any) => {
-        const prof: any = profileMap.get(m.user_id);
+        const uid = String(m.user_id || '');
+        const prof: any = profileMap.get(uid) || {};
+        const resolvedName = prof?.username || prof?.display_name || 'Spieler';
+
         return {
-          id: m.id,
-          user_id: m.user_id,
+          id: m.id || `gm_${m.guild_id}_${uid}`,
+          user_id: uid,
           role: m.role,
           joined_at: m.joined_at,
-          username: prof?.username || prof?.display_name || 'Spieler',
+          username: resolvedName,
+          name: resolvedName,
+          display_name: resolvedName,
+          player_name: resolvedName,
           avatar_url: prof?.avatar_url || null,
-          title: prof?.title || '',
+          title: prof?.selected_title || prof?.active_title || prof?.title || '',
           level: prof?.level || 1,
           xp: prof?.xp || 0,
           name_bg_color: prof?.name_bg_color || 'none',
-          name_glow: prof?.name_glow || 'none'
+          name_glow: (prof as any)?.name_glow || 'none'
         };
       });
     }
-
     // Aggregierte Statistiken (Standardspiel 500ml aller Mitglieder)
     let stats = {
       gamesCount: 0,
@@ -2238,10 +2242,17 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
 
     const [guildsRes, membersRes, gamesRes, profilesRes] = await Promise.all([
       supabaseAdmin.from('guilds').select('*'),
-      supabaseAdmin.from('guild_members').select('guild_id, user_id, role'),
+      supabaseAdmin.from('guild_members').select('id, guild_id, user_id, role, joined_at'),
       supabaseAdmin.from('game_results').select('user_id, player_name, game_mode, avg, schnaepse, total, is_guest'),
-      supabaseAdmin.from('profiles').select('id, username, display_name, avatar_url, title, selected_title, level, xp, name_bg_color, name_glow')
+      supabaseAdmin.from('profiles').select('id, username, display_name, avatar_url, title, selected_title, active_title, level, xp, name_bg_color')
     ]);
+
+    if (profilesRes?.error) {
+      console.error("profilesRes query error in handleGuildLeaderboard:", profilesRes.error);
+    }
+    if (membersRes?.error) {
+      console.error("membersRes query error in handleGuildLeaderboard:", membersRes.error);
+    }
 
     const allGuilds = guildsRes?.data || [];
     const allMembers = membersRes?.data || [];
@@ -2251,7 +2262,7 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     // Map: userId -> Profile
     const profileMap: Record<string, any> = {};
     allProfiles.forEach((p: any) => {
-      if (p?.id) profileMap[p.id] = p;
+      if (p?.id) profileMap[String(p.id)] = p;
     });
 
     // Nur Standardspiel (500ml) berücksichtigen
@@ -2261,8 +2272,9 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     const gamesByUser: Record<string, any[]> = {};
     standardGames.forEach((g: any) => {
       if (!g?.user_id) return;
-      if (!gamesByUser[g.user_id]) gamesByUser[g.user_id] = [];
-      gamesByUser[g.user_id].push(g);
+      const uid = String(g.user_id);
+      if (!gamesByUser[uid]) gamesByUser[uid] = [];
+      gamesByUser[uid].push(g);
     });
 
     // Map: guildId -> array of members
@@ -2280,7 +2292,8 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       // Alle Standardspiele (500ml) aller Mitglieder dieser Wiegschaft einsammeln
       const guildGames: any[] = [];
       gMembers.forEach((m: any) => {
-        const uGames = gamesByUser[m.user_id] || [];
+        const uid = String(m.user_id || '');
+        const uGames = gamesByUser[uid] || [];
         guildGames.push(...uGames);
       });
 
@@ -2298,19 +2311,26 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         total = Math.round((avg + schnaepse) * 100) / 100;
       }
 
-      // Vollständige Kader-Mitgliederliste mit Name, Titel, Design und Level
+// Vollständige Kader-Mitgliederliste mit Name, Titel, Design und Level
       const detailedMembers = gMembers.map((m: any) => {
-        const p = profileMap[m.user_id];
+        const uid = String(m.user_id || '');
+        const p = profileMap[uid] || profileMap[m.user_id] || {};
+        const resolvedName = p.username || p.display_name || 'Spieler';
+
         return {
-          id: m.id || `gm_${m.guild_id}_${m.user_id}`,
-          user_id: m.user_id,
+          id: m.id || `gm_${m.guild_id}_${uid}`,
+          user_id: uid,
           role: m.role,
-          username: p?.username || p?.display_name || 'Mitglied',
-          avatar_url: p?.avatar_url || '',
-          title: p?.selected_title || p?.title || '',
-          level: p?.level || 1,
-          name_bg_color: p?.name_bg_color || 'none',
-          name_glow: p?.name_glow || 'none',
+          username: resolvedName,
+          name: resolvedName,
+          display_name: resolvedName,
+          player_name: resolvedName,
+          avatar_url: p.avatar_url || null,
+          title: p.selected_title || p.active_title || p.title || '',
+          level: p.level || 1,
+          xp: p.xp || 0,
+          name_bg_color: p.name_bg_color || 'none',
+          name_glow: p.name_glow || 'none',
           isGuest: false
         };
       });
@@ -2336,10 +2356,10 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
 
     // ─── Fiktive Wiegschaft der "Freien Spieler" berechnen & einfügen ───
     try {
-      const guildMemberUserIds = new Set(allMembers.map((m: any) => m.user_id).filter(Boolean));
+      const guildMemberUserIds = new Set(allMembers.map((m: any) => String(m.user_id)).filter(Boolean));
       // Alle Standardspiele (500ml) von Spielern & Gästen, die keiner Wiegschaft angehören
       const freePlayersGames = standardGames.filter((g: any) => {
-        if (g?.user_id && guildMemberUserIds.has(g.user_id)) return false;
+        if (g?.user_id && guildMemberUserIds.has(String(g.user_id))) return false;
         return true;
       });
 
@@ -2358,7 +2378,7 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
 
       // Auch Profile hinzuziehen, falls noch keine Spiele vorhanden aber registriert & frei
       allProfiles.forEach((p: any) => {
-        if (p?.id && !guildMemberUserIds.has(p.id)) {
+        if (p?.id && !guildMemberUserIds.has(String(p.id))) {
           freeUserIds.add(String(p.id));
         }
       });
@@ -2380,36 +2400,49 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       // 1. Registrierte freie Spieler
       const freeMembers: any[] = Array.from(freeUserIds).map(rawUid => {
         const uid = String(rawUid);
-        const p = profileMap[uid];
+        const p = profileMap[uid] || {};
+        const resolvedName = p.username || p.display_name || 'Freier Spieler';
+
         return {
           id: `free_${uid}`,
           user_id: uid,
           role: 'member',
-          username: p?.username || p?.display_name || 'Freier Spieler',
-          avatar_url: p?.avatar_url || '',
-          title: p?.selected_title || p?.title || '',
-          level: p?.level || 1,
-          name_bg_color: p?.name_bg_color || 'none',
-          name_glow: p?.name_glow || 'none',
+          username: resolvedName,
+          name: resolvedName,
+          display_name: resolvedName,
+          player_name: resolvedName,
+          avatar_url: p.avatar_url || null,
+          title: p.selected_title || p.active_title || p.title || '',
+          level: p.level || 1,
+          xp: p.xp || 0,
+          name_bg_color: p.name_bg_color || 'none',
+          name_glow: p.name_glow || 'none',
           isGuest: false
         };
       });
 
       // 2. Alle Gäste auflisten, da diese ebenfalls in die Statistik eingerechnet werden
-      const guestMembers: any[] = Array.from(guestPlayerNames).map((gName, idx) => ({
-        id: `guest_${idx}_${encodeURIComponent(gName)}`,
-        user_id: null,
-        role: 'guest',
-        username: gName || 'Gast',
-        avatar_url: '',
-        title: 'Gast',
-        level: 1,
-        name_bg_color: 'none',
-        name_glow: 'none',
-        isGuest: true
-      }));
-
-      // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
+      const guestMembers: any[] = Array.from(guestPlayerNames).map((gName, idx) => {
+        const resolvedName = gName || 'Gast';
+        return {
+          id: `guest_${idx}_${encodeURIComponent(resolvedName)}`,
+          user_id: null,
+          role: 'guest',
+          username: resolvedName,
+          name: resolvedName,
+          display_name: resolvedName,
+          player_name: resolvedName,
+          avatar_url: null,
+          title: 'Gast',
+          level: 1,
+          xp: 0,
+          name_bg_color: 'none',
+          name_glow: 'none',
+          isGuest: true
+        };
+      });
+      
+     // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
       const allFreeKader = [...freeMembers, ...guestMembers];
 
       leaderboard.push({
@@ -2433,7 +2466,6 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     } catch (freeErr) {
       console.error("Fehler beim Hinzufügen der fiktiven Wiegschaft der Freien Spieler:", freeErr);
     }
-
     // Sortierung standardmäßig von klein nach groß (niedrigeres Total / avg = besser im Wiegen!)
     // Wiegschaften ohne Spiele werden hinten einsortiert
     leaderboard.sort((a: any, b: any) => {
@@ -2456,7 +2488,6 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true, leaderboard: [], error: err?.message });
   }
 }
-
 // ─── MAIN ROUTER ───
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');

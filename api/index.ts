@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { calculateGuildLevelAndXP, getGuildCosmetics } from '../src/utils/guildLevel';
 
 // ─── UTILS: LEVEL SYSTEM (Direkt in API integriert) ───
 export function getTitleForLevel(level: number): string {
@@ -1676,14 +1677,24 @@ export async function handleGetMyGuild(req: VercelRequest, res: VercelResponse) 
       }
     }
 
+    const levelInfo = calculateGuildLevelAndXP(members);
+
     return res.status(200).json({
       success: true,
       inGuild: true,
       guild: {
         ...guild,
+        level: levelInfo.level,
+        xp: levelInfo.xp,
+        rawXP: levelInfo.rawXP,
+        currentLevelProgressXP: levelInfo.currentLevelProgressXP,
+        xpNeededForNextLevel: levelInfo.xpNeededForNextLevel,
+        progressPercent: levelInfo.progressPercent,
+        cosmetics: levelInfo.cosmetics,
         myRole: memberRecord.role,
         members
       },
+      levelInfo,
       myRole: memberRecord.role,
       members,
       stats,
@@ -2335,6 +2346,8 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         };
       });
 
+      const lvlInfo = calculateGuildLevelAndXP(detailedMembers);
+
       return {
         id: g.id,
         name: g.name,
@@ -2350,7 +2363,14 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         totalSchnaepse: sumSchnaepse,
         total,
         created_at: g.created_at,
-        members: detailedMembers
+        members: detailedMembers,
+        level: lvlInfo.level,
+        xp: lvlInfo.xp,
+        rawXP: lvlInfo.rawXP,
+        currentLevelProgressXP: lvlInfo.currentLevelProgressXP,
+        xpNeededForNextLevel: lvlInfo.xpNeededForNextLevel,
+        progressPercent: lvlInfo.progressPercent,
+        cosmetics: lvlInfo.cosmetics
       };
     });
 
@@ -2442,8 +2462,9 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         };
       });
       
-     // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
+      // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
       const allFreeKader = [...freeMembers, ...guestMembers];
+      const freeLvlInfo = calculateGuildLevelAndXP(allFreeKader);
 
       leaderboard.push({
         id: 'free_players',
@@ -2461,7 +2482,14 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         total: freeTotal,
         created_at: new Date(0).toISOString(),
         isVirtual: true,
-        members: allFreeKader
+        members: allFreeKader,
+        level: freeLvlInfo.level,
+        xp: freeLvlInfo.xp,
+        rawXP: freeLvlInfo.rawXP,
+        currentLevelProgressXP: freeLvlInfo.currentLevelProgressXP,
+        xpNeededForNextLevel: freeLvlInfo.xpNeededForNextLevel,
+        progressPercent: freeLvlInfo.progressPercent,
+        cosmetics: freeLvlInfo.cosmetics
       });
     } catch (freeErr) {
       console.error("Fehler beim Hinzufügen der fiktiven Wiegschaft der Freien Spieler:", freeErr);

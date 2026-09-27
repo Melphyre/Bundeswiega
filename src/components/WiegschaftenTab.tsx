@@ -1,10 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BRAND_COLOR } from '../constants';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { playButtonSound } from './FriendsModal';
 import { supabase } from '../supabaseClient';
+import {
+  calculateGuildLevelAndXP,
+  getGuildCosmetics,
+  GuildLevelInfo,
+  GuildCosmetics
+} from '../utils/guildLevel';
+import { GuildLevelRewardsModal } from './GuildLevelRewardsModal';
 
 interface WiegschaftenTabProps {
   userId?: string;
@@ -45,8 +52,14 @@ interface GuildData {
     captain_id: string;
     level?: number;
     xp?: number;
+    rawXP?: number;
+    currentLevelProgressXP?: number;
+    xpNeededForNextLevel?: number;
+    progressPercent?: number;
+    cosmetics?: GuildCosmetics;
     created_at: string;
   } | null;
+  levelInfo?: GuildLevelInfo;
   myRole: 'captain' | 'vize_captain' | 'member' | null;
   members: GuildMember[];
   stats: GuildStats | null;
@@ -99,8 +112,13 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
   const [editTag, setEditTag] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editLogoUrl, setEditLogoUrl] = useState('');
+  const [editCustomTitle, setEditCustomTitle] = useState('');
+  const [editTagTheme, setEditTagTheme] = useState('default');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Zustand B: Level-Rewards Modal
+  const [showRewardsModal, setShowRewardsModal] = useState(false);
 
   // Zustand B: Aktionen
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -321,6 +339,22 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
   useEffect(() => {
     fetchGuildData();
   }, [fetchGuildData]);
+
+  const guildLevelInfo: GuildLevelInfo = useMemo(() => {
+    if (data?.levelInfo) return data.levelInfo;
+    if (data?.guild?.level !== undefined && data.guild.cosmetics && data.guild.currentLevelProgressXP !== undefined) {
+      return {
+        level: data.guild.level,
+        xp: data.guild.xp || 0,
+        rawXP: data.guild.rawXP || 0,
+        currentLevelProgressXP: data.guild.currentLevelProgressXP || 0,
+        xpNeededForNextLevel: data.guild.xpNeededForNextLevel || 1,
+        progressPercent: data.guild.progressPercent || 0,
+        cosmetics: data.guild.cosmetics
+      };
+    }
+    return calculateGuildLevelAndXP(data?.members || []);
+  }, [data?.levelInfo, data?.guild, data?.members]);
 
   const handleCreateGuild = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -875,7 +909,7 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
           <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200'} shadow-sm space-y-4`}>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-4">
-                <div className="relative group w-16 h-16 rounded-2xl bg-teal-500/10 border-2 border-teal-500/30 flex items-center justify-center text-3xl flex-shrink-0 overflow-hidden shadow">
+                <div className={`relative group w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0 overflow-hidden shadow ${guildLevelInfo.cosmetics.logoBorder} ${darkMode ? 'bg-slate-900' : 'bg-teal-500/10'}`}>
                   {data.guild.logo_url && data.guild.logo_url.startsWith('http') ? (
                     <img src={data.guild.logo_url} alt="Guild Logo" className="w-full h-full object-cover" />
                   ) : (
@@ -891,14 +925,22 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                 </div>
 
                 <div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 flex-wrap">
                     <h3 className="text-lg font-black">{data.guild.name}</h3>
-                    <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-[#238183]/10 text-[#238183] border border-[#238183]/20">
+                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold ${guildLevelInfo.cosmetics.tagClass}`}>
                       [{data.guild.tag}]
                     </span>
                   </div>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <span className="px-2 py-0.5 rounded-md text-xs font-black bg-black/10 dark:bg-white/10 text-amber-500 border border-amber-500/30">
+                      Level {guildLevelInfo.level}
+                    </span>
+                    <span className="text-xs font-bold text-teal-600 dark:text-teal-400">
+                      {guildLevelInfo.cosmetics.guildTitle}
+                    </span>
+                  </div>
                   {data.guild.description && (
-                    <p className="text-xs opacity-75 mt-0.5">{data.guild.description}</p>
+                    <p className="text-xs opacity-75 mt-1">{data.guild.description}</p>
                   )}
                 </div>
               </div>
@@ -971,6 +1013,76 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                   className={`w-full p-2 rounded-lg border text-xs ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-300'}`}
                 />
 
+                {/* Level-Perk: Custom-Wiegschafts-Titel vergeben (Freigeschaltet ab Level 5) */}
+                {guildLevelInfo.level >= 5 ? (
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold opacity-80 flex items-center justify-between">
+                      <span className="flex items-center space-x-1">
+                        <span>Custom Wiegschafts-Titel / Motto</span>
+                        <span className="text-amber-500">✨</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-500 font-bold">Freigeschaltet (Lvl 5)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editCustomTitle}
+                      onChange={e => setEditCustomTitle(e.target.value)}
+                      placeholder={`z. B. ${guildLevelInfo.cosmetics.guildTitle}`}
+                      className={`w-full p-2 rounded-lg border text-xs font-semibold ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-300'}`}
+                    />
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-lg border border-dashed border-gray-500/30 opacity-60 text-xs font-semibold flex items-center justify-between bg-black/5 dark:bg-white/5">
+                    <span>Custom Wiegschafts-Titel</span>
+                    <span className="text-amber-500 font-bold flex items-center space-x-1">
+                      <span>🔒</span>
+                      <span>Freischaltung ab Level 5</span>
+                    </span>
+                  </div>
+                )}
+
+                {/* Level-Perk: Tag-Farbe & Theme anpassen (Freigeschaltet ab Level 10) */}
+                {guildLevelInfo.level >= 10 ? (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold opacity-80 flex items-center justify-between">
+                      <span className="flex items-center space-x-1">
+                        <span>Tag-Theme Design</span>
+                        <span className="text-amber-500">🎨</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-500 font-bold">Freigeschaltet (Lvl 10)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      {[
+                        { id: 'default', label: 'Standard', cls: 'tag-default' },
+                        { id: 'bronze', label: 'Bronze', cls: 'tag-bronze' },
+                        { id: 'silver', label: 'Silber-Shimmer', cls: 'tag-silver-shimmer' },
+                        ...(guildLevelInfo.level >= 20 ? [{ id: 'gold', label: 'Gold-Puls', cls: 'tag-gold-pulse' }] : []),
+                        ...(guildLevelInfo.level >= 30 ? [{ id: 'flame', label: 'Bernstein', cls: 'tag-amber-flame' }] : []),
+                        ...(guildLevelInfo.level >= 35 ? [{ id: 'fire', label: 'Feuer', cls: 'tag-fire-gradient' }] : []),
+                        ...(guildLevelInfo.level >= 40 ? [{ id: 'diamond', label: 'Diamant', cls: 'tag-diamond-holo' }] : []),
+                        ...(guildLevelInfo.level >= 50 ? [{ id: 'god', label: 'Göttlich', cls: 'tag-prismatic-god' }] : []),
+                      ].map(theme => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() => setEditTagTheme(theme.id)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold cursor-pointer transition-all ${theme.cls} ${editTagTheme === theme.id ? 'ring-2 ring-teal-500 scale-105' : 'opacity-70 hover:opacity-100'}`}
+                        >
+                          [{data.guild.tag}] {theme.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-lg border border-dashed border-gray-500/30 opacity-60 text-xs font-semibold flex items-center justify-between bg-black/5 dark:bg-white/5">
+                    <span>Tag-Farbe aus freigeschalteten Themes anpassen</span>
+                    <span className="text-amber-500 font-bold flex items-center space-x-1">
+                      <span>🔒</span>
+                      <span>Freischaltung ab Level 10</span>
+                    </span>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={editLoading}
@@ -980,6 +1092,71 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
                 </button>
               </form>
             )}
+          </div>
+
+          {/* Level-Fortschrittsanzeige (Für alle Mitglieder sichtbar) */}
+          <div
+            id="guild-level-progress-banner"
+            onClick={() => setShowRewardsModal(true)}
+            className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer group shadow-sm ${
+              darkMode
+                ? 'bg-slate-800/80 border-slate-700/80 hover:border-teal-500/50'
+                : 'bg-white border-gray-200 hover:border-teal-400'
+            }`}
+            title="Klicken für Belohnungsübersicht & Meilensteine"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center justify-center text-xl flex-shrink-0">
+                  🏆
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-500">
+                      Wiegschafts-Level {guildLevelInfo.level}
+                    </span>
+                    <span className="text-xs opacity-40">•</span>
+                    <span className="text-xs font-bold opacity-80">
+                      {guildLevelInfo.cosmetics.guildTitle}
+                    </span>
+                  </div>
+                  <p className="text-[11px] opacity-65 mt-0.5">
+                    {guildLevelInfo.level >= 50
+                      ? 'Maximales Wiegschafts-Level erreicht!'
+                      : `Noch ${(guildLevelInfo.xpNeededForNextLevel - guildLevelInfo.currentLevelProgressXP).toLocaleString()} XP bis Level ${guildLevelInfo.level + 1}`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 self-end sm:self-center">
+                <span className="text-xs font-mono font-bold text-teal-600 dark:text-teal-400">
+                  {guildLevelInfo.level >= 50
+                    ? `${guildLevelInfo.xp.toLocaleString()} XP`
+                    : `${guildLevelInfo.currentLevelProgressXP.toLocaleString()} / ${guildLevelInfo.xpNeededForNextLevel.toLocaleString()} XP`}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-500/20 text-teal-600 dark:text-teal-400">
+                  {guildLevelInfo.progressPercent}%
+                </span>
+              </div>
+            </div>
+
+            {/* Animierter Fortschrittsbalken */}
+            <div className="h-3 w-full rounded-full bg-black/15 dark:bg-white/10 overflow-hidden p-0.5 border border-gray-500/15">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-teal-500 via-amber-400 to-amber-500 transition-all duration-700 shadow-xs"
+                style={{ width: `${guildLevelInfo.progressPercent}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2.5 text-[11px]">
+              <span className="text-teal-600 dark:text-teal-400 font-bold group-hover:underline flex items-center space-x-1">
+                <span>🎁 Freigeschaltete & kommende Belohnungen ansehen</span>
+                <span>➔</span>
+              </span>
+              <span className="opacity-50 text-[10px]">
+                Effektive Gesamt-XP: {guildLevelInfo.xp.toLocaleString()} XP
+              </span>
+            </div>
           </div>
 
           {/* Mitglied einladen (Kapitän & Vize) */}
@@ -1178,6 +1355,19 @@ export const WiegschaftenTab: React.FC<WiegschaftenTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL: Wiegschafts-Level-Belohnungen & Meilensteine */}
+      {showRewardsModal && data?.guild && (
+        <GuildLevelRewardsModal
+          isOpen={showRewardsModal}
+          onClose={() => setShowRewardsModal(false)}
+          guildName={data.guild.name}
+          guildTag={data.guild.tag}
+          guildLogo={data.guild.logo_url}
+          levelInfo={guildLevelInfo}
+          darkMode={darkMode}
+        />
       )}
     </div>
   );

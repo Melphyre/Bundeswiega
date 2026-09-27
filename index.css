@@ -125,3 +125,238 @@ html, body {
   z-index: 2;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   WIEGSCHAFTEN LEVEL-COSMETICS & MOBILE GLOW SYSTEM
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── 1. LOGO-RAHMEN (logoBorder) ─── */
+.border-none {
+  border: 1px solid rgba(150, 150, 150, 0.2);
+}
+
+.border-wood {
+  border: 2.5px solid #8b5a2b !important;
+  box-shadow: 0 0 14px rgba(139, 90, 43, 0.85), inset 0 0 6px rgba(139, 90, 43, 0.5) !important;
+}
+
+.border-bronze {
+  border: 2.5px solid #cd7f32 !important;
+  box-shadow: 0 0 16px rgba(205, 127, 50, 0.95), 0 0 26px rgba(140, 98, 57, 0.6), inset 0 0 8px rgba(205, 127, 50, 0.6) !important;
+}
+
+.border-silver {
+  border: 2.5px solid #e2e8f0 !important;
+  box-shadow: 0 0 18px rgba(226, 232, 240, 0.95), 0 0 30px rgba(148, 163, 184, 0.7), inset 0 0 8px rgba(255, 255, 255, 0.8) !important;
+}
+
+.border-gold-massiv {
+  border: 2.5px solid #fbbf24 !important;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 1), 0 0 35px rgba(245, 158, 11, 0.85), inset 0 0 10px rgba(254, 240, 138, 0.8) !important;
+  animation: goldMassivGlow 3s infinite ease-in-out;
+}
+
+@keyframes goldMassivGlow {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.9), 0 0 28px rgba(245, 158, 11, 0.7), inset 0 0 8px rgba(254, 240, 138, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(251, 191, 36, 1), 0 0 42px rgba(245, 158, 11, 0.95), inset 0 0 14px rgba(255, 255, 255, 0.9);
+  }
+}
+
+.border-gold-wings {
+  border: 2.5px solid #f59e0b !important;
+  box-shadow: 0 0 22px rgba(245, 158, 11, 1), 0 0 40px rgba(217, 119, 6, 0.85), inset 0 0 10px rgba(254, 243, 199, 0.8) !important;
+  position: relative;
+}
+
+.border-ruby-crystal {
+  border: 2.5px solid #ef4444 !important;
+  box-shadow: 0 0 22px rgba(239, 68, 68, 1), 0 0 40px rgba(220, 38, 38, 0.9), inset 0 0 10px rgba(254, 202, 202, 0.8) !important;
+  animation: rubyCrystalPulse 2.2s infinite ease-in-out;
+}
+
+@keyframes rubyCrystalPulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.85), 0 0 30px rgba(185, 28, 28, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(239, 68, 68, 1), 0 0 48px rgba(220, 38, 38, 0.95), inset 0 0 12px rgba(254, 202, 202, 0.9);
+  }
+}
+
+.border-diamond-holo {
+  border: 2.5px solid #06b6d4 !important;
+  box-shadow: 0 0 22px rgba(6, 182, 212, 1), 0 0 42px rgba(168, 85, 247, 0.85), inset 0 0 10px rgba(224, 242, 254, 0.9) !important;
+  animation: diamondHoloCycle 3s infinite linear;
+}
+
+@keyframes diamondHoloCycle {
+  0% {
+    border-color: #06b6d4 !important;
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.95), 0 0 38px rgba(168, 85, 247, 0.8);
+  }
+  50% {
+    border-color: #a855f7 !important;
+    box-shadow: 0 0 25px rgba(168, 85, 247, 1), 0 0 46px rgba(236, 72, 153, 0.85);
+  }
+  100% {
+    border-color: #06b6d4 !important;
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.95), 0 0 38px rgba(168, 85, 247, 0.8);
+  }
+}
+
+.border-laurel-gold {
+  border: 3px solid #fbbf24 !important;
+  box-shadow: 0 0 28px rgba(251, 191, 36, 1), 0 0 55px rgba(245, 158, 11, 0.95), inset 0 0 14px rgba(255, 255, 255, 0.95) !important;
+  animation: laurelGodPulse 2s infinite ease-in-out;
+}
+
+@keyframes laurelGodPulse {
+  0%, 100% {
+    box-shadow: 0 0 22px rgba(251, 191, 36, 0.9), 0 0 45px rgba(245, 158, 11, 0.85);
+  }
+  50% {
+    box-shadow: 0 0 34px rgba(251, 191, 36, 1), 0 0 65px rgba(245, 158, 11, 1), inset 0 0 16px #ffffff;
+  }
+}
+
+/* ─── 2. TAG-KLASSEN (tagClass) mit Mobile-Neon-Glow ─── */
+.tag-default {
+  background: rgba(100, 116, 139, 0.15);
+  color: inherit;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.tag-bronze {
+  background: rgba(140, 98, 57, 0.22) !important;
+  color: #df9c65 !important;
+  border: 1.5px solid #cd7f32 !important;
+  filter: drop-shadow(0 0 8px rgba(205, 127, 50, 0.9))
+          drop-shadow(0 0 16px rgba(140, 98, 57, 0.7)) !important;
+}
+
+.tag-silver-shimmer {
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.3), rgba(148, 163, 184, 0.2)) !important;
+  color: #f1f5f9 !important;
+  border: 1.5px solid #cbd5e1 !important;
+  filter: drop-shadow(0 0 10px rgba(226, 232, 240, 0.95))
+          drop-shadow(0 0 20px rgba(148, 163, 184, 0.75)) !important;
+}
+
+.tag-gold-pulse {
+  background: rgba(251, 191, 36, 0.25) !important;
+  color: #fef08a !important;
+  border: 1.5px solid #fbbf24 !important;
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.95))
+          drop-shadow(0 0 18px rgba(255, 215, 0, 0.75)) !important;
+  animation: tagPulseAnim 2s infinite ease-in-out;
+}
+
+@keyframes tagPulseAnim {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.85)) drop-shadow(0 0 14px rgba(245, 158, 11, 0.65));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(255, 215, 0, 1)) drop-shadow(0 0 24px rgba(245, 158, 11, 0.9));
+  }
+}
+
+.tag-amber-flame {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(217, 119, 6, 0.25)) !important;
+  color: #fef3c7 !important;
+  border: 1.5px solid #f59e0b !important;
+  filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.95))
+          drop-shadow(0 0 22px rgba(217, 119, 6, 0.75)) !important;
+}
+
+.tag-fire-gradient {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.35), rgba(249, 115, 22, 0.3)) !important;
+  color: #ffedd5 !important;
+  border: 1.5px solid #f97316 !important;
+  filter: drop-shadow(0 0 10px rgba(239, 68, 68, 1))
+          drop-shadow(0 0 22px rgba(249, 115, 22, 0.85)) !important;
+  animation: fireGlowPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes fireGlowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9)) drop-shadow(0 0 18px rgba(249, 115, 22, 0.7));
+  }
+  50% {
+    filter: drop-shadow(0 0 14px rgba(239, 68, 68, 1)) drop-shadow(0 0 28px rgba(249, 115, 22, 0.95));
+  }
+}
+
+.tag-diamond-holo {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.3), rgba(168, 85, 247, 0.25)) !important;
+  color: #cffafe !important;
+  border: 1.5px solid #22d3ee !important;
+  filter: drop-shadow(0 0 10px rgba(6, 182, 212, 1))
+          drop-shadow(0 0 22px rgba(168, 85, 247, 0.85)) !important;
+}
+
+.tag-prismatic-god {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.35), rgba(236, 72, 153, 0.3), rgba(6, 182, 212, 0.3)) !important;
+  color: #ffffff !important;
+  border: 1.5px solid #fef08a !important;
+  filter: drop-shadow(0 0 12px rgba(255, 215, 0, 1))
+          drop-shadow(0 0 24px rgba(236, 72, 153, 0.85))
+          drop-shadow(0 0 35px rgba(6, 182, 212, 0.75)) !important;
+  animation: prismaticCycle 2.5s infinite linear;
+}
+
+@keyframes prismaticCycle {
+  0% {
+    filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.95)) drop-shadow(0 0 22px rgba(236, 72, 153, 0.8));
+  }
+  50% {
+    filter: drop-shadow(0 0 14px rgba(6, 182, 212, 1)) drop-shadow(0 0 28px rgba(168, 85, 247, 0.9));
+  }
+  100% {
+    filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.95)) drop-shadow(0 0 22px rgba(236, 72, 153, 0.8));
+  }
+}
+
+/* ─── 3. TABELLENZEILEN-AURA (rowClass) ─── */
+.row-default {
+  /* Standard Table Row */
+}
+
+.row-bronze-hover {
+  transition: all 0.25s ease-in-out;
+}
+.row-bronze-hover:hover {
+  box-shadow: 0 0 18px rgba(140, 98, 57, 0.4), inset 0 0 10px rgba(205, 127, 50, 0.15) !important;
+}
+
+.row-silver-edge {
+  border-left: 4px solid #cbd5e1 !important;
+  box-shadow: 0 0 16px rgba(203, 213, 225, 0.3) !important;
+}
+
+.row-gold-shimmer {
+  border-left: 4px solid #fbbf24 !important;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.35), inset 0 0 12px rgba(251, 191, 36, 0.12) !important;
+}
+
+.row-obsidian-bg {
+  border-left: 4px solid #a855f7 !important;
+  background: linear-gradient(90deg, rgba(30, 27, 75, 0.4) 0%, rgba(15, 23, 42, 0.6) 50%, rgba(30, 27, 75, 0.4) 100%) !important;
+  box-shadow: 0 0 22px rgba(168, 85, 247, 0.35), inset 0 0 14px rgba(168, 85, 247, 0.15) !important;
+}
+
+.row-godly-aura {
+  border-left: 4px solid #facc15 !important;
+  box-shadow: 0 0 24px rgba(255, 215, 0, 0.45), inset 0 0 18px rgba(255, 215, 0, 0.25) !important;
+  animation: godlyAuraGlow 2.5s infinite ease-in-out;
+}
+
+@keyframes godlyAuraGlow {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(255, 215, 0, 0.35), inset 0 0 12px rgba(255, 215, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(255, 215, 0, 0.55), inset 0 0 22px rgba(255, 215, 0, 0.35);
+  }
+}

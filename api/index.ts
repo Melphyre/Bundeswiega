@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { calculateGuildLevelAndXP, getGuildCosmetics } from '../src/utils/guildLevel';
+import { calculateGuildLevelAndXP, getGuildCosmetics } from '../src/utils/guildLevel.js';
 
 // ─── UTILS: LEVEL SYSTEM (Direkt in API integriert) ───
 export function getTitleForLevel(level: number): string {

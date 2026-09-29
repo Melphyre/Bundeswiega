@@ -269,3 +269,41 @@ BEGIN
   END IF;
 END $$;
 
+-- ==========================================
+-- 10. TABELLE "active_games" (LIVE ZUSCHAUEN / SPECTATOR MODE)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public.active_games (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  host_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  game_mode TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'in_progress', -- 'in_progress' | 'finished'
+  current_round INTEGER NOT NULL DEFAULT 1,
+  players JSONB NOT NULL DEFAULT '[]'::jsonb,
+  game_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_games_host_user_id ON public.active_games(host_user_id);
+CREATE INDEX IF NOT EXISTS idx_active_games_status ON public.active_games(status);
+CREATE INDEX IF NOT EXISTS idx_active_games_updated_at ON public.active_games(updated_at);
+
+ALTER TABLE public.active_games ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'active_games' AND policyname = 'Allow all select active_games') THEN
+    CREATE POLICY "Allow all select active_games" ON public.active_games FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'active_games' AND policyname = 'Allow all insert active_games') THEN
+    CREATE POLICY "Allow all insert active_games" ON public.active_games FOR INSERT WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'active_games' AND policyname = 'Allow all update active_games') THEN
+    CREATE POLICY "Allow all update active_games" ON public.active_games FOR UPDATE USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'active_games' AND policyname = 'Allow all delete active_games') THEN
+    CREATE POLICY "Allow all delete active_games" ON public.active_games FOR DELETE USING (true);
+  END IF;
+END $$;
+
+

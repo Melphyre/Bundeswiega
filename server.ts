@@ -15,6 +15,44 @@ if (process.env.VITE_SUPABASE_URL) {
 }
 
 import apiHandler from "./api/index";
+import { createClient } from "@supabase/supabase-js";
+
+// Supabase client for backend maintenance routines
+const supabaseCleanUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace('.supabase.com', '.supabase.co');
+const supabaseCleanKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+let supabaseServerAdmin: any = null;
+if (supabaseCleanUrl && supabaseCleanKey) {
+  try {
+    supabaseServerAdmin = createClient(supabaseCleanUrl, supabaseCleanKey);
+  } catch (err) {
+    console.warn("Could not init supabaseServerAdmin in server.ts:", err);
+  }
+}
+
+// Auto-Cleanup: Einträge aus active_games löschen, deren updated_at älter als 30 Min ist und status = 'finished' hat
+async function cleanupFinishedGames() {
+  if (!supabaseServerAdmin) return;
+  try {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { error, count } = await supabaseServerAdmin
+      .from('active_games')
+      .delete({ count: 'exact' })
+      .eq('status', 'finished')
+      .lt('updated_at', thirtyMinutesAgo);
+
+    if (error) {
+      console.warn("Auto-cleanup active_games warning:", error.message);
+    } else if (count && count > 0) {
+      console.log(`[Auto-Cleanup] ${count} beendete active_games (>30 Min alt) bereinigt.`);
+    }
+  } catch (err: any) {
+    console.warn("Auto-cleanup active_games error:", err?.message || err);
+  }
+}
+
+// Initialer Aufruf und periodische Ausführung alle 5 Minuten
+cleanupFinishedGames();
+setInterval(cleanupFinishedGames, 5 * 60 * 1000);
 
 // Setup express app
 const app = express();

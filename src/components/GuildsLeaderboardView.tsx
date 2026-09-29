@@ -583,14 +583,14 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                 }
 
                 const isVirtual = guild.isVirtual || guild.id === 'free_players';
-                const cosmetics = guild.cosmetics || getGuildCosmetics(guild.level || 1);
-                const guildLevel = guild.level || 1;
+                const cosmetics = isVirtual ? null : (guild.cosmetics || getGuildCosmetics(guild.level || 1));
+                const guildLevel = isVirtual ? undefined : (guild.level || 1);
 
                 return (
                   <tr
                     key={guild.id}
                     id={`guild-leaderboard-row-${guild.id}`}
-                    className={`border-b border-gray-500/10 transition-colors ${cosmetics.rowClass} ${
+                    className={`border-b border-gray-500/10 transition-colors ${!isVirtual && cosmetics ? cosmetics.rowClass : ''} ${
                       isVirtual
                         ? darkMode
                           ? 'bg-amber-500/10 border-l-4 border-l-amber-500/70 hover:bg-amber-500/15'
@@ -610,10 +610,10 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                     {/* Wiegschaft Name & Tag */}
                     <td className="py-3 px-3">
                       <div className="flex items-center space-x-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0 overflow-hidden ${cosmetics.logoBorder} ${
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0 overflow-hidden ${
                           isVirtual
-                            ? 'bg-amber-500/20 text-amber-500'
-                            : 'bg-teal-500/10'
+                            ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                            : `${cosmetics?.logoBorder || 'border-none'} bg-teal-500/10`
                         }`}>
                           {guild.logo_url && guild.logo_url.startsWith('http') ? (
                             <img src={guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
@@ -624,19 +624,25 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                         <div className="min-w-0">
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <span className="font-black text-sm truncate">{guild.name}</span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black ${cosmetics.tagClass}`}>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black ${
+                              isVirtual
+                                ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                : cosmetics?.tagClass || 'tag-default'
+                            }`}>
                               [{guild.tag}]
                             </span>
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRewardsModalGuild(guild);
-                              }}
-                              title={`Wiegschafts-Level ${guildLevel} - ${cosmetics.guildTitle} (Klicken für Belohnungsübersicht)`}
-                              className="px-1.5 py-0.5 rounded text-[10px] font-black bg-black/10 dark:bg-white/10 text-amber-500 border border-amber-500/30 cursor-pointer hover:scale-105 active:scale-95 transition-all flex items-center space-x-1"
-                            >
-                              <span>Lvl {guildLevel}</span>
-                            </span>
+                            {!isVirtual && guildLevel !== undefined && cosmetics && (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRewardsModalGuild(guild);
+                                }}
+                                title={`Wiegschafts-Level ${guildLevel} - ${cosmetics.guildTitle} (Klicken für Belohnungsübersicht)`}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-black bg-black/10 dark:bg-white/10 text-amber-500 border border-amber-500/30 cursor-pointer hover:scale-105 active:scale-95 transition-all flex items-center space-x-1"
+                              >
+                                <span>Lvl {guildLevel}</span>
+                              </span>
+                            )}
                             {isVirtual ? (
                               <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                                 Allgemeiner Vergleich
@@ -716,7 +722,51 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
         <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className={`p-6 rounded-3xl max-w-xl w-full border shadow-2xl space-y-4 max-h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
             {/* Modal Header */}
-            {(() => {
+            {selectedGuild.isVirtual ? (
+              <div className="space-y-3 pb-3 border-b border-gray-500/15">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 bg-amber-500/20 text-amber-500 border border-amber-500/30">
+                      {selectedGuild.logo_url && selectedGuild.logo_url.startsWith('http') ? (
+                        <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl" />
+                      ) : (
+                        <span>{selectedGuild.logo_url || '🍺'}</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <h4 className="font-black text-base uppercase">{selectedGuild.name}</h4>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                          [{selectedGuild.tag}]
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                          Allgemeiner Vergleich
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 mt-0.5">
+                        <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                          Vergleichsgruppe aller Spieler ohne Wiegschaft
+                        </span>
+                      </div>
+                      {selectedGuild.description && (
+                        <p className="text-xs opacity-75 mt-0.5">{selectedGuild.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedGuild(null)}
+                    className="w-8 h-8 rounded-full border border-gray-500/20 flex items-center justify-center text-sm opacity-60 hover:opacity-100 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="p-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-300 flex items-center space-x-2">
+                  <span className="text-base">ℹ️</span>
+                  <span>Fiktive Wiegschaft zum statistischen Leistungsvergleich. Besitzt kein Wiegschaften-Level und keine freischaltbaren Belohnungen.</span>
+                </div>
+              </div>
+            ) : (() => {
               const selectedLvlInfo: GuildLevelInfo = (selectedGuild.level !== undefined && selectedGuild.cosmetics && selectedGuild.currentLevelProgressXP !== undefined)
                 ? {
                     level: selectedGuild.level,
@@ -734,14 +784,12 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div
-                        className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${selectedLvlInfo.cosmetics.logoBorder} ${
-                          selectedGuild.isVirtual ? 'bg-amber-500/20 text-amber-500' : 'bg-teal-500/20'
-                        }`}
+                        className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${selectedLvlInfo.cosmetics.logoBorder} bg-teal-500/20`}
                       >
                         {selectedGuild.logo_url && selectedGuild.logo_url.startsWith('http') ? (
                           <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl" />
                         ) : (
-                          <span>{selectedGuild.logo_url || (selectedGuild.isVirtual ? '🍺' : '🏰')}</span>
+                          <span>{selectedGuild.logo_url || '🏰'}</span>
                         )}
                       </div>
                       <div>

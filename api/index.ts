@@ -2464,7 +2464,6 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
       
       // Kombinierte Kaderliste aller freien Spieler (Registrierte + Gäste)
       const allFreeKader = [...freeMembers, ...guestMembers];
-      const freeLvlInfo = calculateGuildLevelAndXP(allFreeKader);
 
       leaderboard.push({
         id: 'free_players',
@@ -2482,14 +2481,7 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         total: freeTotal,
         created_at: new Date(0).toISOString(),
         isVirtual: true,
-        members: allFreeKader,
-        level: freeLvlInfo.level,
-        xp: freeLvlInfo.xp,
-        rawXP: freeLvlInfo.rawXP,
-        currentLevelProgressXP: freeLvlInfo.currentLevelProgressXP,
-        xpNeededForNextLevel: freeLvlInfo.xpNeededForNextLevel,
-        progressPercent: freeLvlInfo.progressPercent,
-        cosmetics: freeLvlInfo.cosmetics
+        members: allFreeKader
       });
     } catch (freeErr) {
       console.error("Fehler beim Hinzufügen der fiktiven Wiegschaft der Freien Spieler:", freeErr);
@@ -2516,6 +2508,29 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true, leaderboard: [], error: err?.message });
   }
 }
+// ─── 17. ACTIVE GAMES (LIVE ZUSCHAUEN) ───
+async function handleActiveGamesCleanup(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  if (!supabaseAdmin) {
+    return res.status(200).json({ success: false, message: 'Database not initialized', deleted: 0 });
+  }
+  try {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data, error, count } = await supabaseAdmin
+      .from('active_games')
+      .delete({ count: 'exact' })
+      .eq('status', 'finished')
+      .lt('updated_at', thirtyMinutesAgo);
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    return res.status(200).json({ success: true, deleted: count || 0 });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+}
+
 // ─── MAIN ROUTER ───
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -2611,7 +2626,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await handleGuildLeaderboard(req, res);
     }
 
-    // 5. Datenbankwartung
+    // 5. Datenbankwartung & Active Games
+    if (pathname === '/active-games/cleanup') {
+      return await handleActiveGamesCleanup(req, res);
+    }
     if (pathname === '/repair-database') {
       return await handleRepairDatabase(req, res);
     }

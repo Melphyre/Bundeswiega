@@ -66,6 +66,16 @@ import {
   rejectFriendRequest as apiRejectFriendRequest,
   removeFriend as apiRemoveFriend
 } from './src/services/friendService';
+import { LiveGamesModal } from './src/components/LiveGamesModal';
+import { SpectatorView } from './src/components/SpectatorView';
+import { LiveSpectatorPresence } from './src/components/LiveSpectatorPresence';
+import {
+  createActiveGame,
+  updateActiveGame,
+  finishActiveGame,
+  fetchFriendsActiveGames,
+  ActiveGame
+} from './src/services/activeGamesService';
 
 export const BUTTON_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/click-on-mouse.wav";
 
@@ -1349,6 +1359,24 @@ const App: React.FC = () => {
   const [showAdminUsersView, setShowAdminUsersView] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [gameState, setGameState] = useState<GameState>(GameState.START);
+
+  // Live Spectator Mode States
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  const activeGameIdRef = useRef<string | null>(null);
+  activeGameIdRef.current = activeGameId;
+
+  const [showLiveGamesModal, setShowLiveGamesModal] = useState(false);
+  const [spectatingGame, setSpectatingGame] = useState<ActiveGame | null>(null);
+  const [activeFriendsGamesCount, setActiveFriendsGamesCount] = useState<number>(0);
+
+  // Zähler der aktiven Spiele von Freunden aktualisieren
+  useEffect(() => {
+    if (isSignedIn && supabaseUser?.id && gameState === GameState.START) {
+      fetchFriendsActiveGames(supabaseUser.id)
+        .then(games => setActiveFriendsGamesCount(games.length))
+        .catch(() => {});
+    }
+  }, [isSignedIn, supabaseUser?.id, gameState]);
 
   // Floating Banner nach 3 Sekunden zeigen wenn auf Handy und noch nicht installiert
   useEffect(() => {
@@ -2795,9 +2823,17 @@ const App: React.FC = () => {
     setTournamentTableSaveMessage('');
     setPlayerAccountLinks({});
     setAccountResultsSaved([]);
+    if (activeGameIdRef.current) {
+      finishActiveGame(activeGameIdRef.current);
+      setActiveGameId(null);
+    }
   };
 
   const handleExitToMainMenu = () => {
+    if (activeGameIdRef.current) {
+      finishActiveGame(activeGameIdRef.current);
+      setActiveGameId(null);
+    }
     if (resultsSaved) {
       window.location.reload();
     } else {
@@ -3225,6 +3261,33 @@ const App: React.FC = () => {
     const updatedPlayers = players.map((p, i) => ({ ...p, startWeight: numericWeights[i] }));
     setPlayers(updatedPlayers);
 
+    // Live-Spiel in active_games registrieren, falls Host eingeloggt ist
+    if (supabaseUser?.id) {
+      const modeName = teams.length > 0
+        ? 'Teamwiegen'
+        : (activeTournamentTable
+            ? `Turnierspiel (${activeTournamentTable.tableName || activeTournamentTable.tournamentName || 'Tisch'})`
+            : (isShortMode ? 'Standardspiel (0,33L)' : 'Standardspiel (500ml)'));
+
+      createActiveGame({
+        hostUserId: supabaseUser.id,
+        gameMode: modeName,
+        currentRound: 1,
+        players: updatedPlayers,
+        gameData: {
+          rounds: [],
+          teams: teams || [],
+          isShortMode,
+          tournamentMode,
+          activeTournamentTable
+        }
+      }).then(newId => {
+        if (newId) {
+          setActiveGameId(newId);
+        }
+      });
+    }
+
     // Pick random start player before first target weight
     const active = updatedPlayers.filter(p => !p.isDisqualified);
     if (active.length > 0) {
@@ -3271,12 +3334,31 @@ const App: React.FC = () => {
     }
 
     const currentAnnouncer = activePlayers.length > 0 ? activePlayers[announcingPlayerIndex % activePlayers.length] : null;
+    const newRounds = [...rounds, { targetWeight: target, results: {}, announcingPlayerId: currentAnnouncer?.id }];
 
-    setRounds([...rounds, { targetWeight: target, results: {}, announcingPlayerId: currentAnnouncer?.id }]);
+    setRounds(newRounds);
     setCurrentRoundResults({});
     setNextTargetInput('');
     setTeamStepIndex(0);
     setGameState(teams.length > 0 ? GameState.TEAM_GAMEPLAY : GameState.GAMEPLAY);
+
+    // Live-Synchronisation für Zuschauer
+    if (activeGameIdRef.current) {
+      updateActiveGame(activeGameIdRef.current, {
+        currentRound: newRounds.length,
+        players,
+        gameData: {
+          rounds: newRounds,
+          teams,
+          currentRoundResults: {},
+          currentRoundTargets,
+          isShortMode,
+          tournamentMode,
+          activeTournamentTable,
+          finalTriggered
+        }
+      });
+    }
   };
 
   const handleNextRound = () => {
@@ -3395,6 +3477,24 @@ const App: React.FC = () => {
     setRounds(updatedRounds);
     setDisqualifiedNotice(newlyDisqualified.length > 0 ? newlyDisqualified : null);
     setShowSummary(true);
+
+    // Live-Update für Zuschauer nach Rundenabschluss
+    if (activeGameIdRef.current) {
+      updateActiveGame(activeGameIdRef.current, {
+        currentRound: updatedRounds.length,
+        players: updatedPlayers,
+        gameData: {
+          rounds: updatedRounds,
+          teams,
+          currentRoundResults: {},
+          currentRoundTargets,
+          isShortMode,
+          tournamentMode,
+          activeTournamentTable,
+          finalTriggered
+        }
+      });
+    }
   };
 
   const handleModalSequence = () => {
@@ -3413,11 +3513,17 @@ const App: React.FC = () => {
 
     if (gameState === GameState.SPEED_GAMEPLAY || gameState === GameState.SPEED_RESULT) {
       setGameState(GameState.SPEED_RESULT);
+      if (activeGameIdRef.current) {
+        finishActiveGame(activeGameIdRef.current);
+      }
       return;
     }
 
     if (rounds.length > 0 && rounds[rounds.length - 1].isFinal) {
       setGameState(GameState.RESULT_SCREEN);
+      if (activeGameIdRef.current) {
+        finishActiveGame(activeGameIdRef.current);
+      }
       if (teams.length === 0 && gameState !== GameState.SPEED_RESULT && gameState !== GameState.SPEED_GAMEPLAY) {
         const finalAch = checkAchievements(players, rounds, teams, true, earnedAchievements);
         if (finalAch && finalAch.length > 0) {
@@ -3598,6 +3704,27 @@ const App: React.FC = () => {
   const startSpeedCountdown = () => {
     setGameState(GameState.SPEED_COUNTDOWN);
     setSpeedCountdown(3);
+
+    // Live-Spiel für Speedwiegen in active_games registrieren
+    if (supabaseUser?.id) {
+      const modeName = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+      createActiveGame({
+        hostUserId: supabaseUser.id,
+        gameMode: modeName,
+        currentRound: 1,
+        players: [{ id: 'speed_1', name: speedPlayerName || 'Gast', userId: speedUserId }],
+        gameData: {
+          speedLevels,
+          speedTargets,
+          speedResults: {},
+          speedIsShortMode,
+          speedPlayerName
+        }
+      }).then(newId => {
+        if (newId) setActiveGameId(newId);
+      });
+    }
+
     const interval = setInterval(() => {
       setSpeedCountdown(prev => {
         if (prev === 3) return 2;
@@ -3654,6 +3781,9 @@ const App: React.FC = () => {
     setEmptyWeightActual('');
 
     setGameState(GameState.SPEED_RESULT);
+    if (activeGameIdRef.current) {
+      finishActiveGame(activeGameIdRef.current);
+    }
 
     const speedAch = checkSpeedAchievements(
       speedPlayerName || 'Gast',
@@ -4500,6 +4630,21 @@ const App: React.FC = () => {
           <h1 className="text-2xl font-black tracking-tighter" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
         </div>
         <div className="flex items-center space-x-2">
+          {/* Host Spectator Presence während eines laufenden Spiels */}
+          {activeGameId && gameState !== GameState.START && (
+            <LiveSpectatorPresence
+              gameId={activeGameId}
+              currentUser={{
+                id: supabaseUser?.id || '',
+                username: supabaseUser?.user_metadata?.username || 'Host',
+                avatarUrl: supabaseUser?.user_metadata?.avatar_url,
+                title: userTitle
+              }}
+              isHost={true}
+              darkMode={darkMode}
+              className="mr-1"
+            />
+          )}
           {gameState === GameState.START && (
             <button
               type="button"
@@ -4590,6 +4735,28 @@ const App: React.FC = () => {
               <button onClick={startTeamwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
                 <i className="fas fa-users"></i><span>Teamwiegen</span>
               </button>
+              {/* LIVE ZUSCHAUEN BUTTON (NUR FÜR EINGELOGGTE USER) */}
+              {isSignedIn && (
+                <button
+                  type="button"
+                  id="btn-spectator-mode"
+                  onClick={() => setShowLiveGamesModal(true)}
+                  className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 transition-transform cursor-pointer relative overflow-hidden"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  <span className="relative flex h-3 w-3 mr-1">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                  </span>
+                  <i className="fas fa-satellite-dish mr-1 text-red-200"></i>
+                  <span>Live zuschauen</span>
+                  {activeFriendsGamesCount > 0 && (
+                    <span className="ml-2 bg-white text-red-600 text-xs px-2 py-0.5 rounded-full font-black animate-pulse shadow-xs">
+                      {activeFriendsGamesCount}
+                    </span>
+                  )}
+                </button>
+              )}
               <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
                 <i className="fas fa-book"></i><span>Regeln</span>
               </button>
@@ -5980,6 +6147,9 @@ const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
+                  if (activeGameIdRef.current) {
+                    finishActiveGame(activeGameIdRef.current);
+                  }
                   setShowExitWithoutSaveConfirm(false);
                   window.location.reload();
                 }}
@@ -10070,6 +10240,39 @@ const App: React.FC = () => {
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] px-6 py-3.5 rounded-2xl bg-[#238183] text-white font-black text-sm shadow-2xl flex items-center space-x-2 border-2 border-white/40 animate-in slide-in-from-top-4 duration-300 pointer-events-none">
           <i className="fas fa-check-circle text-lg text-emerald-300"></i>
           <span>{qrSuccessToast}</span>
+        </div>
+      )}
+
+      {/* 🔴 LIVE ZUSCHAUEN MODAL (FREUNDE LISTE AKTIVER SPIELE) */}
+      <LiveGamesModal
+        isOpen={showLiveGamesModal}
+        onClose={() => setShowLiveGamesModal(false)}
+        currentUserId={supabaseUser?.id || ''}
+        onSelectGame={(selectedGame) => {
+          setShowLiveGamesModal(false);
+          setSpectatingGame(selectedGame);
+        }}
+        darkMode={darkMode}
+        onOpenFriendsModal={() => {
+          setProfileTab('freunde');
+          setShowProfileModal(true);
+        }}
+      />
+
+      {/* 👁️ LIVE ZUSCHAUER VOLLBILD-ANSICHT */}
+      {spectatingGame && (
+        <div className="fixed inset-0 z-[1000] overflow-y-auto">
+          <SpectatorView
+            initialGame={spectatingGame}
+            currentUser={{
+              id: supabaseUser?.id || '',
+              username: supabaseUser?.user_metadata?.username || 'Zuschauer',
+              avatarUrl: supabaseUser?.user_metadata?.avatar_url,
+              title: userTitle
+            }}
+            onClose={() => setSpectatingGame(null)}
+            darkMode={darkMode}
+          />
         </div>
       )}
 

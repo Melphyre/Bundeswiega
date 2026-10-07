@@ -10,6 +10,7 @@ export interface Player {
   name_bg_color?: string | null;
   name_glow?: string | null;
   imageUrl?: string | null;
+  avatar_url?: string | null;
 }
 
 export const GAME_MODES = [
@@ -117,8 +118,10 @@ export interface ParsedRecord {
   date: string;
   avg: number;
   schnaepse: number;
-  levels?: number;
+  time?: number;
+  Time?: number;
   time_seconds?: number;
+  levels?: number;
   total?: number;
   tournament_name?: string;
   tournament_table?: string;

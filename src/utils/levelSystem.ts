@@ -103,161 +103,161 @@ export const LEVEL_PROGRESSION_TABLE: LevelProgressionEntry[] = [
     level: 5,
     xpRequiredForLevel: 400,
     cumulativeXp: 1000,
-    rewardTitle: 'Silberner Profilrahmen',
-    rewardDescription: 'Eleganter Silber-Rahmen um den Spieler-Avatar',
+    rewardTitle: 'Titel "Eichen-Eichmeister", Holzring & Bronze-Spalte',
+    rewardDescription: 'Titel "Eichen-Eichmeister" + Avatar-Rahmen "Eichen-Holzring" + Spielspalte "Bronze Highlight"',
     rewardType: 'cosmetic',
-    icon: '🥈',
-    badgeText: 'Rahmen'
+    icon: '🪵',
+    badgeText: 'Meilenstein 1'
   },
   {
     level: 6,
     xpRequiredForLevel: 500,
     cumulativeXp: 1500,
-    rewardTitle: 'Kneipen-Veteran Abzeichen',
-    rewardDescription: 'Auszeichnung für bewährte Stehtisch-Ausdauer',
-    rewardType: 'badge',
-    icon: '🍺',
-    badgeText: 'Abzeichen'
+    rewardTitle: 'Titel "Prozent-Gott" & Namenshintergrund Neon-Mint',
+    rewardDescription: 'Titel "Prozent-Gott" + Neuer leuchtender Namenshintergrund "Neon-Mint"',
+    rewardType: 'cosmetic',
+    icon: '🌿',
+    badgeText: 'Titel & Farbe'
   },
   {
     level: 7,
     xpRequiredForLevel: 600,
     cumulativeXp: 2100,
-    rewardTitle: 'Goldene Würfelanimation',
-    rewardDescription: 'Exklusiver Effekt bei der Auslosung des Startspielers',
-    rewardType: 'feature',
-    icon: '🎲',
-    badgeText: 'Animation'
+    rewardTitle: 'Titel "Präzisions-Junkie" & Ranglisten-Design Carbon',
+    rewardDescription: 'Titel "Präzisions-Junkie" + Ranglisten-Zeilendesign "Carbon-Faser"',
+    rewardType: 'cosmetic',
+    icon: '⬛',
+    badgeText: 'Titel & Rangliste'
   },
   {
     level: 8,
     xpRequiredForLevel: 700,
     cumulativeXp: 2800,
-    rewardTitle: 'Individueller Erfolgs-Sound',
-    rewardDescription: 'Besonderer Klang bei perfekten Volltreffern (0g)',
+    rewardTitle: 'Titel "Schwankungsfrei" & Lila Neon-Glow Avatar-Rahmen',
+    rewardDescription: 'Titel "Schwankungsfrei" + Avatar-Rahmen "Pulsierender lila Glow"',
     rewardType: 'cosmetic',
-    icon: '🔔',
-    badgeText: 'Sound'
+    icon: '💜',
+    badgeText: 'Titel & Rahmen'
   },
   {
     level: 9,
     xpRequiredForLevel: 800,
     cumulativeXp: 3600,
-    rewardTitle: 'Präzisions-Abzeichen',
-    rewardDescription: 'Sonderauszeichnung für millimetergenaue Wiegekunst',
-    rewardType: 'badge',
-    icon: '🎯',
-    badgeText: 'Abzeichen'
+    rewardTitle: 'Titel "Auge wie \'n Luchs" & Farbverlauf-Header',
+    rewardDescription: 'Titel "Auge wie \'n Luchs" + Spielspalten-Design "Farbverlauf-Header"',
+    rewardType: 'cosmetic',
+    icon: '👁️',
+    badgeText: 'Titel & Spalte'
   },
   {
     level: 10,
     xpRequiredForLevel: 900,
     cumulativeXp: 4500,
-    rewardTitle: 'Goldener Profilrahmen',
-    rewardDescription: 'Glänzender Goldrahmen um das Spielerprofil',
+    rewardTitle: 'Titel "Tares-Experte", Silber-Rahmen & Silber-Rangliste',
+    rewardDescription: 'Titel "Tares-Experte" + Avatar-Rahmen "Silber-Metall" + Ranglisten-Zeile "Silber-Kontur"',
     rewardType: 'cosmetic',
-    icon: '🥇',
-    badgeText: 'Rahmen'
+    icon: '🥈',
+    badgeText: 'Silber-Meilenstein'
   },
   {
     level: 11,
     xpRequiredForLevel: 1000,
     cumulativeXp: 5500,
-    rewardTitle: 'VIP Theken-Status',
-    rewardDescription: 'Hervorgehobene Darstellung in Turniertabellen',
-    rewardType: 'badge',
-    icon: '🍸',
-    badgeText: 'Status'
+    rewardTitle: 'Titel "Gramm-Chirurg" & Cyberpunk Namenshintergrund',
+    rewardDescription: 'Titel "Gramm-Chirurg" + Namenshintergrund "Cyberpunk Pink/Gelb"',
+    rewardType: 'cosmetic',
+    icon: '🧬',
+    badgeText: 'Titel & Farbe'
   },
   {
     level: 12,
     xpRequiredForLevel: 1100,
     cumulativeXp: 6600,
-    rewardTitle: 'Diamantene Pokalanzeige',
-    rewardDescription: 'Exklusiver Pokal-Glanz in der persönlichen Spielübersicht',
+    rewardTitle: 'Titel "Blind-Wieger" & Blitz-Gewitter Spielspalte',
+    rewardDescription: 'Titel "Blind-Wieger" + Spielspalte "Blitz-Effekt" mit dezenten Animationen',
     rewardType: 'cosmetic',
-    icon: '💎',
-    badgeText: 'Kosmetisch'
+    icon: '⚡',
+    badgeText: 'Titel & Spalte'
   },
   {
     level: 13,
     xpRequiredForLevel: 1200,
     cumulativeXp: 7800,
-    rewardTitle: 'Erweiterte Rekord-Historie',
-    rewardDescription: 'Zugriff auf Langzeit-Trendkurven und Abweichungs-Graphen',
-    rewardType: 'feature',
-    icon: '📜',
-    badgeText: 'Feature'
+    rewardTitle: 'Titel "Schwergewicht" & Feuer-Aura Avatar-Rahmen',
+    rewardDescription: 'Titel "Schwergewicht" + Avatar-Rahmen "Feuer-Aura" mit feurigem Glow',
+    rewardType: 'cosmetic',
+    icon: '🔥',
+    badgeText: 'Titel & Rahmen'
   },
   {
     level: 14,
     xpRequiredForLevel: 1300,
     cumulativeXp: 9100,
-    rewardTitle: 'Turnier-Captain Abzeichen',
-    rewardDescription: 'Sonderstatus für erfahrene Spielleiter und Ausrichter',
-    rewardType: 'badge',
-    icon: '🎖️',
-    badgeText: 'Abzeichen'
+    rewardTitle: 'Titel "Meister der Toleranz" & Edelstahl-Rangliste',
+    rewardDescription: 'Titel "Meister der Toleranz" + Ranglisten-Zeile "Gebürsteter Edelstahl"',
+    rewardType: 'cosmetic',
+    icon: '🛡️',
+    badgeText: 'Titel & Rangliste'
   },
   {
     level: 15,
     xpRequiredForLevel: 1400,
     cumulativeXp: 10500,
-    rewardTitle: 'Platin-Profilrahmen',
-    rewardDescription: 'Majestätischer Platin-Rahmen für Spitzenwieger',
+    rewardTitle: 'Titel "Bundeswiega-Legende" & Aurora Komplett-Set',
+    rewardDescription: 'Titel "Bundeswiega-Legende" + Nordlicht-Aura Rahmen + Aurora Namenshintergrund + Goldene Spielspalte + Gold-Glow Ranglisten-Zeile',
     rewardType: 'cosmetic',
-    icon: '🛡️',
-    badgeText: 'Rahmen'
+    icon: '🌌',
+    badgeText: 'Gold-Meilenstein & Aurora'
   },
   {
     level: 16,
     xpRequiredForLevel: 1500,
     cumulativeXp: 12000,
-    rewardTitle: 'Krone für den Spieltisch',
-    rewardDescription: 'Visuelle Krone auf dem Avatar am Spieltisch',
+    rewardTitle: 'Titel "Nicht von dieser Welt" & Galaxie Namenshintergrund',
+    rewardDescription: 'Titel "Nicht von dieser Welt" + Namenshintergrund "Galaxie & Sterne"',
     rewardType: 'cosmetic',
-    icon: '👑',
-    badgeText: 'Kosmetisch'
+    icon: '🪐',
+    badgeText: 'Titel & Farbe'
   },
   {
     level: 17,
     xpRequiredForLevel: 1600,
     cumulativeXp: 13600,
-    rewardTitle: 'Meister-Emote Pack',
-    rewardDescription: 'Animierte Reaktionen für Turniere und Duelle',
+    rewardTitle: 'Titel "Null-Komma-Null" & Matrix Digital-Rahmen',
+    rewardDescription: 'Titel "Null-Komma-Null" + Avatar-Rahmen "Matrix-Digital" mit grünem Daten-Puls',
     rewardType: 'cosmetic',
-    icon: '🔥',
-    badgeText: 'Emotes'
+    icon: '💚',
+    badgeText: 'Titel & Rahmen'
   },
   {
     level: 18,
     xpRequiredForLevel: 1700,
     cumulativeXp: 15300,
-    rewardTitle: 'Echtzeit-Schnitt Rechner',
-    rewardDescription: 'Direkte Hochrechnung des Gesamt-Durchschnitts während des Spiels',
-    rewardType: 'feature',
-    icon: '⚡',
-    badgeText: 'Feature'
+    rewardTitle: 'Titel "Unanfechtbar" & Königsblau/Gold Rangliste',
+    rewardDescription: 'Titel "Unanfechtbar" + Ranglisten-Zeile "Königsblau & Gold"',
+    rewardType: 'cosmetic',
+    icon: '👑',
+    badgeText: 'Titel & Rangliste'
   },
   {
     level: 19,
     xpRequiredForLevel: 1800,
     cumulativeXp: 17100,
-    rewardTitle: 'Wiege-Titan Emblem',
-    rewardDescription: 'Prestigeträchtiges Abzeichen auf Stufe 19',
-    rewardType: 'badge',
-    icon: '🔱',
-    badgeText: 'Emblem'
+    rewardTitle: 'Titel "Eichamt-Schreck" & Plasma-Welle Spielspalte',
+    rewardDescription: 'Titel "Eichamt-Schreck" + Spielspalte "Plasma-Welle" mit pulsierender Energiewelle',
+    rewardType: 'cosmetic',
+    icon: '🌊',
+    badgeText: 'Titel & Spalte'
   },
   {
     level: 20,
     xpRequiredForLevel: 1900,
     cumulativeXp: 19000,
-    rewardTitle: 'Legenden-Status & Hall of Fame',
-    rewardDescription: 'Eintragung in den ewigen Olymp der 1. Bundeswiega',
-    rewardType: 'badge',
-    icon: '🌟',
-    badgeText: 'Olymp'
+    rewardTitle: 'Titel "Gott der Gravitation" & Diamant-Gott Set',
+    rewardDescription: 'Titel "Gott der Gravitation" + Diamant-Schimmer Avatar-Rahmen + Rainbow-Polarlichter Rangliste + Diamant-Krone Spielspalte',
+    rewardType: 'cosmetic',
+    icon: '💎',
+    badgeText: 'Max-Level Gott-Status'
   }
 ];
 
@@ -284,24 +284,155 @@ export interface LevelReward {
   badge?: string;
   description: string;
   icon: string;
+  avatarFrame?: string;
+  avatarFrameLabel?: string;
+  ingameColumnTheme?: string;
+  ingameColumnThemeLabel?: string;
+  leaderboardRowTheme?: string;
+  leaderboardRowThemeLabel?: string;
+  nameBgColor?: string;
+  nameBgColorLabel?: string;
 }
 
 export const LEVEL_REWARDS: LevelReward[] = LEVEL_PROGRESSION_TABLE.map(entry => {
   let unlockedTitle: string | undefined;
   let unlockedTitles: string[] | undefined;
+  let avatarFrame: string | undefined;
+  let avatarFrameLabel: string | undefined;
+  let ingameColumnTheme: string | undefined;
+  let ingameColumnThemeLabel: string | undefined;
+  let leaderboardRowTheme: string | undefined;
+  let leaderboardRowThemeLabel: string | undefined;
+  let nameBgColor: string | undefined;
+  let nameBgColorLabel: string | undefined;
 
-  if (entry.level === 1) {
-    unlockedTitle = 'Neuling';
-    unlockedTitles = ['Neuling'];
-  } else if (entry.level === 2) {
-    unlockedTitle = 'Basis-Wieger';
-    unlockedTitles = ['Basis-Wieger'];
-  } else if (entry.level === 3) {
-    unlockedTitle = 'geübter Wieger';
-    unlockedTitles = ['geübter Wieger'];
-  } else if (entry.level === 4) {
-    unlockedTitle = 'App-Meister & Wiegemeister';
-    unlockedTitles = ['App-Meister', 'Wiegemeister'];
+  switch (entry.level) {
+    case 1:
+      unlockedTitle = 'Neuling';
+      unlockedTitles = ['Neuling'];
+      break;
+    case 2:
+      unlockedTitle = 'Basis-Wieger';
+      unlockedTitles = ['Basis-Wieger'];
+      break;
+    case 3:
+      unlockedTitle = 'geübter Wieger';
+      unlockedTitles = ['geübter Wieger'];
+      break;
+    case 4:
+      unlockedTitle = 'App-Meister & Wiegemeister';
+      unlockedTitles = ['App-Meister', 'Wiegemeister'];
+      break;
+    case 5:
+      unlockedTitle = 'Eichen-Eichmeister';
+      unlockedTitles = ['Eichen-Eichmeister'];
+      avatarFrame = 'oak_wood';
+      avatarFrameLabel = 'Eichen-Holzring';
+      ingameColumnTheme = 'bronze_highlight';
+      ingameColumnThemeLabel = 'Bronze Highlight';
+      break;
+    case 6:
+      unlockedTitle = 'Prozent-Gott';
+      unlockedTitles = ['Prozent-Gott'];
+      nameBgColor = 'neon_mint';
+      nameBgColorLabel = 'Neon-Mint';
+      break;
+    case 7:
+      unlockedTitle = 'Präzisions-Junkie';
+      unlockedTitles = ['Präzisions-Junkie'];
+      leaderboardRowTheme = 'carbon_fiber';
+      leaderboardRowThemeLabel = 'Carbon-Faser';
+      break;
+    case 8:
+      unlockedTitle = 'Schwankungsfrei';
+      unlockedTitles = ['Schwankungsfrei'];
+      avatarFrame = 'neon_purple_glow';
+      avatarFrameLabel = 'Pulsierender lila Glow';
+      break;
+    case 9:
+      unlockedTitle = "Auge wie 'n Luchs";
+      unlockedTitles = ["Auge wie 'n Luchs"];
+      ingameColumnTheme = 'gradient_header';
+      ingameColumnThemeLabel = 'Farbverlauf-Header';
+      break;
+    case 10:
+      unlockedTitle = 'Tares-Experte';
+      unlockedTitles = ['Tares-Experte'];
+      avatarFrame = 'silver_metal';
+      avatarFrameLabel = 'Silber-Metall';
+      leaderboardRowTheme = 'silver_contour';
+      leaderboardRowThemeLabel = 'Silber-Kontur';
+      break;
+    case 11:
+      unlockedTitle = 'Gramm-Chirurg';
+      unlockedTitles = ['Gramm-Chirurg'];
+      nameBgColor = 'cyberpunk_pink_yellow';
+      nameBgColorLabel = 'Cyberpunk Pink/Gelb';
+      break;
+    case 12:
+      unlockedTitle = 'Blind-Wieger';
+      unlockedTitles = ['Blind-Wieger'];
+      ingameColumnTheme = 'lightning_bolts';
+      ingameColumnThemeLabel = 'Blitz-Gewitter';
+      break;
+    case 13:
+      unlockedTitle = 'Schwergewicht';
+      unlockedTitles = ['Schwergewicht'];
+      avatarFrame = 'fire_aura';
+      avatarFrameLabel = 'Feuer-Aura';
+      break;
+    case 14:
+      unlockedTitle = 'Meister der Toleranz';
+      unlockedTitles = ['Meister der Toleranz'];
+      leaderboardRowTheme = 'brushed_steel';
+      leaderboardRowThemeLabel = 'Gebürsteter Edelstahl';
+      break;
+    case 15:
+      unlockedTitle = 'Bundeswiega-Legende';
+      unlockedTitles = ['Bundeswiega-Legende'];
+      avatarFrame = 'aurora_glow';
+      avatarFrameLabel = 'Nordlicht-Aura';
+      nameBgColor = 'aurora_name_glow';
+      nameBgColorLabel = 'Aurora Polarlichter';
+      ingameColumnTheme = 'gold_column';
+      ingameColumnThemeLabel = 'Goldene Spielspalte';
+      leaderboardRowTheme = 'gold_glow';
+      leaderboardRowThemeLabel = 'Gold-Glow';
+      break;
+    case 16:
+      unlockedTitle = 'Nicht von dieser Welt';
+      unlockedTitles = ['Nicht von dieser Welt'];
+      nameBgColor = 'galaxy_pattern';
+      nameBgColorLabel = 'Galaxie & Sterne';
+      break;
+    case 17:
+      unlockedTitle = 'Null-Komma-Null';
+      unlockedTitles = ['Null-Komma-Null'];
+      avatarFrame = 'matrix_green';
+      avatarFrameLabel = 'Matrix-Digital';
+      break;
+    case 18:
+      unlockedTitle = 'Unanfechtbar';
+      unlockedTitles = ['Unanfechtbar'];
+      leaderboardRowTheme = 'royal_blue_gold';
+      leaderboardRowThemeLabel = 'Königsblau & Gold';
+      break;
+    case 19:
+      unlockedTitle = 'Eichamt-Schreck';
+      unlockedTitles = ['Eichamt-Schreck'];
+      ingameColumnTheme = 'plasma_wave';
+      ingameColumnThemeLabel = 'Plasma-Welle';
+      break;
+    case 20:
+      unlockedTitle = 'Gott der Gravitation';
+      unlockedTitles = ['Gott der Gravitation'];
+      avatarFrame = 'diamond_glow';
+      avatarFrameLabel = 'Diamant-Schimmer';
+      leaderboardRowTheme = 'rainbow_aurora';
+      leaderboardRowThemeLabel = 'Rainbow-Polarlichter';
+      ingameColumnTheme = 'diamond_crown';
+      ingameColumnThemeLabel = 'Diamant-Krone';
+      break;
   }
 
   return {
@@ -311,7 +442,15 @@ export const LEVEL_REWARDS: LevelReward[] = LEVEL_PROGRESSION_TABLE.map(entry =>
     unlockedTitles,
     badge: entry.badgeText,
     description: entry.rewardDescription,
-    icon: entry.icon
+    icon: entry.icon,
+    avatarFrame,
+    avatarFrameLabel,
+    ingameColumnTheme,
+    ingameColumnThemeLabel,
+    leaderboardRowTheme,
+    leaderboardRowThemeLabel,
+    nameBgColor,
+    nameBgColorLabel
   };
 });
 
@@ -371,8 +510,40 @@ export const getLevelFromXP = (xp: number): number => {
  * - Level 2: "Basis-Wieger"
  * - Level 3: "geübter Wieger"
  * - Level 4: "App-Meister"
+ * - Level 5: "Eichen-Eichmeister"
+ * - Level 6: "Prozent-Gott"
+ * - Level 7: "Präzisions-Junkie"
+ * - Level 8: "Schwankungsfrei"
+ * - Level 9: "Auge wie 'n Luchs"
+ * - Level 10: "Tares-Experte"
+ * - Level 11: "Gramm-Chirurg"
+ * - Level 12: "Blind-Wieger"
+ * - Level 13: "Schwergewicht"
+ * - Level 14: "Meister der Toleranz"
+ * - Level 15: "Bundeswiega-Legende"
+ * - Level 16: "Nicht von dieser Welt"
+ * - Level 17: "Null-Komma-Null"
+ * - Level 18: "Unanfechtbar"
+ * - Level 19: "Eichamt-Schreck"
+ * - Level 20: "Gott der Gravitation"
  */
 export const getTitleForLevel = (level: number): string => {
+  if (level >= 20) return 'Gott der Gravitation';
+  if (level >= 19) return 'Eichamt-Schreck';
+  if (level >= 18) return 'Unanfechtbar';
+  if (level >= 17) return 'Null-Komma-Null';
+  if (level >= 16) return 'Nicht von dieser Welt';
+  if (level >= 15) return 'Bundeswiega-Legende';
+  if (level >= 14) return 'Meister der Toleranz';
+  if (level >= 13) return 'Schwergewicht';
+  if (level >= 12) return 'Blind-Wieger';
+  if (level >= 11) return 'Gramm-Chirurg';
+  if (level >= 10) return 'Tares-Experte';
+  if (level >= 9) return "Auge wie 'n Luchs";
+  if (level >= 8) return 'Schwankungsfrei';
+  if (level >= 7) return 'Präzisions-Junkie';
+  if (level >= 6) return 'Prozent-Gott';
+  if (level >= 5) return 'Eichen-Eichmeister';
   if (level >= 4) return 'App-Meister';
   if (level >= 3) return 'geübter Wieger';
   if (level >= 2) return 'Basis-Wieger';

@@ -58,6 +58,7 @@ import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
+import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
   fetchFriendsAndRequests,
@@ -76,6 +77,29 @@ import {
   fetchFriendsActiveGames,
   ActiveGame
 } from './src/services/activeGamesService';
+
+import { WorldOfWiegenInfoModal } from './src/components/WorldOfWiegenInfoModal';
+import { WorldOfWiegenQuestlogModal } from './src/components/WorldOfWiegenQuestlogModal';
+import { WorldOfWiegenNotificationBanner } from './src/components/WorldOfWiegenNotificationBanner';
+import { WorldOfWiegenMinigamesModal } from './src/components/WorldOfWiegenMinigamesModal';
+import { AdminWorldOfWiegenView } from './src/components/AdminWorldOfWiegenView';
+import {
+  ActiveQuest,
+  ActiveEffect,
+  WorldOfWiegenPool,
+  EffectDefinition
+} from './src/types/worldOfWiegen';
+import {
+  selectEligibleQuest,
+  evaluateQuestAtRoundEnd,
+  getQuestById,
+  createQuestInstance,
+  WORLD_OF_WIEGEN_QUESTS
+} from './src/constants/worldOfWiegenQuests';
+import {
+  selectRewardEffect,
+  getEffectByCode
+} from './src/constants/worldOfWiegenEffects';
 
 export const BUTTON_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/click-on-mouse.wav";
 
@@ -344,6 +368,9 @@ const App: React.FC = () => {
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
   const [userTitle, setUserTitle] = useState<string>('');
   const [userNameBgColor, setUserNameBgColor] = useState<string>('none');
+  const [userAvatarFrame, setUserAvatarFrame] = useState<string>('none');
+  const [userColumnTheme, setUserColumnTheme] = useState<string>('none');
+  const [userRowTheme, setUserRowTheme] = useState<string>('none');
   const [userLevel, setUserLevel] = useState<number>(1);
   const [userXp, setUserXp] = useState<number>(0);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -478,6 +505,238 @@ const App: React.FC = () => {
     return undefined;
   };
 
+  // Neon-Glow Rahmen Lookup für Spieleranzeigen im gesamten System
+  const getPlayerNameGlow = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if ((playerObj as any)?.name_glow && (playerObj as any).name_glow !== 'none') return (playerObj as any).name_glow;
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if ((foundInPlayers as any)?.name_glow && (foundInPlayers as any).name_glow !== 'none') return (foundInPlayers as any).name_glow;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const glow = supabaseUser?.user_metadata?.name_glow;
+      if (glow && glow !== 'none') return glow;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.name_glow && directLinked.name_glow !== 'none') return directLinked.name_glow;
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if ((match as any)?.name_glow && (match as any).name_glow !== 'none') return (match as any).name_glow;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_name_glow_${directLinked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as any[]).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.name_glow && linked.name_glow !== 'none') return linked.name_glow;
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.name_glow && (match as any).name_glow !== 'none') return (match as any).name_glow;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_name_glow_${linked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.name_glow && (matchUser as any).name_glow !== 'none') return (matchUser as any).name_glow;
+
+    // 4. LocalStorage Fallback
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_name_glow_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_name_glow_${target}`);
+      if (stored && stored !== 'none') return stored;
+    } catch {}
+
+    return undefined;
+  };
+
+  // Avatar-Rahmen-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerAvatarFrame = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if ((playerObj as any)?.avatar_frame && (playerObj as any).avatar_frame !== 'none') return (playerObj as any).avatar_frame;
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if ((foundInPlayers as any)?.avatar_frame && (foundInPlayers as any).avatar_frame !== 'none') return (foundInPlayers as any).avatar_frame;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const frame = userAvatarFrame || supabaseUser?.user_metadata?.avatar_frame;
+      if (frame && frame !== 'none') return frame;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.avatar_frame && directLinked.avatar_frame !== 'none') return directLinked.avatar_frame;
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if ((match as any)?.avatar_frame && (match as any).avatar_frame !== 'none') return (match as any).avatar_frame;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_avatar_frame_${directLinked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as any[]).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.avatar_frame && linked.avatar_frame !== 'none') return linked.avatar_frame;
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.avatar_frame && (match as any).avatar_frame !== 'none') return (match as any).avatar_frame;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_avatar_frame_${linked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.avatar_frame && (matchUser as any).avatar_frame !== 'none') return (matchUser as any).avatar_frame;
+
+    // 4. LocalStorage Fallback
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_avatar_frame_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_avatar_frame_${target}`);
+      if (stored && stored !== 'none') return stored;
+    } catch {}
+
+    return undefined;
+  };
+
+  // Spielspalten-Design-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerColumnTheme = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if ((playerObj as any)?.ingame_column_theme && (playerObj as any).ingame_column_theme !== 'none') return (playerObj as any).ingame_column_theme;
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if ((foundInPlayers as any)?.ingame_column_theme && (foundInPlayers as any).ingame_column_theme !== 'none') return (foundInPlayers as any).ingame_column_theme;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const colTheme = userColumnTheme || supabaseUser?.user_metadata?.ingame_column_theme;
+      if (colTheme && colTheme !== 'none') return colTheme;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.ingame_column_theme && directLinked.ingame_column_theme !== 'none') return directLinked.ingame_column_theme;
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if ((match as any)?.ingame_column_theme && (match as any).ingame_column_theme !== 'none') return (match as any).ingame_column_theme;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_col_theme_${directLinked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as any[]).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.ingame_column_theme && linked.ingame_column_theme !== 'none') return linked.ingame_column_theme;
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.ingame_column_theme && (match as any).ingame_column_theme !== 'none') return (match as any).ingame_column_theme;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_col_theme_${linked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.ingame_column_theme && (matchUser as any).ingame_column_theme !== 'none') return (matchUser as any).ingame_column_theme;
+
+    // 4. LocalStorage Fallback
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_col_theme_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_col_theme_${target}`);
+      if (stored && stored !== 'none') return stored;
+    } catch {}
+
+    return undefined;
+  };
+
+  // Ranglisten-Zeilendesign-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerRowTheme = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if ((playerObj as any)?.leaderboard_row_theme && (playerObj as any).leaderboard_row_theme !== 'none') return (playerObj as any).leaderboard_row_theme;
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Match in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if ((foundInPlayers as any)?.leaderboard_row_theme && (foundInPlayers as any).leaderboard_row_theme !== 'none') return (foundInPlayers as any).leaderboard_row_theme;
+
+    // 1. Eingeloggter Benutzer
+    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const rowTheme = userRowTheme || supabaseUser?.user_metadata?.leaderboard_row_theme;
+      if (rowTheme && rowTheme !== 'none') return rowTheme;
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.leaderboard_row_theme && directLinked.leaderboard_row_theme !== 'none') return directLinked.leaderboard_row_theme;
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if ((match as any)?.leaderboard_row_theme && (match as any).leaderboard_row_theme !== 'none') return (match as any).leaderboard_row_theme;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_row_theme_${directLinked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    const linked = (Object.values(playerAccountLinks) as any[]).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.leaderboard_row_theme && linked.leaderboard_row_theme !== 'none') return linked.leaderboard_row_theme;
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.leaderboard_row_theme && (match as any).leaderboard_row_theme !== 'none') return (match as any).leaderboard_row_theme;
+      try {
+        const stored = localStorage.getItem(`bundeswiega_user_row_theme_${linked.userId}`);
+        if (stored && stored !== 'none') return stored;
+      } catch {}
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if ((matchUser as any)?.leaderboard_row_theme && (matchUser as any).leaderboard_row_theme !== 'none') return (matchUser as any).leaderboard_row_theme;
+
+    // 4. LocalStorage Fallback
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_row_theme_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_row_theme_${target}`);
+      if (stored && stored !== 'none') return stored;
+    } catch {}
+
+    return undefined;
+  };
+
   // Ermittelt, ob ein Spieler ein Gast ist (kein registrierter / verknüpfter Account)
   const isPlayerGuest = (playerNameOrId?: string, playerObj?: any): boolean => {
     if (playerObj?.isGuest === true) return true;
@@ -572,6 +831,92 @@ const App: React.FC = () => {
     if ((matchUser as any)?.xp !== undefined) return Number((matchUser as any).xp) || 0;
 
     return 0;
+  };
+
+  // Profilbild-Lookup für Spieleranzeigen im gesamten System
+  const getPlayerAvatarUrl = (playerNameOrId?: string, playerObj?: Player): string | undefined => {
+    if (playerObj?.avatar_url && playerObj.avatar_url.trim()) return playerObj.avatar_url.trim();
+    if (playerObj?.imageUrl && playerObj.imageUrl.trim()) return playerObj.imageUrl.trim();
+    if (!playerNameOrId) return undefined;
+    const target = playerNameOrId.trim().toLowerCase();
+
+    // 0. Direkter Treffer in players-Liste
+    const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
+    if (foundInPlayers?.avatar_url && foundInPlayers.avatar_url.trim()) return foundInPlayers.avatar_url.trim();
+    if (foundInPlayers?.imageUrl && foundInPlayers.imageUrl.trim()) return foundInPlayers.imageUrl.trim();
+
+    // 1. Eingeloggter Benutzer (Host)
+    const currentName = (supabaseUser?.user_metadata?.username || supabaseUser?.email || '').trim().toLowerCase();
+    const currentId = supabaseUser?.id;
+    if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
+      const userAvatar = supabaseUser?.user_metadata?.avatar_url || (supabaseUser as any)?.avatar_url;
+      if (userAvatar && userAvatar.trim()) return userAvatar.trim();
+    }
+
+    // 2. Verknüpfte Spieler-Accounts per Player-ID oder Name
+    const directLinked = (playerAccountLinks as any)[playerNameOrId] || (teamMemberAccountLinks as any)[playerNameOrId];
+    if (directLinked) {
+      if (directLinked.imageUrl && directLinked.imageUrl.trim()) return directLinked.imageUrl.trim();
+      if (directLinked.avatar_url && directLinked.avatar_url.trim()) return directLinked.avatar_url.trim();
+      const match = clerkUsers.find(u => u.id === directLinked.userId);
+      if (match?.imageUrl && match.imageUrl.trim()) return match.imageUrl.trim();
+      if ((match as any)?.avatar_url && (match as any).avatar_url.trim()) return (match as any).avatar_url.trim();
+    }
+
+    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string; imageUrl?: string; avatar_url?: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    ) || (Object.values(teamMemberAccountLinks) as Array<{ userId: string; userName: string; imageUrl?: string; avatar_url?: string }>).find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
+    );
+    if (linked) {
+      if (linked.imageUrl && linked.imageUrl.trim()) return linked.imageUrl.trim();
+      if (linked.avatar_url && linked.avatar_url.trim()) return linked.avatar_url.trim();
+      const match = clerkUsers.find(u => u.id === linked.userId);
+      if (match?.imageUrl && match.imageUrl.trim()) return match.imageUrl.trim();
+      if ((match as any)?.avatar_url && (match as any).avatar_url.trim()) return (match as any).avatar_url.trim();
+    }
+
+    // 3. Benutzer-Liste aus Supabase/Backend
+    const matchUser = clerkUsers.find(
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+    );
+    if (matchUser?.imageUrl && matchUser.imageUrl.trim()) return matchUser.imageUrl.trim();
+    if ((matchUser as any)?.avatar_url && (matchUser as any).avatar_url.trim()) return (matchUser as any).avatar_url.trim();
+
+    // 4. LocalStorage Fallback (falls lokal abgespeichert)
+    try {
+      const stored = localStorage.getItem(`bundeswiega_avatar_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_avatar_${target}`);
+      if (stored && stored.trim()) return stored.trim();
+    } catch {}
+
+    return undefined;
+  };
+
+  /**
+   * Reichert eine Spielerliste vor dem Schreiben in active_games garantiert mit avatar_url an
+   */
+  const enrichPlayersForActiveGame = (playersList: Player[]): Player[] => {
+    if (!Array.isArray(playersList)) return [];
+    return playersList.map(p => {
+      const avatar = getPlayerAvatarUrl(p.id, p) || getPlayerAvatarUrl(p.name, p) || p.avatar_url || p.imageUrl || null;
+      const avatarFrame = getPlayerAvatarFrame(p.id, p) || getPlayerAvatarFrame(p.name, p) || (p as any).avatar_frame || 'none';
+      const colTheme = getPlayerColumnTheme(p.id, p) || getPlayerColumnTheme(p.name, p) || (p as any).ingame_column_theme || 'none';
+      const rowTheme = getPlayerRowTheme(p.id, p) || getPlayerRowTheme(p.name, p) || (p as any).leaderboard_row_theme || 'none';
+      const nameBg = getPlayerNameBgColor(p.id, p) || getPlayerNameBgColor(p.name, p) || (p as any).name_bg_color || 'none';
+      const nameGlow = getPlayerNameGlow(p.id, p) || getPlayerNameGlow(p.name, p) || (p as any).name_glow || 'none';
+      const title = getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p) || (p as any).title || '';
+      return {
+        ...p,
+        avatar_url: avatar,
+        imageUrl: avatar,
+        avatar_frame: avatarFrame,
+        ingame_column_theme: colTheme,
+        leaderboard_row_theme: rowTheme,
+        name_bg_color: nameBg,
+        name_glow: nameGlow,
+        title: title
+      };
+    });
   };
 
   // Prüfung auf neu freigeschaltete Titel
@@ -749,6 +1094,12 @@ const App: React.FC = () => {
         setUserTitle(activeTitle);
         const activeNameBg = prof.name_bg_color || supabaseUser?.user_metadata?.name_bg_color || localStorage.getItem(`bundeswiega_user_name_bg_${currentUserId}`) || 'none';
         setUserNameBgColor(activeNameBg);
+        const activeFrame = prof.avatar_frame || supabaseUser?.user_metadata?.avatar_frame || localStorage.getItem(`bundeswiega_user_avatar_frame_${currentUserId}`) || 'none';
+        setUserAvatarFrame(activeFrame);
+        const activeColTheme = prof.ingame_column_theme || supabaseUser?.user_metadata?.ingame_column_theme || localStorage.getItem(`bundeswiega_user_col_theme_${currentUserId}`) || 'none';
+        setUserColumnTheme(activeColTheme);
+        const activeRowTheme = prof.leaderboard_row_theme || supabaseUser?.user_metadata?.leaderboard_row_theme || localStorage.getItem(`bundeswiega_user_row_theme_${currentUserId}`) || 'none';
+        setUserRowTheme(activeRowTheme);
         const lvl = Number(prof.level) || 1;
         const xp = Number(prof.xp) || 0;
         setUserLevel(lvl);
@@ -1409,6 +1760,93 @@ const App: React.FC = () => {
   const [showModeInfo, setShowModeInfo] = useState(false);
   const [tournamentMode, setTournamentMode] = useState(true);
   const [showTournamentInfo, setShowTournamentInfo] = useState(false);
+
+  // World of Wiegen (Wiegen forever) States
+  const [worldOfWiegenEnabled, setWorldOfWiegenEnabled] = useState(false);
+  const [worldOfWiegenPool, setWorldOfWiegenPool] = useState<WorldOfWiegenPool>('kreiswiega');
+  const [showWorldOfWiegenInfo, setShowWorldOfWiegenInfo] = useState(false);
+  const [showWorldOfWiegenQuestlog, setShowWorldOfWiegenQuestlog] = useState(false);
+  const [showAdminWorldOfWiegen, setShowAdminWorldOfWiegen] = useState(false);
+  const [activeQuests, setActiveQuests] = useState<ActiveQuest[]>([]);
+  const [questHistory, setQuestHistory] = useState<ActiveQuest[]>([]);
+  const [activeEffects, setActiveEffects] = useState<ActiveEffect[]>([]);
+  const [effectHistory, setEffectHistory] = useState<ActiveEffect[]>([]);
+  const [pendingNewQuest, setPendingNewQuest] = useState<ActiveQuest | null>(null);
+  const [pendingQuestChoicePlayer, setPendingQuestChoicePlayer] = useState<Player | null>(null);
+  const [pendingQuestDistributionQueue, setPendingQuestDistributionQueue] = useState<Player[]>([]);
+  const [pendingQuestDistributionContext, setPendingQuestDistributionContext] = useState<{
+    currentRoundIdx: number;
+    playerRanks: Map<string, number>;
+    playerAverages: Map<string, number>;
+    allPlayers: Player[];
+  } | null>(null);
+
+  const handleSelectQuestDifficulty = (player: Player, chosenPool: WorldOfWiegenPool) => {
+    if (!pendingQuestDistributionContext) return;
+    const { currentRoundIdx, playerRanks, playerAverages, allPlayers } = pendingQuestDistributionContext;
+    const existingQuestIds = activeQuests.map(q => q.questId);
+
+    const selection = selectEligibleQuest(
+      player,
+      allPlayers,
+      currentRoundIdx + 1,
+      playerRanks,
+      playerAverages,
+      chosenPool,
+      existingQuestIds
+    );
+
+    if (selection) {
+      const newQuest = createQuestInstance(
+        selection.quest,
+        player,
+        chosenPool,
+        currentRoundIdx,
+        playerRanks,
+        playerAverages,
+        selection.targetPlayer,
+        selection.targetValue
+      );
+      setPendingNewQuest(newQuest);
+    } else {
+      const myRank = playerRanks.get(player.id) || 1;
+      const fallbackDef = WORLD_OF_WIEGEN_QUESTS.find(q => {
+        if (q.id === 'better_than_x' && myRank === 1) return false;
+        return q.pool === 'both' || q.pool === chosenPool;
+      }) || WORLD_OF_WIEGEN_QUESTS[1];
+      const newQuest = createQuestInstance(
+        fallbackDef,
+        player,
+        chosenPool,
+        currentRoundIdx,
+        playerRanks,
+        playerAverages
+      );
+      setPendingNewQuest(newQuest);
+    }
+  };
+
+  const handleConfirmRevealedQuest = () => {
+    if (pendingNewQuest) {
+      setActiveQuests(prev => [...prev, pendingNewQuest]);
+      setPendingNewQuest(null);
+    }
+
+    if (pendingQuestDistributionQueue.length > 0) {
+      const nextPlayer = pendingQuestDistributionQueue[0];
+      setPendingQuestChoicePlayer(nextPlayer);
+      setPendingQuestDistributionQueue(prev => prev.slice(1));
+    } else {
+      setPendingQuestChoicePlayer(null);
+      setPendingQuestDistributionContext(null);
+    }
+  };
+  const [pendingEffectUnlock, setPendingEffectUnlock] = useState<{
+    quest: ActiveQuest;
+    effect: EffectDefinition;
+    activeEffect: ActiveEffect;
+  } | null>(null);
+  const [activeMinigame, setActiveMinigame] = useState<'E07' | 'E10' | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showAutoTargetModal, setShowAutoTargetModal] = useState<{ target: number, reason: string } | null>(null);
@@ -1916,27 +2354,40 @@ const App: React.FC = () => {
       const isStandardPlayer = players.some(p => p.id === effectivePlayerId);
       if (isStandardPlayer) {
         setPlayers(prev => prev.map(p =>
-          p.id === effectivePlayerId ? { ...p, name: pName, userId: pUid } : p
+          p.id === effectivePlayerId ? {
+            ...p,
+            name: pName,
+            userId: pUid,
+            avatar_url: pAvatar || null,
+            imageUrl: pAvatar || null
+          } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
           [effectivePlayerId]: {
             userId: pUid,
             userName: pName,
-            imageUrl: pAvatar
+            imageUrl: pAvatar || null,
+            avatar_url: pAvatar || null
           }
         }));
       } else {
         setTeams(prevTeams => prevTeams.map(t => ({
           ...t,
-          members: t.members.map(m => m.id === effectivePlayerId ? { ...m, name: pName } : m)
+          members: t.members.map(m => m.id === effectivePlayerId ? {
+            ...m,
+            name: pName,
+            avatar_url: pAvatar || null,
+            imageUrl: pAvatar || null
+          } : m)
         })));
         setTeamMemberAccountLinks(prev => ({
           ...prev,
           [effectivePlayerId]: {
             userId: pUid,
             userName: pName,
-            imageUrl: pAvatar
+            imageUrl: pAvatar || null,
+            avatar_url: pAvatar || null
           }
         }));
       }
@@ -2015,11 +2466,13 @@ const App: React.FC = () => {
     if (!accountId) return;
     const match = clerkUsers.find(u => u.id === accountId);
     if (match) {
+      const avatar = match.imageUrl || (match as any).avatar_url || null;
       setPlayers(prev => prev.map(p => p.id === playerId ? {
         ...p,
         name: match.name,
         userId: match.id,
-        imageUrl: match.imageUrl,
+        imageUrl: avatar,
+        avatar_url: avatar,
         title: match.title,
         name_bg_color: match.name_bg_color
       } : p));
@@ -2028,7 +2481,8 @@ const App: React.FC = () => {
         [playerId]: {
           userId: match.id,
           userName: match.name,
-          imageUrl: match.imageUrl,
+          imageUrl: avatar,
+          avatar_url: avatar,
           name_bg_color: match.name_bg_color
         }
       }));
@@ -2048,11 +2502,13 @@ const App: React.FC = () => {
     if (!accountId) return;
     const match = clerkUsers.find(u => u.id === accountId);
     if (match) {
+      const avatar = match.imageUrl || (match as any).avatar_url || null;
       setPlayers(prevPlayers => prevPlayers.map(p => p.id === memberId ? {
         ...p,
         name: match.name,
         userId: match.id,
-        imageUrl: match.imageUrl,
+        imageUrl: avatar,
+        avatar_url: avatar,
         title: match.title,
         name_bg_color: match.name_bg_color
       } : p));
@@ -2061,7 +2517,8 @@ const App: React.FC = () => {
         [memberId]: {
           userId: match.id,
           userName: match.name,
-          imageUrl: match.imageUrl,
+          imageUrl: avatar,
+          avatar_url: avatar,
           name_bg_color: match.name_bg_color
         }
       }));
@@ -2760,6 +3217,16 @@ const App: React.FC = () => {
     setFinalTriggered(false);
     setIsShortMode(false);
     setTournamentMode(true);
+    setActiveQuests([]);
+    setQuestHistory([]);
+    setActiveEffects([]);
+    setEffectHistory([]);
+    setPendingNewQuest(null);
+    setPendingQuestChoicePlayer(null);
+    setPendingQuestDistributionQueue([]);
+    setPendingQuestDistributionContext(null);
+    setPendingEffectUnlock(null);
+    setActiveMinigame(null);
     setUploadState('idle');
     setUploadMessage('');
     setAnnouncingPlayerIndex(0);
@@ -2813,6 +3280,16 @@ const App: React.FC = () => {
     setRounds([]);
     setPlayers([]);
     setTeams([]);
+    setActiveQuests([]);
+    setQuestHistory([]);
+    setActiveEffects([]);
+    setEffectHistory([]);
+    setPendingNewQuest(null);
+    setPendingQuestChoicePlayer(null);
+    setPendingQuestDistributionQueue([]);
+    setPendingQuestDistributionContext(null);
+    setPendingEffectUnlock(null);
+    setActiveMinigame(null);
     setShowResetConfirm(false);
     setUploadState('idle');
     setUploadMessage('');
@@ -3218,12 +3695,16 @@ const App: React.FC = () => {
 
   const handlePlayerCountConfirm = () => {
     const username = (isSignedIn && supabaseUser) ? (supabaseUser.user_metadata?.username || supabaseUser.email || '') : '';
+    const hostAvatar = (isSignedIn && supabaseUser) ? (supabaseUser.user_metadata?.avatar_url || null) : null;
     const initialPlayers = Array.from({ length: playerCount }, (_, i) => ({
       id: `p${i}`,
       name: i === 0 ? username : '',
       startWeight: 0,
       schnaepse: 0,
-      isDisqualified: false
+      isDisqualified: false,
+      userId: i === 0 && isSignedIn && supabaseUser ? supabaseUser.id : undefined,
+      avatar_url: i === 0 ? hostAvatar : null,
+      imageUrl: i === 0 ? hostAvatar : null
     }));
     setPlayers(initialPlayers);
     if (isSignedIn && supabaseUser && initialPlayers.length > 0) {
@@ -3232,7 +3713,8 @@ const App: React.FC = () => {
         [initialPlayers[0].id]: {
           userId: supabaseUser.id,
           userName: username,
-          imageUrl: supabaseUser.user_metadata?.avatar_url || null
+          imageUrl: hostAvatar,
+          avatar_url: hostAvatar
         }
       }));
     }
@@ -3245,6 +3727,7 @@ const App: React.FC = () => {
       alert("Bitte alle Namen ausfüllen.");
       return;
     }
+    setPlayers(prev => enrichPlayersForActiveGame(prev));
     setTempWeights(new Array(players.length).fill(''));
     setGameState(GameState.START_WEIGHTS);
   };
@@ -3258,7 +3741,9 @@ const App: React.FC = () => {
             return;
         }
     }
-    const updatedPlayers = players.map((p, i) => ({ ...p, startWeight: numericWeights[i] }));
+    const updatedPlayers = enrichPlayersForActiveGame(
+      players.map((p, i) => ({ ...p, startWeight: numericWeights[i] }))
+    );
     setPlayers(updatedPlayers);
 
     // Live-Spiel in active_games registrieren, falls Host eingeloggt ist
@@ -3346,7 +3831,7 @@ const App: React.FC = () => {
     if (activeGameIdRef.current) {
       updateActiveGame(activeGameIdRef.current, {
         currentRound: newRounds.length,
-        players,
+        players: enrichPlayersForActiveGame(players),
         gameData: {
           rounds: newRounds,
           teams,
@@ -3471,6 +3956,123 @@ const App: React.FC = () => {
       }
     }
 
+    // World of Wiegen (Wiegen forever) - Quest Lifecycle & Effect Evaluation
+    if (worldOfWiegenEnabled && teams.length === 0) {
+      const currentRoundIdx = updatedRounds.length - 1;
+
+      // 1. Calculate ranks and averages of active players up to this round
+      const playerRanks = new Map<string, number>();
+      const playerAverages = new Map<string, number>();
+
+      const activePlayers = updatedPlayers.filter(p => !p.isDisqualified);
+      const playerStats = activePlayers.map(p => {
+        const avg = calculateAverageDistance(p.id, updatedRounds);
+        playerAverages.set(p.id, avg);
+        return { player: p, avg, total: avg + p.schnaepse };
+      });
+      // Sort by total (asc: lower is better in Wiegen)
+      playerStats.sort((a, b) => a.total - b.total);
+      playerStats.forEach((stat, idx) => {
+        playerRanks.set(stat.player.id, idx + 1);
+      });
+
+      // 2. Evaluate existing active quests
+      const remainingQuests: ActiveQuest[] = [];
+      const newlyCompletedQuests: ActiveQuest[] = [];
+
+      for (const q of activeQuests) {
+        const player = updatedPlayers.find(p => p.id === q.playerId);
+        if (!player || player.isDisqualified) {
+          setQuestHistory(prev => [...prev, { ...q, status: 'failed', progressText: 'Spieler ausgeschieden.' }]);
+          continue;
+        }
+
+        const evaluation = evaluateQuestAtRoundEnd(
+          q,
+          player,
+          updatedPlayers,
+          updatedRounds,
+          currentRoundIdx,
+          playerRanks
+        );
+
+        const updatedQ: ActiveQuest = {
+          ...q,
+          streakCount: evaluation.streakCount,
+          progressText: evaluation.progressText,
+          status: evaluation.status
+        };
+
+        if (evaluation.status === 'completed') {
+          updatedQ.completedRound = currentRoundIdx;
+          newlyCompletedQuests.push(updatedQ);
+          setQuestHistory(prev => [...prev, updatedQ]);
+
+          // Trigger reward effect based on this quest's individual difficulty / pool!
+          const reward = selectRewardEffect(
+            player,
+            updatedPlayers,
+            q.pool || 'kreiswiega',
+            currentRoundIdx + 1,
+            activeEffects
+          );
+
+          updatedQ.rewardEffectId = reward.effect.code;
+
+          // Add to active effects
+          setActiveEffects(prev => [...prev, reward.activeEffect]);
+          setEffectHistory(prev => [...prev, reward.activeEffect]);
+
+          // Trigger unlock banner modal
+          setPendingEffectUnlock({
+            quest: updatedQ,
+            effect: reward.effect,
+            activeEffect: reward.activeEffect
+          });
+
+          // If minigame, open minigame modal once effect is confirmed
+          if (reward.effect.isMinigame && (reward.effect.code === 'E07' || reward.effect.code === 'E10')) {
+            setActiveMinigame(reward.effect.code as 'E07' | 'E10');
+          }
+        } else if (evaluation.status === 'failed') {
+          setQuestHistory(prev => [...prev, updatedQ]);
+        } else {
+          remainingQuests.push(updatedQ);
+        }
+      }
+
+      // 3. Expire single-round effects (duration 'next_round' activated in previous rounds)
+      const currentRoundNumber = updatedRounds.length;
+      setActiveEffects(prev =>
+        prev.filter(eff => {
+          if (eff.expiresRound && currentRoundNumber >= eff.expiresRound) {
+            return false;
+          }
+          return true;
+        })
+      );
+
+      // 4. Offer new quests if needed:
+      // Quests start from round 2 (after round 1 is evaluated, so updatedRounds.length >= 1)
+      // The player is asked ZUERST whether they want Kreiswiega (leichter) or Championswieg (schwerer)
+      const playersWithoutQuest = activePlayers.filter(
+        p => !remainingQuests.some(q => q.playerId === p.id)
+      );
+
+      setActiveQuests(remainingQuests);
+
+      if (playersWithoutQuest.length > 0) {
+        setPendingQuestDistributionContext({
+          currentRoundIdx,
+          playerRanks,
+          playerAverages,
+          allPlayers: updatedPlayers
+        });
+        setPendingQuestChoicePlayer(playersWithoutQuest[0]);
+        setPendingQuestDistributionQueue(playersWithoutQuest.slice(1));
+      }
+    }
+
     setAnnouncingPlayerIndex(prev => prev + 1);
     setPlayers(updatedPlayers);
     setSummaryData(summary);
@@ -3482,7 +4084,7 @@ const App: React.FC = () => {
     if (activeGameIdRef.current) {
       updateActiveGame(activeGameIdRef.current, {
         currentRound: updatedRounds.length,
-        players: updatedPlayers,
+        players: enrichPlayersForActiveGame(updatedPlayers),
         gameData: {
           rounds: updatedRounds,
           teams,
@@ -3708,17 +4310,25 @@ const App: React.FC = () => {
     // Live-Spiel für Speedwiegen in active_games registrieren
     if (supabaseUser?.id) {
       const modeName = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
+      const speedAvatar = getPlayerAvatarUrl(speedUserId || undefined) || getPlayerAvatarUrl(speedPlayerName) || null;
       createActiveGame({
         hostUserId: supabaseUser.id,
         gameMode: modeName,
         currentRound: 1,
-        players: [{ id: 'speed_1', name: speedPlayerName || 'Gast', userId: speedUserId }],
+        players: [{
+          id: 'speed_1',
+          name: speedPlayerName || 'Gast',
+          userId: speedUserId || undefined,
+          avatar_url: speedAvatar,
+          imageUrl: speedAvatar
+        }],
         gameData: {
           speedLevels,
           speedTargets,
           speedResults: {},
           speedIsShortMode,
-          speedPlayerName
+          speedPlayerName,
+          speedPlayerAvatar: speedAvatar
         }
       }).then(newId => {
         if (newId) setActiveGameId(newId);
@@ -3782,6 +4392,26 @@ const App: React.FC = () => {
 
     setGameState(GameState.SPEED_RESULT);
     if (activeGameIdRef.current) {
+      const speedAvatar = getPlayerAvatarUrl(speedUserId || undefined) || getPlayerAvatarUrl(speedPlayerName) || null;
+      updateActiveGame(activeGameIdRef.current, {
+        currentRound: lastLevel,
+        status: 'finished',
+        players: [{
+          id: 'speed_1',
+          name: speedPlayerName || 'Gast',
+          userId: speedUserId || undefined,
+          avatar_url: speedAvatar,
+          imageUrl: speedAvatar
+        }],
+        gameData: {
+          speedLevels,
+          speedTargets,
+          speedResults: updatedResults,
+          speedIsShortMode,
+          speedPlayerName,
+          speedPlayerAvatar: speedAvatar
+        }
+      });
       finishActiveGame(activeGameIdRef.current);
     }
 
@@ -3997,6 +4627,23 @@ const App: React.FC = () => {
       pointsToAward: []
     });
     setShowSummary(true);
+
+    // Live-Update für Zuschauer im Teamwiegen
+    if (activeGameIdRef.current) {
+      updateActiveGame(activeGameIdRef.current, {
+        currentRound: updatedRounds.length,
+        players: enrichPlayersForActiveGame(players),
+        gameData: {
+          rounds: updatedRounds,
+          teams: updatedTeams,
+          currentRoundResults: {},
+          isShortMode,
+          tournamentMode,
+          activeTournamentTable,
+          finalTriggered
+        }
+      });
+    }
   };
 
   const downloadCSV = () => {
@@ -4606,14 +5253,21 @@ const App: React.FC = () => {
 
       if (username) {
         setPlayers(prev => prev.map((p, i) =>
-          i === 0 ? { ...p, name: p.name || username } : p
+          i === 0 ? {
+            ...p,
+            name: p.name || username,
+            userId: p.userId || supabaseUser.id,
+            avatar_url: p.avatar_url || avatarUrl,
+            imageUrl: p.imageUrl || avatarUrl
+          } : p
         ));
         setPlayerAccountLinks(prev => ({
           ...prev,
           [players[0].id]: {
             userId: supabaseUser.id,
             userName: username,
-            imageUrl: avatarUrl
+            imageUrl: avatarUrl,
+            avatar_url: avatarUrl
           }
         }));
       }
@@ -4892,6 +5546,59 @@ const App: React.FC = () => {
                 <label htmlFor="tournament-switch" className="font-bold text-sm select-none">Turnier Modus</label>
                 <button onClick={() => setShowTournamentInfo(true)} className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500"><i className="fas fa-question"></i></button>
               </div>
+
+              {/* World of Wiegen (Wiegen forever) Toggle */}
+              <div className="flex flex-col items-center space-y-2 w-full pt-2 border-t border-gray-500/20">
+                <div className="flex items-center space-x-2">
+                  <div className="relative inline-block w-10 h-6">
+                    <input
+                      type="checkbox"
+                      id="wow-switch"
+                      checked={worldOfWiegenEnabled}
+                      onChange={e => setWorldOfWiegenEnabled(e.target.checked)}
+                      className="opacity-0 w-0 h-0"
+                    />
+                    <label
+                      htmlFor="wow-switch"
+                      className={`absolute cursor-pointer top-0 left-0 right-0 bottom-0 rounded-full transition-colors ${
+                        worldOfWiegenEnabled ? '' : 'bg-gray-400'
+                      }`}
+                      style={{ backgroundColor: worldOfWiegenEnabled ? '#D97706' : undefined }}
+                    >
+                      <span
+                        className={`absolute left-1 bottom-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                          worldOfWiegenEnabled ? 'translate-x-4' : ''
+                        }`}
+                      ></span>
+                    </label>
+                  </div>
+                  <label htmlFor="wow-switch" className="font-bold text-sm select-none flex items-center space-x-1.5 cursor-pointer">
+                    <span className="text-amber-500">⚔️</span>
+                    <span>World of Wiegen (Wiegen forever)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowWorldOfWiegenInfo(true)}
+                    title="Aktiviert Nebenquests, Trink-Regeländerungen, Minigames & chaotische Gruppeneffekte! WICHTIG: Sämtliche Quests & Effekte dienen der Unterhaltung und beeinflussen NIEMALS die reguläre Wertung (Points / Pre-Average / Highscores) des Spiels!"
+                    className="w-6 h-6 rounded-full border border-gray-500 text-xs flex items-center justify-center text-gray-500 hover:text-amber-500 hover:border-amber-500 transition-colors cursor-pointer"
+                  >
+                    <i className="fas fa-question"></i>
+                  </button>
+                </div>
+
+                {worldOfWiegenEnabled && (
+                  <div className="flex flex-col items-center justify-center pt-1.5 animate-in fade-in duration-200 text-center space-y-1.5 max-w-sm">
+                    <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                      <span>🎲</span>
+                      <span>Individuelle Quest-Wahl pro Spieler</span>
+                    </div>
+                    <p className="text-[11px] opacity-80 leading-relaxed font-semibold">
+                      Bei Vergabe wählt jeder Spieler zuerst seinen Schwierigkeitsgrad: <br />
+                      <span className="text-teal-600 dark:text-teal-400 font-black">🤝 Kreiswiega</span> (leichter, Gemeinschaft) oder <span className="text-amber-600 dark:text-amber-400 font-black">👑 Championswieg</span> (schwerer, Machtvorteile).
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
             <button onClick={handlePlayerCountConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Namen eingeben</button>
           </div>
@@ -5066,6 +5773,13 @@ const App: React.FC = () => {
                playerAccountLinks={playerAccountLinks}
                getPlayerTitle={getPlayerTitle}
                getPlayerNameBgColor={getPlayerNameBgColor}
+               getPlayerNameGlow={getPlayerNameGlow}
+               getPlayerAvatarFrame={getPlayerAvatarFrame}
+               getPlayerColumnTheme={getPlayerColumnTheme}
+               worldOfWiegenActive={worldOfWiegenEnabled}
+               activeQuests={activeQuests}
+               activeEffects={activeEffects}
+               onOpenQuestlog={() => setShowWorldOfWiegenQuestlog(true)}
              />
              <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
           </div>
@@ -5776,6 +6490,13 @@ const App: React.FC = () => {
                playerAccountLinks={playerAccountLinks}
                getPlayerTitle={getPlayerTitle}
                getPlayerNameBgColor={getPlayerNameBgColor}
+               getPlayerNameGlow={getPlayerNameGlow}
+               getPlayerAvatarFrame={getPlayerAvatarFrame}
+               getPlayerColumnTheme={getPlayerColumnTheme}
+               worldOfWiegenActive={worldOfWiegenEnabled}
+               activeQuests={activeQuests}
+               activeEffects={activeEffects}
+               onOpenQuestlog={() => setShowWorldOfWiegenQuestlog(true)}
              />
              <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
           </div>
@@ -6032,6 +6753,13 @@ const App: React.FC = () => {
                      playerAccountLinks={playerAccountLinks}
                      getPlayerTitle={getPlayerTitle}
                      getPlayerNameBgColor={getPlayerNameBgColor}
+                     getPlayerNameGlow={getPlayerNameGlow}
+                     getPlayerAvatarFrame={getPlayerAvatarFrame}
+                     getPlayerColumnTheme={getPlayerColumnTheme}
+                     worldOfWiegenActive={worldOfWiegenEnabled}
+                     activeQuests={activeQuests}
+                     activeEffects={activeEffects}
+                     onOpenQuestlog={() => setShowWorldOfWiegenQuestlog(true)}
                    />
                  </div>
                )
@@ -9973,6 +10701,26 @@ const App: React.FC = () => {
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
+              {/* ⚔️ World of Wiegen (Quests & Effekte) */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (buttonAudio) {
+                    buttonAudio.currentTime = 0;
+                    buttonAudio.play().catch(() => {});
+                  }
+                  setShowAdminWorldOfWiegen(true);
+                }}
+                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                style={{ backgroundColor: '#B45309' }}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">⚔️</span>
+                  <span>⚔️ World of Wiegen (Quests &amp; Effekte)</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
+              </button>
+
               {/* 3. 👥 Alle Nutzer anzeigen */}
               <button
                 type="button"
@@ -10275,6 +11023,69 @@ const App: React.FC = () => {
           />
         </div>
       )}
+
+      {/* ⚔️ WORLD OF WIEGEN INFO MODAL */}
+      <WorldOfWiegenInfoModal
+        isOpen={showWorldOfWiegenInfo}
+        onClose={() => setShowWorldOfWiegenInfo(false)}
+        darkMode={darkMode}
+      />
+
+      {/* ⚔️ WORLD OF WIEGEN NOTIFICATION BANNER / QUEST POPUP / EFFECT UNLOCK */}
+      <WorldOfWiegenNotificationBanner
+        pendingQuestPlayer={pendingQuestChoicePlayer}
+        pendingQuest={pendingNewQuest}
+        pendingEffect={pendingEffectUnlock}
+        onSelectDifficultyForPlayer={handleSelectQuestDifficulty}
+        onConfirmRevealedQuest={handleConfirmRevealedQuest}
+        onDismissQuest={() => {
+          setPendingNewQuest(null);
+          setPendingQuestChoicePlayer(null);
+        }}
+        onAcceptQuestWithPool={(questId, chosenPool) => {
+          setActiveQuests(prev =>
+            prev.map(q => (q.id === questId ? { ...q, pool: chosenPool } : q))
+          );
+          setPendingNewQuest(null);
+        }}
+        onDismissEffect={() => setPendingEffectUnlock(null)}
+        darkMode={darkMode}
+      />
+
+      {/* ⚔️ WORLD OF WIEGEN QUESTLOG MODAL */}
+      <WorldOfWiegenQuestlogModal
+        isOpen={showWorldOfWiegenQuestlog}
+        onClose={() => setShowWorldOfWiegenQuestlog(false)}
+        activeQuests={activeQuests}
+        activeEffects={activeEffects}
+        pool={worldOfWiegenPool}
+        currentRound={rounds.length}
+        darkMode={darkMode}
+        onOpenMinigame={(type) => setActiveMinigame(type)}
+        onToggleQuestPool={(questId, newPool) => {
+          setActiveQuests(prev =>
+            prev.map(q => (q.id === questId ? { ...q, pool: newPool } : q))
+          );
+        }}
+      />
+
+      {/* ⚔️ WORLD OF WIEGEN MINIGAMES MODAL (E07 / E10) */}
+      {activeMinigame && (
+        <WorldOfWiegenMinigamesModal
+          isOpen={!!activeMinigame}
+          onClose={() => setActiveMinigame(null)}
+          minigameType={activeMinigame}
+          players={players}
+          darkMode={darkMode}
+        />
+      )}
+
+      {/* ⚔️ WORLD OF WIEGEN ADMIN VIEW */}
+      <AdminWorldOfWiegenView
+        isOpen={showAdminWorldOfWiegen}
+        onClose={() => setShowAdminWorldOfWiegen(false)}
+        darkMode={darkMode}
+      />
 
     </div>
   );

@@ -139,6 +139,246 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
               </div>
             )}
 
+            {/* LEVEL 5 */}
+            {newLevel === 5 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                <span className="text-base">🪵</span>
+                <div>
+                  <strong className="block font-black text-amber-600 dark:text-amber-400">
+                    Holz-Avatarrahmen & Bronze-Spalte freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Rüste jetzt deinen Eichen-Avatarrahmen und das Bronze-Design für deine In-Game Spalte im Profil aus!
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 6 */}
+            {newLevel === 6 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <span className="text-base">🌿</span>
+                <div>
+                  <strong className="block font-black text-emerald-600 dark:text-emerald-400">
+                    Namenshintergrund "Neon-Mint" freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Dein Name erstrahlt jetzt in einem leuchtenden, modernen Neon-Mintgrün.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 7 */}
+            {newLevel === 7 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-slate-500/10 border border-slate-500/20">
+                <span className="text-base">🏁</span>
+                <div>
+                  <strong className="block font-black text-slate-400">
+                    Carbon-Design für Ranglisten freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Deine Statistiken und Ranglisten-Einträge erstrahlen ab sofort im sportlichen Carbon-Look.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 8 */}
+            {newLevel === 8 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                <span className="text-base">💜</span>
+                <div>
+                  <strong className="block font-black text-purple-500">
+                    Pulsierender lila Glow Avatar-Rahmen freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Dein Profilbild pulsiert ab sofort mit einer mystischen lila Neon-Aura.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 9 */}
+            {newLevel === 9 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-pink-500/10 border border-pink-500/20">
+                <span className="text-base">👁️</span>
+                <div>
+                  <strong className="block font-black text-pink-500">
+                    Farbverlauf-Header Spielspalte freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Deine Spielspalte erhält einen fließenden Pink-Indigo-Farbverlauf im Tabellen-Header.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 10 */}
+            {newLevel === 10 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-slate-300/10 border border-slate-400/30">
+                <span className="text-base">🥈</span>
+                <div>
+                  <strong className="block font-black text-slate-300">
+                    Silber-Meilenstein erreicht!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Glänzender Silber-Metallrahmen und silberne Kontur für deine Ranglisten-Zeilen freigeschaltet.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 11 */}
+            {newLevel === 11 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                <span className="text-base">🧬</span>
+                <div>
+                  <strong className="block font-black text-rose-500">
+                    Cyberpunk Pink/Gelb Namenshintergrund freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Fetziger Neon-Verlauf von leuchtendem Pink bis zu glühendem Gelb für deinen Namen.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 12 */}
+            {newLevel === 12 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+                <span className="text-base">⚡</span>
+                <div>
+                  <strong className="block font-black text-yellow-500">
+                    Elektro-/Blitz-Spaltendesign freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Lass deine In-Game Spalte während des Spiels mit Blitz-Effekten an den Rändern leuchten.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 13 */}
+            {newLevel === 13 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-orange-500/10 border border-orange-500/20">
+                <span className="text-base">🔥</span>
+                <div>
+                  <strong className="block font-black text-orange-500">
+                    Feuer-Aura Avatarrahmen freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Dein Profilbild lodert ab jetzt mit einem feurigen Aura-Effekt.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 14 */}
+            {newLevel === 14 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-slate-400/10 border border-slate-400/20">
+                <span className="text-base">🛡️</span>
+                <div>
+                  <strong className="block font-black text-slate-300">
+                    Gebürsteter Edelstahl Ranglisten-Design freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Deine Tabellenzeilen erstrahlen im massiven Edelstahl-Metallic Look.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 15 */}
+            {newLevel === 15 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-teal-500/10 border border-teal-500/20">
+                <span className="text-base">🌌</span>
+                <div>
+                  <strong className="block font-black text-teal-400">
+                    Aurora Borealis Set (Polarlichter) freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Schalte den magischen Aurora-Glow für Profilbild & Namen sowie die edle Gold-Spalte frei!
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 16 */}
+            {newLevel === 16 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                <span className="text-base">🪐</span>
+                <div>
+                  <strong className="block font-black text-indigo-400">
+                    Galaxie & Sterne Namenshintergrund freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Tiefes Kosmos-Lila mit schimmernden Sternen-Akzenten für deinen Namen.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 17 */}
+            {newLevel === 17 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-green-500/10 border border-green-500/20">
+                <span className="text-base">💚</span>
+                <div>
+                  <strong className="block font-black text-green-400">
+                    Matrix Digital-Rahmen freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Pulsierender digitaler Cyber-Code Rahmen in giftigem Matrix-Grün.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 18 */}
+            {newLevel === 18 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-blue-600/10 border border-blue-500/20">
+                <span className="text-base">👑</span>
+                <div>
+                  <strong className="block font-black text-blue-400">
+                    Königsblau & Gold Ranglisten-Design freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Majestätische königsblaue Zeile mit edlem Gold-Akzent für deine Rekorde.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 19 */}
+            {newLevel === 19 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                <span className="text-base">🌊</span>
+                <div>
+                  <strong className="block font-black text-purple-400">
+                    Plasma-Welle Spielspaltendesign freigeschaltet!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Deine Spielspalte pulsiert mit einer futuristischen Plasma-Energiewelle.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* LEVEL 20 */}
+            {newLevel === 20 && (
+              <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                <span className="text-base">💎</span>
+                <div>
+                  <strong className="block font-black text-cyan-400">
+                    MAX-LEVEL: Diamant-Gott Status!
+                  </strong>
+                  <span className="opacity-70 text-[11px] leading-tight block">
+                    Prismatischer Diamant-Glow, Rainbow-Aurora Rangliste und Kronen-Header für deine Spielspalte!
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-start space-x-2.5 p-2 rounded-xl bg-black/5 dark:bg-white/5 opacity-80">
               <span className="text-base">🎁</span>
               <div>

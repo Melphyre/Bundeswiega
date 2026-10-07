@@ -201,14 +201,28 @@ export function calculateUserModeStats(
     : null;
 
   const validTimes = modeFiltered
-    .map(r => r.time_seconds !== undefined && r.time_seconds !== null ? r.time_seconds : r.schnaepse)
+    .map(r => {
+      const isSpeed = String(r.game_mode || r.mode || '').includes('Speedwiegen');
+      const anyR = r as any;
+      if (anyR.Time !== undefined && anyR.Time !== null && !isNaN(Number(anyR.Time))) return Number(anyR.Time);
+      if (anyR.time !== undefined && anyR.time !== null && !isNaN(Number(anyR.time))) return Number(anyR.time);
+      if (anyR.time_seconds !== undefined && anyR.time_seconds !== null && !isNaN(Number(anyR.time_seconds))) return Number(anyR.time_seconds);
+      if (isSpeed && r.schnaepse !== undefined && r.schnaepse !== null) return Number(r.schnaepse);
+      return null;
+    })
     .filter((t): t is number => typeof t === 'number' && !isNaN(t) && t > 0);
   const bestTime = validTimes.length > 0 ? Number(Math.min(...validTimes).toFixed(1)) : null;
 
   const validScores = modeFiltered
     .map(r => {
+      const isSpeed = String(r.game_mode || r.mode || '').includes('Speedwiegen');
+      const anyR = r as any;
       const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
-      const t = r.time_seconds !== undefined && r.time_seconds !== null ? r.time_seconds : (r.schnaepse || 0);
+      let t = 0;
+      if (anyR.Time !== undefined && anyR.Time !== null && !isNaN(Number(anyR.Time))) t = Number(anyR.Time);
+      else if (anyR.time !== undefined && anyR.time !== null && !isNaN(Number(anyR.time))) t = Number(anyR.time);
+      else if (anyR.time_seconds !== undefined && anyR.time_seconds !== null && !isNaN(Number(anyR.time_seconds))) t = Number(anyR.time_seconds);
+      else if (isSpeed) t = Number(r.schnaepse) || 0;
       return a + t;
     })
     .filter(s => s > 0);
@@ -241,7 +255,40 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
   // Skip row 0 which is the header row: Datum;Modus;Name;Avg;Schnaepse
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
-    if (!row || row.length < 5) continue;
+    if (!row) continue;
+    
+    // Support object row directly if passed as objects
+    if (typeof row === 'object' && !Array.isArray(row)) {
+      const obj = row as any;
+      const canonicalMode = normalizeGameMode(obj.game_mode || obj.gameMode);
+      const isSpeed = canonicalMode.includes('Speedwiegen');
+      const timeVal = obj.Time !== undefined && obj.Time !== null && !isNaN(Number(obj.Time))
+        ? Number(obj.Time)
+        : (obj.time !== undefined && obj.time !== null && !isNaN(Number(obj.time))
+            ? Number(obj.time)
+            : (obj.time_seconds !== undefined && obj.time_seconds !== null && !isNaN(Number(obj.time_seconds))
+                ? Number(obj.time_seconds)
+                : (isSpeed ? (Number(obj.schnaepse) || 0) : undefined)));
+
+      list.push({
+        game_mode: canonicalMode,
+        gameMode: canonicalMode,
+        playerName: String(obj.playerName || obj.name || obj.player_name || ''),
+        date: String(obj.date || ''),
+        avg: Number(obj.avg) || 0,
+        schnaepse: isSpeed ? 0 : (Number(obj.schnaepse) || 0),
+        time: timeVal,
+        Time: timeVal,
+        time_seconds: timeVal,
+        levels: obj.levels !== undefined ? Number(obj.levels) : undefined,
+        tournament_name: obj.tournament_name || undefined,
+        tournament_table: obj.tournament_table || undefined,
+        achievements: obj.achievements,
+      });
+      continue;
+    }
+
+    if (row.length < 5) continue;
     
     const dateVal = row[0];
     const rawGameMode = row[1];
@@ -279,20 +326,29 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
 
     const tourneyName = (row[7] !== undefined && row[7] !== null && String(row[7]).trim() !== '')
       ? String(row[7]).trim()
-      : (typeof row === 'object' && !Array.isArray(row) && (row as any).tournament_name ? String((row as any).tournament_name).trim() : undefined);
+      : undefined;
     const tourneyTable = (row[8] !== undefined && row[8] !== null && String(row[8]).trim() !== '')
       ? String(row[8]).trim()
-      : (typeof row === 'object' && !Array.isArray(row) && (row as any).tournament_table ? String((row as any).tournament_table).trim() : undefined);
+      : undefined;
 
     if (dateVal && playerName) {
       const canonicalMode = normalizeGameMode(rawGameMode);
+      const isSpeed = canonicalMode.includes('Speedwiegen');
+      // Wenn row[9] existiert (explizite Time) oder es Speedwiegen ist, timeVal ermitteln
+      const timeVal = (row[9] !== undefined && row[9] !== null && row[9] !== "" && !isNaN(Number(row[9])))
+        ? Number(row[9])
+        : (isSpeed ? schnaepseVal : undefined);
+
       list.push({
         game_mode: canonicalMode,
         gameMode: canonicalMode,
         playerName: String(playerName),
         date: String(dateVal),
         avg: avgVal,
-        schnaepse: schnaepseVal,
+        schnaepse: isSpeed ? 0 : schnaepseVal,
+        time: timeVal,
+        Time: timeVal,
+        time_seconds: timeVal,
         levels: levelsVal,
         tournament_name: tourneyName || undefined,
         tournament_table: tourneyTable || undefined,
@@ -302,3 +358,7 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
   }
   return list;
 };
+
+// Offizielles Profilbild / Wappen für die fiktive Wiegschaft "Freie Spieler"
+export const FREE_PLAYERS_LOGO_URL = 'https://gzfeauqvpnjowyfbavwl.supabase.co/storage/v1/object/public/avatars/Logo%20Freie%20Spieler.png';
+

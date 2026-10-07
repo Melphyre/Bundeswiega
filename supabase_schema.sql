@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles(username);
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 
+-- Kosmetik- & Design-Spalten für Profiles (Level 5-20 Belohnungen)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name_bg_color TEXT DEFAULT 'none';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_frame TEXT DEFAULT 'none';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS leaderboard_row_theme TEXT DEFAULT 'none';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS ingame_column_theme TEXT DEFAULT 'none';
+
 -- ==========================================
 -- 2. ROW LEVEL SECURITY (RLS) AKTIVIEREN & POLICIES
 -- ==========================================
@@ -162,6 +168,7 @@ CREATE TABLE IF NOT EXISTS public.game_results (
   date TEXT NOT NULL,
   avg NUMERIC(8,2) NOT NULL DEFAULT 0,
   schnaepse INTEGER NOT NULL DEFAULT 0,
+  time NUMERIC(8,2),
   time_seconds NUMERIC(8,2),
   total NUMERIC(8,2) NOT NULL DEFAULT 0,
   levels INTEGER,
@@ -176,6 +183,7 @@ ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAUL
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS player_name TEXT;
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS tournament_name TEXT;
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS tournament_table TEXT;
+ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS time NUMERIC(8,2);
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS time_seconds NUMERIC(8,2);
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS levels INTEGER;
 ALTER TABLE public.game_results ADD COLUMN IF NOT EXISTS team_name TEXT;

@@ -198,13 +198,30 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
       const inserts = results.map((r: any) => {
         const avg = Number(r.avg) || 0;
         const schnaepse = Number(r.schnaepse) || 0;
-        const total = r.total !== undefined ? Number(r.total) : Math.round((avg + schnaepse) * 100) / 100;
+        const isSpeed = String(gameMode || '').toLowerCase().includes('speed') || r.time !== undefined || r.Time !== undefined || r.time_seconds !== undefined;
+        const timeVal = r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
+          ? Number(r.Time)
+          : (r.time !== undefined && r.time !== null && !isNaN(Number(r.time))
+              ? Number(r.time)
+              : (r.time_seconds !== undefined && r.time_seconds !== null && !isNaN(Number(r.time_seconds))
+                  ? Number(r.time_seconds)
+                  : (isSpeed ? schnaepse : null)));
+
+        const total = r.total !== undefined
+          ? Number(r.total)
+          : (isSpeed && timeVal !== null
+              ? Math.round((avg + timeVal) * 100) / 100
+              : Math.round((avg + schnaepse) * 100) / 100);
+
         return {
           game_mode: gameMode || 'Standardspiel',
           date: safeDate,
           player_name: r.name || 'Gast',
           avg,
-          schnaepse,
+          schnaepse: isSpeed ? 0 : schnaepse,
+          time: timeVal,
+          "Time": timeVal,
+          time_seconds: timeVal,
           total,
           levels: r.levels || null,
           is_guest: true
@@ -986,6 +1003,33 @@ async function handleUpdateNameGlow(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true });
   } catch (err: any) {
     console.error("handleUpdateNameGlow Crash:", err);
+    return res.status(200).json({ success: false, error: err?.message || 'Error' });
+  }
+}
+
+// ─── 8c. UPDATE COSMETICS (POST /api/users/update-cosmetics) ───
+async function handleUpdateCosmetics(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const body = parseBody(req);
+    const { userId, avatar_frame, leaderboard_row_theme, ingame_column_theme, name_bg_color, name_glow } = body;
+    if (!userId || !supabaseAdmin) {
+      return res.status(200).json({ success: false, error: 'User ID missing or DB uninitialized' });
+    }
+
+    const updates: Record<string, any> = {};
+    if (avatar_frame !== undefined) updates.avatar_frame = avatar_frame || 'none';
+    if (leaderboard_row_theme !== undefined) updates.leaderboard_row_theme = leaderboard_row_theme || 'none';
+    if (ingame_column_theme !== undefined) updates.ingame_column_theme = ingame_column_theme || 'none';
+    if (name_bg_color !== undefined) updates.name_bg_color = name_bg_color || 'none';
+    if (name_glow !== undefined) updates.name_glow = name_glow || 'none';
+
+    if (Object.keys(updates).length > 0) {
+      await supabaseAdmin.from('profiles').update(updates).eq('id', userId);
+    }
+    return res.status(200).json({ success: true, updates });
+  } catch (err: any) {
+    console.error("handleUpdateCosmetics Crash:", err);
     return res.status(200).json({ success: false, error: err?.message || 'Error' });
   }
 }
@@ -2470,7 +2514,7 @@ async function handleGuildLeaderboard(req: VercelRequest, res: VercelResponse) {
         name: 'Freie Spieler',
         tag: 'FREI',
         description: 'Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft (zum allgemeinen Vergleich).',
-        logo_url: '🍺',
+        logo_url: 'https://gzfeauqvpnjowyfbavwl.supabase.co/storage/v1/object/public/avatars/Logo%20Freie%20Spieler.png',
         memberCount: Math.max(allFreeKader.length, 1),
         membersCount: Math.max(allFreeKader.length, 1),
         gamesCount: freeGamesCount,
@@ -2572,6 +2616,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (pathname === '/users/update-name-glow' || pathname === '/update-name-glow') {
       return await handleUpdateNameGlow(req, res);
+    }
+    if (pathname === '/users/update-cosmetics' || pathname === '/update-cosmetics') {
+      return await handleUpdateCosmetics(req, res);
     }
     if (pathname === '/users/delete') {
       return await handleDeleteUser(req, res);

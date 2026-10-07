@@ -30,7 +30,18 @@ export function getAvatarUrl(url?: string | null): string {
   if (!url || typeof url !== 'string' || !url.trim()) {
     return DEFAULT_AVATAR_URL;
   }
-  return url.trim();
+  const clean = url.trim();
+  if (
+    clean.startsWith('http://') ||
+    clean.startsWith('https://') ||
+    clean.startsWith('data:') ||
+    clean.startsWith('blob:')
+  ) {
+    return clean;
+  }
+  // Falls relativer Speicherpfad im Supabase Storage 'avatars'-Bucket
+  const path = clean.startsWith('avatars/') ? clean.replace(/^avatars\//, '') : clean;
+  return `${supabaseUrl}/storage/v1/object/public/avatars/${path}`;
 }
 
 /**

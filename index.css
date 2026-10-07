@@ -360,3 +360,242 @@ html, body {
     box-shadow: 0 0 28px rgba(255, 215, 0, 0.55), inset 0 0 22px rgba(255, 215, 0, 0.35);
   }
 }
+
+/* ==========================================================================
+   BUNDESWIEGA KOSMETIK-SYSTEM (LEVEL 5-20 BELOHNUNGEN)
+   ========================================================================== */
+
+/* ─── 1. AVATAR-RAHMEN (avatar_frame) ─── */
+.frame-oak_wood {
+  box-shadow: 0 0 0 3px #8B5A2B, 0 0 0 5px #5C3A1E, 0 2px 8px rgba(0, 0, 0, 0.55) !important;
+  border: 2px solid #D2B48C !important;
+}
+
+.frame-neon_purple_glow {
+  box-shadow: 0 0 8px #A855F7, 0 0 18px rgba(147, 51, 234, 0.8), inset 0 0 6px #C084FC !important;
+  border: 2px solid #C084FC !important;
+  animation: pulsePurpleGlow 2s infinite ease-in-out;
+}
+
+@keyframes pulsePurpleGlow {
+  0%, 100% {
+    box-shadow: 0 0 6px #A855F7, 0 0 14px rgba(147, 51, 234, 0.7), inset 0 0 4px #C084FC;
+  }
+  50% {
+    box-shadow: 0 0 14px #C084FC, 0 0 26px rgba(168, 85, 247, 1), inset 0 0 8px #E9D5FF;
+  }
+}
+
+.frame-silver_metal {
+  box-shadow: 0 0 0 2px #94A3B8, 0 0 14px rgba(226, 232, 240, 0.75), inset 0 0 5px #CBD5E1 !important;
+  border: 2.5px solid #F8FAFC !important;
+}
+
+.frame-fire_aura {
+  box-shadow: 0 0 10px #F97316, 0 0 20px #EF4444, 0 0 30px #EA580C, inset 0 0 6px #FDE047 !important;
+  border: 2px solid #FDE047 !important;
+  animation: fireFlickerAura 1.8s infinite alternate ease-in-out;
+}
+
+@keyframes fireFlickerAura {
+  0% {
+    box-shadow: 0 0 8px #F97316, 0 0 16px #EF4444, inset 0 0 4px #FDE047;
+    filter: drop-shadow(0 0 4px #F97316);
+  }
+  50% {
+    box-shadow: 0 0 14px #FB923C, 0 0 28px #DC2626, 0 0 40px #EA580C, inset 0 0 8px #FEF08A;
+    filter: drop-shadow(0 0 8px #EA580C);
+  }
+  100% {
+    box-shadow: 0 0 10px #F97316, 0 0 20px #EF4444, inset 0 0 5px #FDE047;
+    filter: drop-shadow(0 0 5px #F97316);
+  }
+}
+
+.frame-aurora_glow {
+  box-shadow: 0 0 10px #10B981, 0 0 20px #06B6D4, 0 0 30px #8B5CF6, inset 0 0 6px #6EE7B7 !important;
+  border: 2.5px solid #6EE7B7 !important;
+  animation: auroraShift 4s infinite linear;
+}
+
+@keyframes auroraShift {
+  0% {
+    box-shadow: 0 0 10px #10B981, 0 0 20px #06B6D4, 0 0 30px #8B5CF6;
+    border-color: #6EE7B7 !important;
+  }
+  33% {
+    box-shadow: 0 0 12px #06B6D4, 0 0 24px #8B5CF6, 0 0 34px #10B981;
+    border-color: #67E8F9 !important;
+  }
+  66% {
+    box-shadow: 0 0 12px #8B5CF6, 0 0 24px #10B981, 0 0 34px #06B6D4;
+    border-color: #C4B5FD !important;
+  }
+  100% {
+    box-shadow: 0 0 10px #10B981, 0 0 20px #06B6D4, 0 0 30px #8B5CF6;
+    border-color: #6EE7B7 !important;
+  }
+}
+
+.frame-matrix_green {
+  box-shadow: 0 0 8px #22C55E, 0 0 18px rgba(34, 197, 94, 0.7), inset 0 0 6px #86EFAC !important;
+  border: 2px solid #4ADE80 !important;
+  animation: matrixGreenPulse 2.2s infinite ease-in-out;
+}
+
+@keyframes matrixGreenPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px #22C55E, 0 0 14px rgba(34, 197, 94, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 12px #4ADE80, 0 0 26px rgba(74, 222, 128, 0.95), inset 0 0 8px #BBF7D0;
+  }
+}
+
+.frame-diamond_glow {
+  box-shadow: 0 0 12px #38BDF8, 0 0 22px #E879F9, 0 0 34px #FDE047, inset 0 0 6px #FFFFFF !important;
+  border: 2.5px solid #F0FDF4 !important;
+  animation: diamondRainbowGlow 3s infinite linear;
+}
+
+@keyframes diamondRainbowGlow {
+  0% {
+    box-shadow: 0 0 10px #38BDF8, 0 0 20px #E879F9, 0 0 30px #FDE047;
+    border-color: #E0F2FE !important;
+  }
+  33% {
+    box-shadow: 0 0 12px #FDE047, 0 0 22px #38BDF8, 0 0 32px #E879F9;
+    border-color: #FEF08A !important;
+  }
+  66% {
+    box-shadow: 0 0 12px #E879F9, 0 0 22px #FDE047, 0 0 32px #38BDF8;
+    border-color: #F5D0FE !important;
+  }
+  100% {
+    box-shadow: 0 0 10px #38BDF8, 0 0 20px #E879F9, 0 0 30px #FDE047;
+    border-color: #E0F2FE !important;
+  }
+}
+
+/* ─── 2. SPIELSPALTEN-DESIGNS (ingame_column_theme) ─── */
+.column-theme-bronze_highlight {
+  background: rgba(180, 83, 9, 0.12) !important;
+  border-left: 2px solid rgba(217, 119, 6, 0.4) !important;
+  border-right: 2px solid rgba(217, 119, 6, 0.4) !important;
+}
+
+.column-theme-gradient_header {
+  background: linear-gradient(180deg, rgba(236, 72, 153, 0.18) 0%, rgba(99, 102, 241, 0.08) 35%, transparent 100%) !important;
+  border-left: 1.5px solid rgba(236, 72, 153, 0.3) !important;
+  border-right: 1.5px solid rgba(99, 102, 241, 0.3) !important;
+}
+
+.column-theme-lightning_bolts {
+  background: rgba(14, 165, 233, 0.08) !important;
+  border-left: 2px solid #38BDF8 !important;
+  border-right: 2px solid #38BDF8 !important;
+  animation: lightningBorderPulse 3s infinite ease-in-out;
+}
+
+@keyframes lightningBorderPulse {
+  0%, 100% {
+    box-shadow: inset 2px 0 6px rgba(56, 189, 248, 0.3), inset -2px 0 6px rgba(56, 189, 248, 0.3);
+  }
+  50% {
+    box-shadow: inset 4px 0 14px rgba(56, 189, 248, 0.7), inset -4px 0 14px rgba(56, 189, 248, 0.7);
+  }
+}
+
+.column-theme-gold_column {
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.22) 0%, rgba(217, 119, 6, 0.12) 60%, rgba(251, 191, 36, 0.05) 100%) !important;
+  border-left: 2.5px solid #FBBF24 !important;
+  border-right: 2.5px solid #FBBF24 !important;
+  box-shadow: inset 0 0 14px rgba(251, 191, 36, 0.2) !important;
+}
+
+.column-theme-plasma_wave {
+  background: rgba(168, 85, 247, 0.1) !important;
+  border-left: 2px solid #C084FC !important;
+  border-right: 2px solid #C084FC !important;
+  animation: plasmaWave 2.5s infinite ease-in-out;
+}
+
+@keyframes plasmaWave {
+  0%, 100% {
+    box-shadow: inset 2px 0 8px rgba(168, 85, 247, 0.4), inset -2px 0 8px rgba(236, 72, 153, 0.4);
+  }
+  50% {
+    box-shadow: inset 5px 0 18px rgba(168, 85, 247, 0.8), inset -5px 0 18px rgba(236, 72, 153, 0.8);
+  }
+}
+
+.column-theme-diamond_crown {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.22) 0%, rgba(232, 121, 249, 0.12) 50%, rgba(253, 224, 71, 0.08) 100%) !important;
+  border-left: 2.5px solid #38BDF8 !important;
+  border-right: 2.5px solid #E879F9 !important;
+  box-shadow: inset 0 0 16px rgba(56, 189, 248, 0.25) !important;
+}
+
+/* ─── 3. RANGLISTEN-ZEILEN (leaderboard_row_theme) ─── */
+.row-theme-carbon_fiber {
+  background: linear-gradient(45deg, #111827 25%, #1f2937 25%, #1f2937 50%, #111827 50%, #111827 75%, #1f2937 75%, #1f2937 100%) !important;
+  background-size: 16px 16px !important;
+  border-left: 4px solid #4B5563 !important;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.6) !important;
+}
+
+.row-theme-silver_contour {
+  border-left: 4px solid #E2E8F0 !important;
+  border-right: 1px solid rgba(226, 232, 240, 0.3) !important;
+  box-shadow: 0 0 16px rgba(226, 232, 240, 0.35), inset 0 0 10px rgba(226, 232, 240, 0.08) !important;
+  background: linear-gradient(90deg, rgba(226, 232, 240, 0.08) 0%, transparent 100%) !important;
+}
+
+.row-theme-brushed_steel {
+  background: linear-gradient(90deg, #334155 0%, #475569 50%, #334155 100%) !important;
+  border-left: 4px solid #94A3B8 !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+.row-theme-gold_glow {
+  border-left: 4px solid #F59E0B !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  border-left-width: 4px !important;
+  box-shadow: 0 0 22px rgba(245, 158, 11, 0.45), inset 0 0 12px rgba(245, 158, 11, 0.15) !important;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.14) 0%, transparent 100%) !important;
+}
+
+.row-theme-royal_blue_gold {
+  background: linear-gradient(90deg, #1E3A8A 0%, #1E293B 100%) !important;
+  border-left: 4px solid #FBBF24 !important;
+  border: 1.5px solid #FBBF24 !important;
+  border-left-width: 4px !important;
+  box-shadow: 0 0 20px rgba(30, 58, 138, 0.6), inset 0 0 10px rgba(251, 191, 36, 0.2) !important;
+}
+
+.row-theme-rainbow_aurora {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.25) 0%, rgba(232, 121, 249, 0.25) 50%, rgba(253, 224, 71, 0.25) 100%) !important;
+  border: 2px solid transparent !important;
+  border-left: 4px solid #FDE047 !important;
+  box-shadow: 0 0 24px rgba(232, 121, 249, 0.5), inset 0 0 14px rgba(56, 189, 248, 0.25) !important;
+  animation: rainbowAuroraWave 4s infinite linear;
+}
+
+@keyframes rainbowAuroraWave {
+  0% {
+    border-left-color: #38BDF8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.6);
+  }
+  33% {
+    border-left-color: #E879F9;
+    box-shadow: 0 0 24px rgba(232, 121, 249, 0.7);
+  }
+  66% {
+    border-left-color: #FDE047;
+    box-shadow: 0 0 22px rgba(253, 224, 71, 0.6);
+  }
+  100% {
+    border-left-color: #38BDF8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.6);
+  }
+}

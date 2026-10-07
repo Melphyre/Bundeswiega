@@ -9,6 +9,7 @@ import PlayerLevelBadge from './PlayerLevelBadge';
 import { PlayerNameTag } from './PlayerNameTag';
 import { calculateAverageDistance } from '../../utils';
 import { BRAND_COLOR, DARK_GRAY, PLAYER_COLORS } from '../constants';
+import { getColumnThemeClass, getRowThemeClass } from '../constants/cosmeticsConfig';
 
 interface SpectatorViewProps {
   initialGame: ActiveGame;
@@ -231,9 +232,18 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                 <span>Speedwiegen Live</span>
               </div>
 
-              <h2 className="text-2xl font-black mb-2">
-                {gameData.speedPlayerName || 'Spieler'}
-              </h2>
+              <div className="flex items-center justify-center space-x-3 mb-2">
+                <PlayerAvatar
+                  url={players[0]?.avatar_url || players[0]?.imageUrl || gameData.speedPlayerAvatar}
+                  avatar_url={players[0]?.avatar_url || players[0]?.imageUrl || gameData.speedPlayerAvatar}
+                  avatar_frame={players[0]?.avatar_frame || (players[0] as any)?.frame}
+                  name={gameData.speedPlayerName || players[0]?.name || 'Spieler'}
+                  className="w-12 h-12 rounded-2xl border-2 border-amber-400 flex-shrink-0"
+                />
+                <h2 className="text-2xl font-black">
+                  {gameData.speedPlayerName || players[0]?.name || 'Spieler'}
+                </h2>
+              </div>
 
               <p className="text-sm opacity-60 mb-6">
                 Ziel: {gameData.speedLevels || 3} Level in Bestzeit absolvieren
@@ -346,9 +356,18 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                         <div className="space-y-1.5">
                           {(t.playerIds || []).map((pId: string) => {
                             const p = players.find(x => x.id === pId);
+                            const pAvatar = p?.avatar_url || p?.imageUrl;
                             return (
                               <div key={pId} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-black/5 dark:bg-white/5">
-                                <span className="font-bold">{p?.name || 'Spieler'}</span>
+                                <div className="flex items-center space-x-2 min-w-0">
+                                  <PlayerAvatar
+                                    url={pAvatar}
+                                    avatar_url={pAvatar}
+                                    name={p?.name || 'Spieler'}
+                                    className="w-5 h-5 rounded-md border flex-shrink-0"
+                                  />
+                                  <span className="font-bold truncate">{p?.name || 'Spieler'}</span>
+                                </div>
                                 <span className="opacity-60">{p?.startWeight ? `${p.startWeight}g` : ''}</span>
                               </div>
                             );
@@ -368,9 +387,26 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                       <tr className="border-b border-gray-500/20 font-black opacity-75">
                         <th className="py-2">RND</th>
                         <th className="py-2 text-right">ZIEL</th>
-                        {players.map(p => (
-                          <th key={p.id} className="py-2 text-center">{p.name}</th>
-                        ))}
+                        {players.map(p => {
+                          const colClass = getColumnThemeClass(p.ingame_column_theme || (p as any).column_theme);
+                          return (
+                            <th key={p.id} className={`py-2 text-center transition-all ${colClass}`}>
+                              <div className="flex flex-col items-center gap-1">
+                                {(p.ingame_column_theme === 'diamond_crown' || (p as any).column_theme === 'diamond_crown') && (
+                                  <span className="text-xs -mb-1 animate-bounce select-none">👑</span>
+                                )}
+                                <PlayerAvatar
+                                  url={p.avatar_url || p.imageUrl}
+                                  avatar_url={p.avatar_url || p.imageUrl}
+                                  avatar_frame={p.avatar_frame}
+                                  name={p.name}
+                                  className="w-6 h-6 rounded-md border flex-shrink-0"
+                                />
+                                <span className="truncate max-w-[64px]">{p.name}</span>
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -381,8 +417,9 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                           {players.map(p => {
                             const val = r.results?.[p.id];
                             const diff = val !== undefined ? Math.abs(val - r.targetWeight) : null;
+                            const colClass = getColumnThemeClass(p.ingame_column_theme || (p as any).column_theme);
                             return (
-                              <td key={p.id} className="py-2 text-center">
+                              <td key={p.id} className={`py-2 text-center transition-all ${colClass}`}>
                                 <span className="font-mono font-bold">{val !== undefined ? `${val}g` : '-'}</span>
                                 {diff !== null && (
                                   <span className={`block text-[9px] ${diff === 0 ? 'text-emerald-400 font-black' : 'opacity-60'}`}>
@@ -475,10 +512,11 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
               <div className="space-y-2">
                 {sortedPlayers.map((p, idx) => {
                   const isLeader = idx === 0 && !p.isDisqualified;
+                  const rowThemeClass = getRowThemeClass(p.leaderboard_row_theme || (p as any).row_theme);
                   return (
                     <div
                       key={p.id}
-                      className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                      className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${rowThemeClass} ${
                         isLeader
                           ? 'border-amber-400/50 bg-amber-500/10 shadow-sm'
                           : 'border-gray-500/15 bg-black/5 dark:bg-white/5'
@@ -492,9 +530,11 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                         </span>
 
                         <PlayerAvatar
-                          url={p.imageUrl}
+                          url={p.avatar_url || p.imageUrl}
+                          avatar_url={p.avatar_url || p.imageUrl}
+                          avatar_frame={p.avatar_frame}
                           name={p.name}
-                          className="w-8 h-8 rounded-xl border"
+                          className="w-8 h-8 rounded-xl border flex-shrink-0"
                           style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                         />
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { BRAND_COLOR } from '../constants';
+import { BRAND_COLOR, FREE_PLAYERS_LOGO_URL } from '../constants';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { PlayerTitleBadge } from './PlayerTitleBadge';
+import { getRowThemeClass } from '../constants/cosmeticsConfig';
 import { supabase } from '../supabaseClient';
 import {
   calculateGuildLevelAndXP,
@@ -22,6 +23,7 @@ export interface GuildLeaderboardEntry {
   captain_id: string;
   created_at: string;
   memberCount: number;
+  rank?: number;
   isVirtual?: boolean;
   level?: number;
   xp?: number;
@@ -77,6 +79,9 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
   const [modalMembersLoading, setModalMembersLoading] = useState(false);
   const [userGuildId, setUserGuildId] = useState<string | null>(null);
   const [rewardsModalGuild, setRewardsModalGuild] = useState<GuildLeaderboardEntry | null>(null);
+  const [logoPreviewGuild, setLogoPreviewGuild] = useState<GuildLeaderboardEntry | null>(null);
+  const [logoModalTab, setLogoModalTab] = useState<'overview' | 'kader'>('overview');
+  const [isImageFullscreen, setIsImageFullscreen] = useState(false);
 
   const fetchLeaderboard = async () => {
     setLoading(true);
@@ -209,6 +214,63 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           };
         });
 
+        // Freie Spieler fiktive Wiegschaft im Fallback sicherstellen
+        try {
+          const guildMemberUserIds = new Set(allMembers.map((m: any) => String(m.user_id)).filter(Boolean));
+          const freeGames = standardGames.filter((g: any) => !g?.user_id || !guildMemberUserIds.has(String(g.user_id)));
+          const freeGamesCount = freeGames.length;
+          let freeAvg = 0;
+          let freeSchnaepse = 0;
+          let freeTotalSchnaepse = 0;
+          let freeTotal = 0;
+          if (freeGamesCount > 0) {
+            const sumAvg = freeGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
+            freeTotalSchnaepse = freeGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+            freeAvg = Math.round((sumAvg / freeGamesCount) * 100) / 100;
+            freeSchnaepse = Math.round((freeTotalSchnaepse / freeGamesCount) * 100) / 100;
+            freeTotal = Math.round((freeAvg + freeSchnaepse) * 100) / 100;
+          }
+          const freeUids = new Set<string>();
+          freeGames.forEach((g: any) => { if (g?.user_id) freeUids.add(String(g.user_id)); });
+          allProfiles.forEach((p: any) => { if (p?.id && !guildMemberUserIds.has(String(p.id))) freeUids.add(String(p.id)); });
+          const freeMembersList = Array.from(freeUids).map(uid => {
+            const p = profileMap.get(uid);
+            return {
+              id: `free_${uid}`,
+              user_id: uid,
+              role: 'member',
+              username: p?.username || p?.display_name || 'Freier Spieler',
+              avatar_url: p?.avatar_url || '',
+              title: p?.selected_title || p?.active_title || p?.title || '',
+              level: p?.level ?? 1,
+              xp: p?.xp ?? 0,
+              name_bg_color: p?.name_bg_color || 'none',
+              name_glow: (p as any)?.name_glow || 'none',
+              isGuest: false
+            };
+          });
+          fallbackLb.push({
+            id: 'free_players',
+            name: 'Freie Spieler',
+            tag: 'FREI',
+            description: 'Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft (zum allgemeinen Vergleich).',
+            logo_url: FREE_PLAYERS_LOGO_URL,
+            captain_id: '',
+            created_at: new Date(0).toISOString(),
+            memberCount: Math.max(freeMembersList.length, 1),
+            gamesCount: freeGamesCount,
+            avg: freeAvg,
+            schnaepse: freeSchnaepse,
+            avgSchnaepse: freeSchnaepse,
+            totalSchnaepse: freeTotalSchnaepse,
+            total: freeTotal,
+            isVirtual: true,
+            members: freeMembersList
+          });
+        } catch (fbFreeErr) {
+          console.warn('Fallback freie Spieler error:', fbFreeErr);
+        }
+
         setLeaderboard(fallbackLb);
       } catch (fbErr: any) {
         console.error('Supabase Fallback fehlgeschlagen:', fbErr);
@@ -222,15 +284,16 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
   // Exakt wie unter "Profil verwalten / meine Wiegschaft" in WiegschaftenTab.tsx:
   // Automatisches Direkt-Laden und Enrichment der Mitglieder einer Wiegschaft aus Supabase
   useEffect(() => {
-    if (!selectedGuild) return;
+    const activeGuild = selectedGuild || logoPreviewGuild;
+    if (!activeGuild) return;
 
     let isMounted = true;
 
     const loadOrEnrichMembers = async () => {
       // 1. Virtuelle Wiegschaft der freien Spieler
-      if (selectedGuild.isVirtual) {
-        if (!selectedGuild.members || selectedGuild.members.length === 0) return;
-        const regUserIds = selectedGuild.members
+      if (activeGuild.isVirtual) {
+        if (!activeGuild.members || activeGuild.members.length === 0) return;
+        const regUserIds = activeGuild.members
           .filter(m => !m.isGuest && m.user_id)
           .map(m => String(m.user_id));
 
@@ -245,7 +308,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
             const pMap = new Map(profiles.map(p => [String(p.id), p]));
 
             setSelectedGuild(prev => {
-              if (!prev || prev.id !== selectedGuild.id || !prev.members) return prev;
+              if (!prev || prev.id !== activeGuild.id || !prev.members) return prev;
               const enriched = prev.members.map(m => {
                 if (m.isGuest || !m.user_id) return m;
                 const p = pMap.get(String(m.user_id));
@@ -274,7 +337,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
         const { data: membersRaw, error: memErr } = await supabase
           .from('guild_members')
           .select('id, guild_id, user_id, role, joined_at')
-          .eq('guild_id', selectedGuild.id)
+          .eq('guild_id', activeGuild.id)
           .order('joined_at', { ascending: true });
 
         if (memErr) throw memErr;
@@ -311,14 +374,16 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           });
 
           if (isMounted) {
-            setSelectedGuild(prev => {
-              if (!prev || prev.id !== selectedGuild.id) return prev;
+            const updateState = (prev: GuildLeaderboardEntry | null) => {
+              if (!prev || prev.id !== activeGuild.id) return prev;
               return {
                 ...prev,
                 memberCount: enrichedList.length,
                 members: enrichedList
               };
-            });
+            };
+            setSelectedGuild(prev => updateState(prev));
+            setLogoPreviewGuild(prev => updateState(prev));
           }
         }
       } catch (err) {
@@ -335,7 +400,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [selectedGuild?.id]);
+  }, [selectedGuild?.id, logoPreviewGuild?.id]);
 
   useEffect(() => {
     fetchLeaderboard();
@@ -582,9 +647,10 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                   rankBadge = <span className="text-base" title="3. Platz">🥉</span>;
                 }
 
-                const isVirtual = guild.isVirtual || guild.id === 'free_players';
+                const isVirtual = guild.isVirtual || guild.id === 'free_players' || guild.name === 'Freie Spieler';
                 const cosmetics = isVirtual ? null : (guild.cosmetics || getGuildCosmetics(guild.level || 1));
                 const guildLevel = isVirtual ? undefined : (guild.level || 1);
+                const guildLogo = isVirtual ? FREE_PLAYERS_LOGO_URL : (guild.logo_url || '🏰');
 
                 return (
                   <tr
@@ -610,26 +676,62 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                     {/* Wiegschaft Name & Tag */}
                     <td className="py-3 px-3">
                       <div className="flex items-center space-x-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0 overflow-hidden ${
-                          isVirtual
-                            ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                            : `${cosmetics?.logoBorder || 'border-none'} bg-teal-500/10`
-                        }`}>
-                          {guild.logo_url && guild.logo_url.startsWith('http') ? (
-                            <img src={guild.logo_url} alt="Logo" className="w-full h-full object-cover" />
+                        <div
+                          id={`guild-logo-container-${guild.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLogoModalTab('overview');
+                            setIsImageFullscreen(false);
+                            setLogoPreviewGuild({ ...guild, rank });
+                          }}
+                          title="Klicken für Großansicht des Profilbilds & Wiegschafts-Details"
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 overflow-hidden cursor-pointer hover:scale-110 active:scale-95 transition-all shadow-md relative group select-none ${
+                            isVirtual
+                              ? 'border-2 border-amber-500/60 bg-amber-500/10 hover:border-amber-400 hover:ring-2 hover:ring-amber-400/50'
+                              : `${cosmetics?.logoBorder || 'border-none'} bg-teal-500/10 hover:ring-2 hover:ring-teal-400/40`
+                          }`}
+                        >
+                          {guildLogo && guildLogo.startsWith('http') ? (
+                            <img
+                              id={`guild-logo-img-${guild.id}`}
+                              src={guildLogo}
+                              alt={guild.name}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-115"
+                            />
                           ) : (
-                            <span>{guild.logo_url || (isVirtual ? '🍺' : '🏰')}</span>
+                            <span>{guildLogo}</span>
                           )}
+                          <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl pointer-events-none">
+                            <i className="fas fa-search-plus text-white text-xs"></i>
+                          </div>
                         </div>
-                        <div className="min-w-0">
+                        <div 
+                          className="min-w-0 cursor-pointer group/name"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLogoModalTab('overview');
+                            setIsImageFullscreen(false);
+                            setLogoPreviewGuild({ ...guild, rank });
+                          }}
+                          title="Klicken für Großansicht des Profilbilds & Wiegschafts-Details"
+                        >
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                            <span className="font-black text-sm truncate">{guild.name}</span>
+                            <span className="font-black text-sm truncate group-hover/name:text-teal-600 dark:group-hover/name:text-teal-400 transition-colors">
+                              {guild.name}
+                            </span>
                             <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black ${
                               isVirtual
                                 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                                 : cosmetics?.tagClass || 'tag-default'
                             }`}>
                               [{guild.tag}]
+                            </span>
+                            <span 
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold border border-gray-500/20 bg-black/5 dark:bg-white/10 group-hover/name:bg-teal-500 group-hover/name:text-white dark:group-hover/name:bg-teal-500 transition-all flex items-center space-x-1"
+                              title="Profilbild in groß und Wiegschafts-Details ansehen"
+                            >
+                              <i className="fas fa-search text-[8px]"></i>
+                              <span>Profil</span>
                             </span>
                             {!isVirtual && guildLevel !== undefined && cosmetics && (
                               <span
@@ -655,13 +757,17 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                           </div>
                           {isVirtual ? (
                             <div className="text-[10px] opacity-60 truncate mt-0.5 text-amber-700 dark:text-amber-300">
-                              Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft
+                              Fiktive Wiegschaft aller Spieler & Gäste ohne Wiegschaft • Klicken für Details
                             </div>
                           ) : guild.captain ? (
                             <div className="text-[10px] opacity-60 truncate mt-0.5">
-                              Kapitän: {guild.captain.username}
+                              Kapitän: {guild.captain.username} • Klicken für Details
                             </div>
-                          ) : null}
+                          ) : (
+                            <div className="text-[10px] opacity-60 truncate mt-0.5">
+                              Klicken für Profil & Details
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -699,15 +805,32 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                       {guild.total !== undefined ? guild.total.toFixed(2) : '-'}
                     </td>
 
-                    {/* Details Button */}
+                    {/* Details & Kader Buttons */}
                     <td className="py-3 px-3 text-center">
-                      <button
-                        id={`btn-guild-details-${guild.id}`}
-                        onClick={() => setSelectedGuild(guild)}
-                        className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
-                      >
-                        Kader
-                      </button>
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <button
+                          id={`btn-guild-preview-${guild.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLogoModalTab('overview');
+                            setIsImageFullscreen(false);
+                            setLogoPreviewGuild({ ...guild, rank });
+                          }}
+                          title="Profilbild in groß & Details ansehen"
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400 hover:bg-teal-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1 shadow-xs"
+                        >
+                          <i className="fas fa-id-card text-[9px]"></i>
+                          <span>Profil</span>
+                        </button>
+                        <button
+                          id={`btn-guild-details-${guild.id}`}
+                          onClick={() => setSelectedGuild(guild)}
+                          title="Kader und Mitgliederliste anzeigen"
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                        >
+                          Kader
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -726,12 +849,15 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
               <div className="space-y-3 pb-3 border-b border-gray-500/15">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 bg-amber-500/20 text-amber-500 border border-amber-500/30">
-                      {selectedGuild.logo_url && selectedGuild.logo_url.startsWith('http') ? (
-                        <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl" />
-                      ) : (
-                        <span>{selectedGuild.logo_url || '🍺'}</span>
-                      )}
+                    <div
+                      onClick={() => setLogoPreviewGuild(selectedGuild)}
+                      title="Profilbild vergrößern & Details ansehen"
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 border border-amber-500/30 overflow-hidden bg-amber-500/10 cursor-pointer hover:scale-105 active:scale-95 transition-all relative group shadow-sm"
+                    >
+                      <img src={FREE_PLAYERS_LOGO_URL} alt="Freie Spieler Logo" className="w-full h-full object-cover rounded-2xl transition-transform group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl pointer-events-none">
+                        <i className="fas fa-search-plus text-white text-xs"></i>
+                      </div>
                     </div>
                     <div>
                       <div className="flex items-center space-x-2 flex-wrap">
@@ -784,13 +910,18 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div
-                        className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${selectedLvlInfo.cosmetics.logoBorder} bg-teal-500/20`}
+                        onClick={() => setLogoPreviewGuild(selectedGuild)}
+                        title="Profilbild vergrößern & Details ansehen"
+                        className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 ${selectedLvlInfo.cosmetics.logoBorder} bg-teal-500/20 cursor-pointer hover:scale-105 active:scale-95 transition-all relative group overflow-hidden shadow-sm`}
                       >
                         {selectedGuild.logo_url && selectedGuild.logo_url.startsWith('http') ? (
-                          <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl" />
+                          <img src={selectedGuild.logo_url} alt="Logo" className="w-full h-full object-cover rounded-2xl transition-transform group-hover:scale-110" />
                         ) : (
                           <span>{selectedGuild.logo_url || '🏰'}</span>
                         )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl pointer-events-none">
+                          <i className="fas fa-search-plus text-white text-xs"></i>
+                        </div>
                       </div>
                       <div>
                         <div className="flex items-center space-x-2 flex-wrap">
@@ -900,11 +1031,12 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
               ) : selectedGuild.members && selectedGuild.members.length > 0 ? (
                 selectedGuild.members.map(m => {
                   const isGuest = m.isGuest || !m.user_id;
+                  const rowThemeClass = getRowThemeClass(m.leaderboard_row_theme);
 
                   return (
                     <div
                       key={m.id || m.user_id || m.username}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 ${
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-all ${rowThemeClass} ${
                         isGuest
                           ? darkMode
                             ? 'bg-slate-800/40 border-dashed border-slate-700/60'
@@ -921,7 +1053,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
                             👤
                           </div>
                         ) : (
-                          <PlayerAvatar url={m.avatar_url || ''} name={m.username} className="w-8 h-8 rounded-lg flex-shrink-0" />
+                          <PlayerAvatar url={m.avatar_url || ''} avatar_frame={m.avatar_frame} name={m.username} className="w-8 h-8 rounded-lg flex-shrink-0" />
                         )}
 
                         <div className="min-w-0 space-y-0.5">
@@ -1021,6 +1153,401 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           darkMode={darkMode}
         />
       )}
+
+      {/* MODAL: PROFILBILD-GROSSANSICHT & WIEGSCHAFTS-DETAILS */}
+      {logoPreviewGuild && (() => {
+        const isVirtual = logoPreviewGuild.isVirtual || logoPreviewGuild.id === 'free_players' || logoPreviewGuild.name === 'Freie Spieler';
+        const logoUrl = isVirtual ? FREE_PLAYERS_LOGO_URL : (logoPreviewGuild.logo_url || '🏰');
+        const isHttp = logoUrl && logoUrl.startsWith('http');
+        const cosmetics = isVirtual ? null : (logoPreviewGuild.cosmetics || getGuildCosmetics(logoPreviewGuild.level || 1));
+        const levelInfo = isVirtual ? null : calculateGuildLevelAndXP(logoPreviewGuild.rawXP || logoPreviewGuild.xp || 0);
+        const membersList = logoPreviewGuild.members || [];
+        const memberCount = logoPreviewGuild.memberCount || membersList.length || 0;
+
+        return (
+          <div
+            className="fixed inset-0 z-[750] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => {
+              if (isImageFullscreen) {
+                setIsImageFullscreen(false);
+              } else {
+                setLogoPreviewGuild(null);
+              }
+            }}
+          >
+            {/* FULLSCREEN LIGHTBOX OVERLAY */}
+            {isImageFullscreen && isHttp && (
+              <div 
+                className="fixed inset-0 z-[800] bg-black/95 backdrop-blur-lg flex flex-col items-center justify-center p-4 animate-in zoom-in-95 duration-200"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsImageFullscreen(false);
+                }}
+              >
+                <div className="absolute top-4 right-4 flex items-center space-x-3 z-10">
+                  <a
+                    href={logoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-3 py-1.5 rounded-full text-xs font-bold bg-white/10 hover:bg-white/20 text-white backdrop-blur-md flex items-center space-x-1.5 transition-all"
+                  >
+                    <i className="fas fa-external-link-alt text-[11px]"></i>
+                    <span>Original öffnen</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setIsImageFullscreen(false)}
+                    className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center text-base cursor-pointer transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="max-w-2xl max-h-[80vh] flex flex-col items-center justify-center space-y-3">
+                  <img
+                    src={logoUrl}
+                    alt={logoPreviewGuild.name}
+                    className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl ring-2 ring-white/20"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="text-center text-white/80 text-xs">
+                    <span className="font-bold text-white text-sm">{logoPreviewGuild.name}</span>
+                    <span className="mx-2 opacity-50">•</span>
+                    <span>{isVirtual ? 'Offizielles Logo der Freien Spieler' : 'Offizielles Wiegschafts-Wappen'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div
+              className={`p-5 sm:p-7 rounded-3xl max-w-xl w-full border shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto flex flex-col ${
+                darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header Bar mit Tabs */}
+              <div className="space-y-3 pb-2 border-b border-gray-500/15">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center text-sm font-black">
+                      {isVirtual ? '🍺' : '🏰'}
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm uppercase tracking-wider flex items-center space-x-1.5">
+                        <span>{isVirtual ? 'Profil & Details • Freie Spieler' : 'Wappen & Wiegschafts-Profil'}</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-black ${
+                          isVirtual
+                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                            : cosmetics?.tagClass || 'tag-default'
+                        }`}>
+                          [{logoPreviewGuild.tag}]
+                        </span>
+                      </h3>
+                      <p className="text-[11px] opacity-60">Großansicht des Wappens und vollständige Leistungsdaten</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLogoPreviewGuild(null)}
+                    className="w-8 h-8 rounded-full border border-gray-500/20 flex items-center justify-center text-sm opacity-60 hover:opacity-100 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setLogoModalTab('overview')}
+                    className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                      logoModalTab === 'overview'
+                        ? 'bg-teal-500 text-white shadow-sm'
+                        : 'bg-black/5 dark:bg-white/5 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <span>🌟</span>
+                    <span>Profil & Übersicht</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogoModalTab('kader')}
+                    className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                      logoModalTab === 'kader'
+                        ? 'bg-teal-500 text-white shadow-sm'
+                        : 'bg-black/5 dark:bg-white/5 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <span>👥</span>
+                    <span>Kader & Spieler ({memberCount})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* TAB 1: ÜBERSICHT & PROFIL */}
+              {logoModalTab === 'overview' && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Großes Profilbild / Wappen */}
+                  <div className="flex flex-col items-center justify-center py-2 space-y-2.5">
+                    <div className="relative group">
+                      <div
+                        onClick={() => {
+                          if (isHttp) setIsImageFullscreen(true);
+                        }}
+                        title={isHttp ? 'Klicken für Vollbild-Ansicht' : undefined}
+                        className={`w-48 h-48 sm:w-56 sm:h-56 rounded-3xl overflow-hidden flex items-center justify-center shadow-2xl transition-all ${
+                          isHttp ? 'cursor-pointer hover:scale-102 hover:shadow-teal-500/20' : ''
+                        } ${
+                          isVirtual
+                            ? 'border-4 border-amber-500/60 bg-amber-500/10 shadow-amber-500/20 ring-4 ring-amber-500/20'
+                            : `${cosmetics?.logoBorder || 'border-2 border-teal-500/40'} bg-teal-500/10 shadow-teal-500/20 ring-4 ring-teal-500/10`
+                        }`}
+                      >
+                        {isHttp ? (
+                          <img
+                            src={logoUrl}
+                            alt={logoPreviewGuild.name}
+                            className="w-full h-full object-cover rounded-2xl select-none transition-transform duration-300 group-hover:scale-108"
+                          />
+                        ) : (
+                          <span className="text-8xl select-none">{logoUrl}</span>
+                        )}
+
+                        {isHttp && (
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-3xl text-white space-y-1">
+                            <i className="fas fa-search-plus text-2xl"></i>
+                            <span className="text-[11px] font-bold">Klick für Vollbild</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Badge über Bild */}
+                      <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 px-3.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-md bg-black/85 text-white backdrop-blur-sm border border-white/20 whitespace-nowrap flex items-center space-x-1.5">
+                        <span>{isVirtual ? '🍺' : '🏰'}</span>
+                        <span>{isVirtual ? 'Offizielles Logo • Freie Spieler' : 'Offizielles Wiegschafts-Wappen'}</span>
+                      </div>
+                    </div>
+
+                    {/* Bild Aktionen */}
+                    {isHttp && (
+                      <div className="flex items-center space-x-3 pt-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setIsImageFullscreen(true)}
+                          className="font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center space-x-1 cursor-pointer"
+                        >
+                          <i className="fas fa-expand text-[10px]"></i>
+                          <span>Vollbild anzeigen</span>
+                        </button>
+                        <span className="opacity-30">•</span>
+                        <a
+                          href={logoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center space-x-1"
+                        >
+                          <i className="fas fa-external-link-alt text-[10px]"></i>
+                          <span>Originalgröße öffnen</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Profil-Info & Name */}
+                  <div className="text-center space-y-1.5">
+                    <div className="flex items-center justify-center space-x-2 flex-wrap gap-y-1">
+                      <h2 className="text-xl sm:text-2xl font-black">{logoPreviewGuild.name}</h2>
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-mono font-black ${
+                          isVirtual
+                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                            : cosmetics?.tagClass || 'tag-default'
+                        }`}
+                      >
+                        [{logoPreviewGuild.tag}]
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-center space-x-2 flex-wrap gap-1 text-[11px]">
+                      {isVirtual ? (
+                        <span className="px-2.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                          Fiktive Wiegschaft • Allgemeiner Vergleich
+                        </span>
+                      ) : (
+                        <>
+                          <span className="px-2 py-0.5 rounded-full font-black bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30">
+                            Level {levelInfo?.level || 1} • {cosmetics?.guildTitle || 'Stammtisch'}
+                          </span>
+                          {logoPreviewGuild.captain?.username && (
+                            <span className="opacity-70">
+                              👑 Zunftmeister: <strong>{logoPreviewGuild.captain.username}</strong>
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {logoPreviewGuild.rank && (
+                        <span className="px-2 py-0.5 rounded-full font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                          {logoPreviewGuild.rank === 1 ? '🥇 1. Platz' : logoPreviewGuild.rank === 2 ? '🥈 2. Platz' : logoPreviewGuild.rank === 3 ? '🥉 3. Platz' : `#${logoPreviewGuild.rank} in der Tabelle`}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-xs opacity-75 max-w-md mx-auto pt-1 leading-relaxed">
+                      {isVirtual
+                        ? 'Die fiktive Wiegschaft der Freien Spieler vereint alle Spielerinnen, Spieler und Gäste, die aktuell keiner festen Wiegschaft angehören. Ihre gewerteten Spiele fließen hier automatisch ein, um freie Spieler direkt mit bestehenden Wiegschaften in der Bundeswiega-Rangliste vergleichbar zu machen.'
+                        : logoPreviewGuild.description || 'Keine Beschreibung hinterlegt.'}
+                    </p>
+                  </div>
+
+                  {/* Statistik-Kacheln (Performance-Dashboard) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                    <div className="p-2.5 rounded-xl border border-gray-500/15 bg-black/5 dark:bg-white/5 space-y-0.5">
+                      <span className="text-[10px] uppercase font-bold opacity-60 block">Kader</span>
+                      <span className="text-base font-black font-mono">
+                        {memberCount}
+                      </span>
+                      <span className="text-[9px] opacity-50 block">Spieler</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl border border-gray-500/15 bg-black/5 dark:bg-white/5 space-y-0.5">
+                      <span className="text-[10px] uppercase font-bold opacity-60 block">Spiele</span>
+                      <span className="text-base font-black font-mono">{logoPreviewGuild.gamesCount || 0}</span>
+                      <span className="text-[9px] opacity-50 block">gewertet</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl border border-gray-500/15 bg-black/5 dark:bg-white/5 space-y-0.5">
+                      <span className="text-[10px] uppercase font-bold opacity-60 block">Ø Abweichung</span>
+                      <span className="text-base font-black font-mono text-teal-600 dark:text-teal-400">
+                        {Number(logoPreviewGuild.avg || 0).toFixed(2)}g
+                      </span>
+                      <span className="text-[9px] opacity-50 block">pro Spiel</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl border border-gray-500/15 bg-black/5 dark:bg-white/5 space-y-0.5">
+                      <span className="text-[10px] uppercase font-bold opacity-60 block">Gesamt (Total)</span>
+                      <span className="text-base font-black font-mono text-amber-500">
+                        {Number(logoPreviewGuild.total || 0).toFixed(2)}
+                      </span>
+                      <span className="text-[9px] opacity-50 block">{logoPreviewGuild.schnaepse || 0} Schnäpse</span>
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLogoModalTab('kader')}
+                      className="flex-1 py-3 px-4 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow cursor-pointer hover:opacity-90 active:scale-95 transition-all flex items-center justify-center space-x-2"
+                      style={{ backgroundColor: BRAND_COLOR }}
+                    >
+                      <i className="fas fa-users"></i>
+                      <span>Kader ansehen ({memberCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogoPreviewGuild(null)}
+                      className="py-3 px-5 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
+                    >
+                      Schließen
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: KADER & SPIELER */}
+              {logoModalTab === 'kader' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs opacity-75">
+                    <span>Mitglieder im Kader ({membersList.length})</span>
+                    {isVirtual && <span className="text-amber-600 dark:text-amber-400 font-bold">Freie Einzelspieler & Gäste</span>}
+                  </div>
+
+                  {modalMembersLoading ? (
+                    <div className="py-8 flex flex-col items-center justify-center space-y-2">
+                      <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs opacity-60">Lade Kader-Mitglieder...</span>
+                    </div>
+                  ) : membersList.length === 0 ? (
+                    <div className="p-6 text-center text-xs opacity-60 border border-gray-500/15 rounded-2xl">
+                      Keine Spieler im Kader hinterlegt.
+                    </div>
+                  ) : (
+                    <div className="max-h-[50vh] overflow-y-auto space-y-2 pr-1">
+                      {membersList.map((m, idx) => {
+                        const isCaptain = m.role === 'captain' || m.role === 'leader';
+                        const isGuest = m.isGuest || !m.user_id;
+
+                        return (
+                          <div
+                            key={m.id || idx}
+                            className={`p-2.5 rounded-2xl border flex items-center justify-between space-x-3 transition-colors ${
+                              darkMode ? 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800' : 'bg-gray-50 border-gray-200 hover:bg-gray-100/70'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3 min-w-0">
+                              <PlayerAvatar
+                                name={m.username}
+                                avatarUrl={m.avatar_url}
+                                size="md"
+                                className="w-10 h-10 flex-shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                  <PlayerNameTag
+                                    name={m.username}
+                                    color={m.name_bg_color || 'none'}
+                                    glow={m.name_glow || 'none'}
+                                    className="font-bold text-xs"
+                                  />
+                                  {isCaptain && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                      👑 Zunftmeister
+                                    </span>
+                                  )}
+                                  {isGuest && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-500/20 text-gray-600 dark:text-gray-400 border border-gray-500/30">
+                                      Gast
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-1.5 mt-0.5 text-[10px] opacity-70">
+                                  {m.title && <PlayerTitleBadge title={m.title} className="text-[9px]" />}
+                                  {m.level !== undefined && (
+                                    <PlayerLevelBadge level={m.level} size="sm" showIcon={false} />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLogoModalTab('overview')}
+                      className="py-2.5 px-4 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors flex items-center space-x-1.5"
+                    >
+                      <i className="fas fa-arrow-left text-[10px]"></i>
+                      <span>Zurück zum Profil</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogoPreviewGuild(null)}
+                      className="py-2.5 px-4 rounded-xl text-xs font-bold border border-gray-500/20 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
+                    >
+                      Schließen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

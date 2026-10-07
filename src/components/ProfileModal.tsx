@@ -7,6 +7,21 @@ import PlayerTitleBadge from './PlayerTitleBadge';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { calculateLevelFromXp } from '../utils/levelSystem';
 import { NAME_TAG_COLORS, getNameTagOption, NAME_GLOW_OPTIONS, isColorUnlocked } from '../constants/nameTagConfig';
+import {
+  hasUnlockedAnyAvatarFrame,
+  hasUnlockedAnyColumnTheme,
+  hasUnlockedAnyRowTheme,
+  hasUnlockedAnyNameBg,
+  getUnlockedAvatarFrames,
+  getUnlockedColumnThemes,
+  getUnlockedRowThemes,
+  getAvatarFrameOption,
+  getColumnThemeOption,
+  getRowThemeOption,
+  getAvatarFrameClass,
+  getColumnThemeClass,
+  getRowThemeClass
+} from '../constants/cosmeticsConfig';
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
 import { QuestList, QuestProgress } from './QuestList';
@@ -361,6 +376,19 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
   const [nameGlowLoading, setNameGlowLoading] = useState(false);
   const [nameGlowMessage, setNameGlowMessage] = useState<string | null>(null);
 
+  // Kosmetik-States (Level 5-20 Belohnungen)
+  const [selectedAvatarFrame, setSelectedAvatarFrame] = useState<string>('none');
+  const [avatarFrameLoading, setAvatarFrameLoading] = useState(false);
+  const [avatarFrameMessage, setAvatarFrameMessage] = useState<string | null>(null);
+
+  const [selectedColumnTheme, setSelectedColumnTheme] = useState<string>('none');
+  const [columnThemeLoading, setColumnThemeLoading] = useState(false);
+  const [columnThemeMessage, setColumnThemeMessage] = useState<string | null>(null);
+
+  const [selectedRowTheme, setSelectedRowTheme] = useState<string>('none');
+  const [rowThemeLoading, setRowThemeLoading] = useState(false);
+  const [rowThemeMessage, setRowThemeMessage] = useState<string | null>(null);
+
   // Join table QR states
   const [showJoinQrModal, setShowJoinQrModal] = useState(false);
   const [joinQrValue, setJoinQrValue] = useState('');
@@ -433,6 +461,30 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     } else if (supabaseUser?.id) {
       const stored = localStorage.getItem(`bundeswiega_user_name_glow_${supabaseUser.id}`);
       if (stored) setSelectedNameGlow(stored);
+    }
+
+    const frame = supabaseUser?.user_metadata?.avatar_frame || (profileStats as any)?.avatar_frame;
+    if (frame) {
+      setSelectedAvatarFrame(frame);
+    } else if (supabaseUser?.id) {
+      const stored = localStorage.getItem(`bundeswiega_user_avatar_frame_${supabaseUser.id}`);
+      if (stored) setSelectedAvatarFrame(stored);
+    }
+
+    const colTheme = supabaseUser?.user_metadata?.ingame_column_theme || (profileStats as any)?.ingame_column_theme;
+    if (colTheme) {
+      setSelectedColumnTheme(colTheme);
+    } else if (supabaseUser?.id) {
+      const stored = localStorage.getItem(`bundeswiega_user_col_theme_${supabaseUser.id}`);
+      if (stored) setSelectedColumnTheme(stored);
+    }
+
+    const rowTheme = supabaseUser?.user_metadata?.leaderboard_row_theme || (profileStats as any)?.leaderboard_row_theme;
+    if (rowTheme) {
+      setSelectedRowTheme(rowTheme);
+    } else if (supabaseUser?.id) {
+      const stored = localStorage.getItem(`bundeswiega_user_row_theme_${supabaseUser.id}`);
+      if (stored) setSelectedRowTheme(stored);
     }
   }, [supabaseUser, showProfileModal, profileStats]);
 
@@ -599,6 +651,148 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
       setNameGlowMessage(`❌ Fehler: ${e.message || 'Konnte Neon-Glow nicht speichern'}`);
     } finally {
       setNameGlowLoading(false);
+    }
+  };
+
+  const handleAvatarFrameChange = async (newFrame: string) => {
+    const userId = supabaseUser?.id;
+    if (!userId) return;
+
+    setSelectedAvatarFrame(newFrame);
+    setAvatarFrameLoading(true);
+    setAvatarFrameMessage(null);
+
+    try {
+      // 1. Supabase Auth Metadaten
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { avatar_frame: newFrame }
+      });
+      if (authErr) console.warn('auth updateUser avatar_frame warn:', authErr);
+
+      // 2. Profiles Tabelle
+      try {
+        await supabase
+          .from('profiles')
+          .update({ avatar_frame: newFrame })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn('profiles.avatar_frame update warn:', dbErr);
+      }
+
+      // 3. LocalStorage
+      try {
+        localStorage.setItem(`bundeswiega_user_avatar_frame_${userId}`, newFrame);
+      } catch {}
+
+      // 4. Backend API
+      try {
+        await fetch('/api/users/update-cosmetics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, avatar_frame: newFrame })
+        });
+      } catch {}
+
+      const opt = getAvatarFrameOption(newFrame);
+      setAvatarFrameMessage(newFrame === 'none' ? '✅ Avatar-Rahmen zurückgesetzt (Kein Rahmen).' : `✅ Avatar-Rahmen "${opt.label}" aktiviert!`);
+      if (refreshUserData) await refreshUserData();
+    } catch (e: any) {
+      console.error('Fehler beim Aktualisieren des Avatar-Rahmens:', e);
+      setAvatarFrameMessage(`❌ Fehler: ${e.message || 'Konnte Rahmen nicht speichern'}`);
+    } finally {
+      setAvatarFrameLoading(false);
+    }
+  };
+
+  const handleColumnThemeChange = async (newTheme: string) => {
+    const userId = supabaseUser?.id;
+    if (!userId) return;
+
+    setSelectedColumnTheme(newTheme);
+    setColumnThemeLoading(true);
+    setColumnThemeMessage(null);
+
+    try {
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { ingame_column_theme: newTheme }
+      });
+      if (authErr) console.warn('auth updateUser ingame_column_theme warn:', authErr);
+
+      try {
+        await supabase
+          .from('profiles')
+          .update({ ingame_column_theme: newTheme })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn('profiles.ingame_column_theme update warn:', dbErr);
+      }
+
+      try {
+        localStorage.setItem(`bundeswiega_user_col_theme_${userId}`, newTheme);
+      } catch {}
+
+      try {
+        await fetch('/api/users/update-cosmetics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, ingame_column_theme: newTheme })
+        });
+      } catch {}
+
+      const opt = getColumnThemeOption(newTheme);
+      setColumnThemeMessage(newTheme === 'none' ? '✅ Standard-Spalte ausgewählt.' : `✅ Spielspalten-Design "${opt.label}" aktiviert!`);
+      if (refreshUserData) await refreshUserData();
+    } catch (e: any) {
+      console.error('Fehler beim Aktualisieren des Spalten-Designs:', e);
+      setColumnThemeMessage(`❌ Fehler: ${e.message || 'Konnte Design nicht speichern'}`);
+    } finally {
+      setColumnThemeLoading(false);
+    }
+  };
+
+  const handleRowThemeChange = async (newTheme: string) => {
+    const userId = supabaseUser?.id;
+    if (!userId) return;
+
+    setSelectedRowTheme(newTheme);
+    setRowThemeLoading(true);
+    setRowThemeMessage(null);
+
+    try {
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { leaderboard_row_theme: newTheme }
+      });
+      if (authErr) console.warn('auth updateUser leaderboard_row_theme warn:', authErr);
+
+      try {
+        await supabase
+          .from('profiles')
+          .update({ leaderboard_row_theme: newTheme })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn('profiles.leaderboard_row_theme update warn:', dbErr);
+      }
+
+      try {
+        localStorage.setItem(`bundeswiega_user_row_theme_${userId}`, newTheme);
+      } catch {}
+
+      try {
+        await fetch('/api/users/update-cosmetics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, leaderboard_row_theme: newTheme })
+        });
+      } catch {}
+
+      const opt = getRowThemeOption(newTheme);
+      setRowThemeMessage(newTheme === 'none' ? '✅ Standard-Ranglistenzeile ausgewählt.' : `✅ Ranglisten-Design "${opt.label}" aktiviert!`);
+      if (refreshUserData) await refreshUserData();
+    } catch (e: any) {
+      console.error('Fehler beim Aktualisieren des Ranglisten-Designs:', e);
+      setRowThemeMessage(`❌ Fehler: ${e.message || 'Konnte Design nicht speichern'}`);
+    } finally {
+      setRowThemeLoading(false);
     }
   };
 
@@ -1071,6 +1265,16 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     return check.unlocked;
                   });
 
+                  const unlockedAvatarFrames = getUnlockedAvatarFrames(levelInfo.level);
+                  const unlockedColumnThemes = getUnlockedColumnThemes(levelInfo.level);
+                  const unlockedRowThemes = getUnlockedRowThemes(levelInfo.level);
+
+                  const showAvatarFrames = hasUnlockedAnyAvatarFrame(levelInfo.level);
+                  const showColumnThemes = hasUnlockedAnyColumnTheme(levelInfo.level);
+                  const showRowThemes = hasUnlockedAnyRowTheme(levelInfo.level);
+                  const showNameBgs = hasUnlockedAnyNameBg(levelInfo.level);
+                  const showNameGlow = levelInfo.level >= 4;
+
                   return (
                     <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
                       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1081,72 +1285,71 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                           <div>
                             <div className="flex items-center space-x-2">
                               <h4 className="font-black text-sm uppercase tracking-wide">
-                                Design & Anpassen
+                                Designs & Kosmetik
                               </h4>
                               <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
                                 Freigeschaltet (Level {levelInfo.level})
                               </span>
                             </div>
                             <p className="text-xs opacity-60">
-                              Personalisiere deinen Namenshintergrund und Leuchtrahmen für Spieltabelle & Ranglisten
+                              Personalisiere deinen Namenshintergrund, Avatar-Rahmen, Spielspalten- und Ranglisten-Designs
                             </p>
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-4">
-                        {/* Dropdown 1: Namenshintergrund (nur freigespielte Farben) */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <label className="block text-xs font-bold opacity-80 flex items-center space-x-1.5">
-                              <span>🎨 Namenshintergrund auswählen:</span>
-                            </label>
-                            {selectedNameBgColor && selectedNameBgColor !== 'none' && (
-                              <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
-                                Aktiv: {getNameTagOption(selectedNameBgColor).label}
+                        {/* Kategorie 1: Namenshintergrund (ab Level 2 sichtbar) */}
+                        {showNameBgs && (
+                          <div className="space-y-2 p-3.5 rounded-xl border border-teal-500/20 bg-teal-500/5">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <label className="block text-xs font-bold flex items-center space-x-1.5">
+                                <span>🎨 Namenshintergrund auswählen:</span>
+                              </label>
+                              {selectedNameBgColor && selectedNameBgColor !== 'none' && (
+                                <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
+                                  Aktiv: {getNameTagOption(selectedNameBgColor).label}
+                                </span>
+                              )}
+                            </div>
+
+                            <select
+                              value={selectedNameBgColor || 'none'}
+                              onChange={(e) => handleNameBgColorChange(e.target.value)}
+                              disabled={nameBgLoading}
+                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                                darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
+                              }`}
+                            >
+                              {unlockedNameColors.map((opt) => {
+                                const emoji = opt.id === 'none' ? '🚫' : opt.id === 'red' ? '🔴' : opt.id === 'blue' ? '🔵' : opt.id === 'green' ? '🟢' : opt.id === 'yellow' ? '🟡' : opt.id === 'black' ? '⚫' : opt.id === 'white' ? '⚪' : opt.id === 'pink' ? '🌸' : opt.id === 'turquoise' ? '💎' : opt.id === 'neon_mint' ? '🌿' : opt.id === 'cyberpunk_pink_yellow' ? '🧬' : opt.id === 'aurora_name_glow' ? '🌌' : opt.id === 'galaxy_pattern' ? '🪐' : '🎨';
+                                return (
+                                  <option key={opt.id} value={opt.id}>
+                                    {emoji} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            <div className="flex items-center justify-between text-[11px] opacity-60 px-1 pt-0.5 flex-wrap gap-1">
+                              <span>
+                                Freigeschaltet: <strong className="text-emerald-500">{unlockedNameColors.length}</strong> von {NAME_TAG_COLORS.length} Namensfarben
                               </span>
+                              <span>Weitere Farben werden durch Levelaufstiege freigeschaltet</span>
+                            </div>
+
+                            {nameBgMessage && (
+                              <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {nameBgMessage}
+                              </p>
                             )}
                           </div>
+                        )}
 
-                          <select
-                            value={selectedNameBgColor || 'none'}
-                            onChange={(e) => handleNameBgColorChange(e.target.value)}
-                            disabled={nameBgLoading}
-                            className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
-                              darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
-                            }`}
-                          >
-                            {unlockedNameColors.map((opt) => {
-                              const emoji = opt.id === 'none' ? '🚫' : opt.id === 'red' ? '🔴' : opt.id === 'blue' ? '🔵' : opt.id === 'green' ? '🟢' : opt.id === 'yellow' ? '🟡' : opt.id === 'black' ? '⚫' : opt.id === 'white' ? '⚪' : opt.id === 'pink' ? '🌸' : opt.id === 'turquoise' ? '💎' : '🎨';
-                              return (
-                                <option
-                                  key={opt.id}
-                                  value={opt.id}
-                                >
-                                  {emoji} {opt.label}
-                                </option>
-                              );
-                            })}
-                          </select>
-
-                          <div className="flex items-center justify-between text-[11px] opacity-60 px-1 pt-0.5 flex-wrap gap-1">
-                            <span>
-                              Freigeschaltet: <strong className="text-emerald-500">{unlockedNameColors.length}</strong> von {NAME_TAG_COLORS.length} Namensfarben
-                            </span>
-                            <span>Weitere Farben werden durch Levelaufstiege & Quests freigeschaltet</span>
-                          </div>
-
-                          {nameBgMessage && (
-                            <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                              {nameBgMessage}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Dropdown 2: Neon Glow Rahmen (ab Level 4) */}
-                        {levelInfo.level >= 4 && (
+                        {/* Kategorie 2: Neon Glow Rahmen (ab Level 4 sichtbar) */}
+                        {showNameGlow && (
                           <div className="space-y-2 p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/5 animate-in fade-in">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
                               <label className="block text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
                                 <i className="fas fa-sparkles"></i>
                                 <span>✨ Pulsierender Neon-Glow Rahmen:</span>
@@ -1186,24 +1389,212 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                           </div>
                         )}
 
-                        {/* Live-Vorschau */}
-                        <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
-                          darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'
-                        }`}>
-                          <span className="text-[11px] font-bold opacity-60">
-                            Live-Vorschau in Spiel & Rangliste:
-                          </span>
-                          <div className="flex items-center space-x-2">
-                            <PlayerNameTag
-                              name={currentName}
-                              colorKey={selectedNameBgColor}
-                              glowKey={selectedNameGlow}
-                              className="text-xs px-3 py-1 font-black"
-                            />
-                            {selectedTitle && (
-                              <PlayerTitleBadge title={selectedTitle} size="sm" />
+                        {/* Kategorie 3: Avatar-Rahmen (ERST ab Level 5 sichtbar!) */}
+                        {showAvatarFrames && (
+                          <div className="space-y-2 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 animate-in fade-in">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <label className="block text-xs font-black uppercase tracking-wider text-amber-500 dark:text-amber-400 flex items-center space-x-1.5">
+                                <i className="fas fa-circle-notch"></i>
+                                <span>🪵 Avatar-Rahmen:</span>
+                              </label>
+                              <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/40">
+                                Ab Level 5 freigeschaltet
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] opacity-70">
+                              Präsentiere dein Profilbild mit einem exklusiven Schmuckrahmen in Spiel & Bestenlisten:
+                            </p>
+
+                            <select
+                              value={selectedAvatarFrame || 'none'}
+                              onChange={(e) => handleAvatarFrameChange(e.target.value)}
+                              disabled={avatarFrameLoading}
+                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                                darkMode ? 'border-amber-500/40 bg-slate-900 text-white' : 'border-amber-300 bg-white text-black'
+                              }`}
+                            >
+                              {unlockedAvatarFrames.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.icon} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Info zum ausgewählten Rahmen */}
+                            {selectedAvatarFrame && selectedAvatarFrame !== 'none' && (
+                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1 flex items-center space-x-1">
+                                <span>ℹ️</span>
+                                <span>{getAvatarFrameOption(selectedAvatarFrame).description}</span>
+                              </div>
+                            )}
+
+                            {avatarFrameMessage && (
+                              <p className={`text-xs font-bold animate-in fade-in ${avatarFrameMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {avatarFrameMessage}
+                              </p>
                             )}
                           </div>
+                        )}
+
+                        {/* Kategorie 4: Spielspalten-Design (ERST ab Level 5 sichtbar!) */}
+                        {showColumnThemes && (
+                          <div className="space-y-2 p-3.5 rounded-xl border border-blue-500/30 bg-blue-500/5 animate-in fade-in">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <label className="block text-xs font-black uppercase tracking-wider text-blue-500 dark:text-blue-400 flex items-center space-x-1.5">
+                                <i className="fas fa-columns"></i>
+                                <span>🏛️ Spielspalten-Design:</span>
+                              </label>
+                              <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-500 dark:text-blue-400 border border-blue-500/40">
+                                Ab Level 5 freigeschaltet
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] opacity-70">
+                              Lass deine eigene Spalte in der Live-Spieltabelle hervorstechen:
+                            </p>
+
+                            <select
+                              value={selectedColumnTheme || 'none'}
+                              onChange={(e) => handleColumnThemeChange(e.target.value)}
+                              disabled={columnThemeLoading}
+                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                                darkMode ? 'border-blue-500/40 bg-slate-900 text-white' : 'border-blue-300 bg-white text-black'
+                              }`}
+                            >
+                              {unlockedColumnThemes.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.icon} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Info zum Spalten-Design */}
+                            {selectedColumnTheme && selectedColumnTheme !== 'none' && (
+                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium px-1 flex items-center space-x-1">
+                                <span>ℹ️</span>
+                                <span>{getColumnThemeOption(selectedColumnTheme).description}</span>
+                              </div>
+                            )}
+
+                            {columnThemeMessage && (
+                              <p className={`text-xs font-bold animate-in fade-in ${columnThemeMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {columnThemeMessage}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Kategorie 5: Ranglisten-Design (ERST ab Level 7 sichtbar!) */}
+                        {showRowThemes && (
+                          <div className="space-y-2 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 animate-in fade-in">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <label className="block text-xs font-black uppercase tracking-wider text-emerald-500 dark:text-emerald-400 flex items-center space-x-1.5">
+                                <i className="fas fa-list-ol"></i>
+                                <span>📊 Ranglisten-Design:</span>
+                              </label>
+                              <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 dark:text-emerald-400 border border-emerald-500/40">
+                                Ab Level 7 freigeschaltet
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] opacity-70">
+                              Exklusiver Hintergrund & Kontur für deine Zeilen in Ranglisten & Rekorden:
+                            </p>
+
+                            <select
+                              value={selectedRowTheme || 'none'}
+                              onChange={(e) => handleRowThemeChange(e.target.value)}
+                              disabled={rowThemeLoading}
+                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                                darkMode ? 'border-emerald-500/40 bg-slate-900 text-white' : 'border-emerald-300 bg-white text-black'
+                              }`}
+                            >
+                              {unlockedRowThemes.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.icon} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Info zum Ranglisten-Design */}
+                            {selectedRowTheme && selectedRowTheme !== 'none' && (
+                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium px-1 flex items-center space-x-1">
+                                <span>ℹ️</span>
+                                <span>{getRowThemeOption(selectedRowTheme).description}</span>
+                              </div>
+                            )}
+
+                            {rowThemeMessage && (
+                              <p className={`text-xs font-bold animate-in fade-in ${rowThemeMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {rowThemeMessage}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Live-Vorschau aller aktiven Designs */}
+                        <div className={`p-4 rounded-xl border space-y-3 ${
+                          darkMode ? 'bg-slate-900/80 border-slate-700' : 'bg-white border-gray-200'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black uppercase tracking-wider opacity-70 flex items-center space-x-1.5">
+                              <i className="fas fa-eye text-teal-500"></i>
+                              <span>Live-Vorschau deiner Ausrüstung:</span>
+                            </span>
+                          </div>
+
+                          {/* Avatar + NameTag + Title */}
+                          <div className="flex items-center space-x-3 p-2.5 rounded-xl bg-black/5 dark:bg-white/5 flex-wrap gap-2">
+                            <PlayerAvatar
+                              url={currentAvatarUrl}
+                              avatar_frame={selectedAvatarFrame}
+                              name={currentName}
+                              className="w-10 h-10 border-2 shadow-md flex-shrink-0"
+                              style={{ borderColor: BRAND_COLOR }}
+                            />
+                            <div className="flex items-center space-x-2 flex-wrap gap-1">
+                              <PlayerNameTag
+                                name={currentName}
+                                colorKey={selectedNameBgColor}
+                                glowKey={selectedNameGlow}
+                                className="text-xs px-3 py-1 font-black"
+                              />
+                              {selectedTitle && (
+                                <PlayerTitleBadge title={selectedTitle} size="sm" />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Vorschau Spielspalte (falls freigeschaltet) */}
+                          {showColumnThemes && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold opacity-60">Vorschau Spieltabelle-Spalte:</span>
+                              <div className={`p-2 rounded-xl text-center max-w-[130px] border ${getColumnThemeClass(selectedColumnTheme)}`}>
+                                {selectedColumnTheme === 'diamond_crown' && (
+                                  <div className="text-xs -mb-1 animate-bounce select-none">👑</div>
+                                )}
+                                <div className="text-[10px] font-black opacity-70">RUNDE 1</div>
+                                <div className="font-black text-sm my-0.5">250g</div>
+                                <div className="text-[9px] text-emerald-500 font-bold">🎯 Ziel 250g</div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Vorschau Ranglisten-Zeile (falls freigeschaltet) */}
+                          {showRowThemes && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold opacity-60">Vorschau Ranglisten-Eintrag:</span>
+                              <div className={`p-2.5 rounded-xl flex items-center justify-between text-xs font-bold ${getRowThemeClass(selectedRowTheme)}`}>
+                                <div className="flex items-center space-x-2">
+                                  <span className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center text-[10px] font-black">#1</span>
+                                  <PlayerAvatar url={currentAvatarUrl} avatar_frame={selectedAvatarFrame} name={currentName} className="w-6 h-6 border" />
+                                  <span>{currentName}</span>
+                                </div>
+                                <span className="font-mono text-emerald-500 font-black">1.250 XP</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

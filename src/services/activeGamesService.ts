@@ -32,6 +32,73 @@ export interface SpectatorPresenceUser {
 }
 
 /**
+ * Stellt sicher, dass das Feld avatar_url für jeden Spieler im players-Array gesetzt ist.
+ * Falls nicht vorhanden, werden fehlende Profilbilder über die 'profiles'-Tabelle nachgeladen.
+ */
+export async function normalizePlayersWithAvatar(players: any[]): Promise<any[]> {
+  if (!Array.isArray(players)) return [];
+
+  const normalized = players.map(p => {
+    if (!p || typeof p !== 'object') return p;
+    const avatar = p.avatar_url || p.imageUrl || null;
+    return {
+      ...p,
+      avatar_url: avatar,
+      imageUrl: avatar
+    };
+  });
+
+  // Sammle Spieler mit fehlendem avatar_url, die eine userId besitzen
+  const missingUserIds = normalized
+    .filter(p => (!p.avatar_url || String(p.avatar_url).trim() === '') && p.userId)
+    .map(p => p.userId);
+
+  if (missingUserIds.length > 0 && isSupabaseConfigured()) {
+    try {
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('id, avatar_url, username')
+        .in('id', missingUserIds);
+
+      if (!error && profiles && profiles.length > 0) {
+        const avatarMap = new Map<string, string>();
+        profiles.forEach(pr => {
+          if (pr.avatar_url) avatarMap.set(pr.id, pr.avatar_url);
+        });
+
+        normalized.forEach(p => {
+          if ((!p.avatar_url || String(p.avatar_url).trim() === '') && p.userId && avatarMap.has(p.userId)) {
+            const found = avatarMap.get(p.userId)!;
+            p.avatar_url = found;
+            p.imageUrl = found;
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('normalizePlayersWithAvatar: Error fetching profiles:', e);
+    }
+  }
+
+  return normalized;
+}
+
+/**
+ * Synchroner Fallback für normalizePlayersWithAvatar
+ */
+export function normalizePlayersWithAvatarSync(players: any[]): any[] {
+  if (!Array.isArray(players)) return [];
+  return players.map(p => {
+    if (!p || typeof p !== 'object') return p;
+    const avatar = p.avatar_url || p.imageUrl || null;
+    return {
+      ...p,
+      avatar_url: avatar,
+      imageUrl: avatar
+    };
+  });
+}
+
+/**
  * Erstellt ein neues aktives Spiel in der active_games Tabelle
  */
 export async function createActiveGame(params: {
@@ -44,12 +111,13 @@ export async function createActiveGame(params: {
   if (!isSupabaseConfigured() || !params.hostUserId) return null;
 
   try {
+    const normalizedPlayers = await normalizePlayersWithAvatar(params.players);
     const payload = {
       host_user_id: params.hostUserId,
       game_mode: params.gameMode,
       status: 'in_progress',
       current_round: params.currentRound || 1,
-      players: params.players || [],
+      players: normalizedPlayers,
       game_data: params.gameData || {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -93,7 +161,9 @@ export async function updateActiveGame(
     };
 
     if (params.currentRound !== undefined) updatePayload.current_round = params.currentRound;
-    if (params.players !== undefined) updatePayload.players = params.players;
+    if (params.players !== undefined) {
+      updatePayload.players = await normalizePlayersWithAvatar(params.players);
+    }
     if (params.gameData !== undefined) updatePayload.game_data = params.gameData;
     if (params.status !== undefined) updatePayload.status = params.status;
 

@@ -7,7 +7,11 @@ export type NameBgColorId =
   | 'black'
   | 'white'
   | 'pink'
-  | 'turquoise';
+  | 'turquoise'
+  | 'neon_mint'
+  | 'cyberpunk_pink_yellow'
+  | 'aurora_name_glow'
+  | 'galaxy_pattern';
 
 export interface NameBgColorOption {
   id: NameBgColorId;
@@ -117,6 +121,50 @@ export const NAME_TAG_COLORS: NameBgColorOption[] = [
     requiredLevel: 2,
     requiredQuestId: 'l2_5_wins_standard',
     unlockConditionText: 'Quest: Gewinne 5 Standardspiele'
+  },
+  {
+    id: 'neon_mint',
+    label: 'Neon-Mint',
+    bgHex: '#00FFA3',
+    textHex: '#0F172A',
+    borderHex: '#00E08F',
+    cssClasses: 'bg-[#00FFA3] text-slate-950 shadow-sm border border-[#00E08F] shadow-[#00FFA3]/30',
+    textCssClasses: 'text-slate-950 font-black',
+    requiredLevel: 6,
+    unlockConditionText: 'Freischaltung ab Level 6'
+  },
+  {
+    id: 'cyberpunk_pink_yellow',
+    label: 'Cyberpunk Pink/Gelb',
+    bgHex: '#FF007F',
+    textHex: '#FFFFFF',
+    borderHex: '#FACC15',
+    cssClasses: 'bg-gradient-to-r from-pink-600 via-rose-500 to-amber-400 text-white shadow-sm border border-amber-300 shadow-pink-500/30',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 11,
+    unlockConditionText: 'Freischaltung ab Level 11'
+  },
+  {
+    id: 'aurora_name_glow',
+    label: 'Aurora Polarlichter',
+    bgHex: '#10B981',
+    textHex: '#FFFFFF',
+    borderHex: '#8B5CF6',
+    cssClasses: 'bg-gradient-to-r from-emerald-500 via-teal-400 to-purple-500 text-white shadow-sm border border-cyan-300 shadow-emerald-500/40',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 15,
+    unlockConditionText: 'Freischaltung ab Level 15 (Gold-Meilenstein)'
+  },
+  {
+    id: 'galaxy_pattern',
+    label: 'Galaxie & Sterne',
+    bgHex: '#1E1B4B',
+    textHex: '#F8FAFC',
+    borderHex: '#818CF8',
+    cssClasses: 'bg-gradient-to-r from-indigo-950 via-purple-900 to-slate-950 text-indigo-100 shadow-sm border border-indigo-400/50 shadow-purple-900/50',
+    textCssClasses: 'text-indigo-100 font-black',
+    requiredLevel: 16,
+    unlockConditionText: 'Freischaltung ab Level 16'
   }
 ];
 
@@ -277,6 +325,12 @@ export const isColorUnlocked = (
     const hasWins = (unlockedContext?.standardWins ?? 0) >= 5;
     if (userLevel >= 2 && (hasQuest || hasWins)) return { unlocked: true };
     return { unlocked: false, reason: 'Quest: Gewinne 5 Standardspiele' };
+  }
+
+  // Höhere Level-Farben (Level 6, 11, 15, 16)
+  if (opt.requiredLevel > 3) {
+    if (userLevel >= opt.requiredLevel) return { unlocked: true };
+    return { unlocked: false, reason: opt.unlockConditionText || `Freischaltung ab Level ${opt.requiredLevel}` };
   }
 
   // Basis-Farben (Rot, Blau, Grün, Gelb) ab Level 2

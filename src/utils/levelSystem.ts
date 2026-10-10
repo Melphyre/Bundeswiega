@@ -33,6 +33,8 @@ export interface GameXpParams {
   rank?: number; // 1 = 1. Platz, 2 = 2. Platz
   tournamentRank?: number; // 1 = 1. Platz Finaltable, 2 = 2. Platz, 3 = 3. Platz
   isSpeedMode?: boolean;
+  isTeamMode?: boolean;
+  isTeamWinner?: boolean;
   speedLevels?: number;
   timeSeconds?: number;
   achievementsCount?: number;
@@ -263,13 +265,11 @@ export const LEVEL_PROGRESSION_TABLE: LevelProgressionEntry[] = [
 
 /**
  * Berechnet die kumulierten Gesamt-XP, die benötigt werden, um ein bestimmtes Level zu erreichen.
- * Liest primär aus der LEVEL_PROGRESSION_TABLE und fällt für Level > 20 auf die Formel zurück.
  */
 export const xpForLevel = (level: number): number => {
   if (level <= 1) return 0;
   const entry = LEVEL_PROGRESSION_TABLE.find(e => e.level === level);
   if (entry) return entry.cumulativeXp;
-  // Formel für höhere Level: 50 * (L - 1) * L
   return Math.floor(50 * (level - 1) * level);
 };
 
@@ -464,7 +464,6 @@ export const getRewardForLevel = (level: number): LevelReward | undefined => {
 export const calculateLevelFromXp = (totalXp: number = 0): LevelInfo => {
   const safeXp = Math.max(0, Math.floor(totalXp));
   
-  // Ermittle Level aus der Tabelle
   let level = 1;
   for (let i = LEVEL_PROGRESSION_TABLE.length - 1; i >= 0; i--) {
     if (safeXp >= LEVEL_PROGRESSION_TABLE[i].cumulativeXp) {
@@ -473,7 +472,6 @@ export const calculateLevelFromXp = (totalXp: number = 0): LevelInfo => {
     }
   }
 
-  // Falls über Level 20: Formel verwenden
   if (safeXp >= LEVEL_PROGRESSION_TABLE[LEVEL_PROGRESSION_TABLE.length - 1].cumulativeXp) {
     const rawLevel = Math.floor((1 + Math.sqrt(1 + 4 * (safeXp / 50))) / 2);
     level = Math.max(level, rawLevel);
@@ -497,36 +495,10 @@ export const calculateLevelFromXp = (totalXp: number = 0): LevelInfo => {
   };
 };
 
-/**
- * Hilfsfunktion zur schnellen Ermittlung des Levels aus den Gesamt-XP
- */
 export const getLevelFromXP = (xp: number): number => {
   return calculateLevelFromXp(xp).level;
 };
 
-/**
- * Standardtitel basierend auf dem erreichten Level:
- * - Level 1: "Neuling"
- * - Level 2: "Basis-Wieger"
- * - Level 3: "geübter Wieger"
- * - Level 4: "App-Meister"
- * - Level 5: "Eichen-Eichmeister"
- * - Level 6: "Prozent-Gott"
- * - Level 7: "Präzisions-Junkie"
- * - Level 8: "Schwankungsfrei"
- * - Level 9: "Auge wie 'n Luchs"
- * - Level 10: "Tares-Experte"
- * - Level 11: "Gramm-Chirurg"
- * - Level 12: "Blind-Wieger"
- * - Level 13: "Schwergewicht"
- * - Level 14: "Meister der Toleranz"
- * - Level 15: "Bundeswiega-Legende"
- * - Level 16: "Nicht von dieser Welt"
- * - Level 17: "Null-Komma-Null"
- * - Level 18: "Unanfechtbar"
- * - Level 19: "Eichamt-Schreck"
- * - Level 20: "Gott der Gravitation"
- */
 export const getTitleForLevel = (level: number): string => {
   if (level >= 20) return 'Gott der Gravitation';
   if (level >= 19) return 'Eichamt-Schreck';
@@ -570,17 +542,24 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
       if (avg <= 1.0) items.push({ label: 'Präzisions-Bonus (Ø ≤ 1,0g)', xp: 4, icon: '🎯' });
       else if (avg <= 2.5) items.push({ label: 'Präzisions-Bonus (Ø ≤ 2,5g)', xp: 2, icon: '✨' });
     }
-    if (params.achievementsCount && params.achievementsCount > 0) {
-      items.push({ label: `${params.achievementsCount}x Achievement(s) errungen`, xp: params.achievementsCount * 5, icon: '🏆' });
+    const totalXp = items.reduce((sum, item) => sum + item.xp, 0);
+    return { totalXp, items };
+  }
+
+  // 3. Special-Mode: Teamwiegen
+  if (params.isTeamMode) {
+    items.push({ label: 'Teamwiegen abgeschlossen', xp: 5, icon: '👥' });
+    if (params.isTeamWinner) {
+      items.push({ label: 'Siegerteam', xp: 2, icon: '🏆' });
     }
     const totalXp = items.reduce((sum, item) => sum + item.xp, 0);
     return { totalXp, items };
   }
 
-  // 3. Basis-XP für das Beenden eines normalen Spiels
+  // 4. Basis-XP für das Beenden eines normalen Spiels
   items.push({ label: 'Spiel abgeschlossen', xp: 5, icon: '🎮' });
 
-  // 4. Präzisions-Bonus (anhand des Durchschnitts in Gramm)
+  // 5. Präzisions-Bonus (anhand des Durchschnitts in Gramm)
   if (params.avg !== undefined && params.avg !== null) {
     const avg = Number(params.avg);
     if (avg <= 0.5) {
@@ -596,7 +575,7 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
     }
   }
 
-  // 5. Schnäpse / Fehler-Vermeidung (Keine Boni für getrunkene Schnäpse!)
+  // 6. Schnäpse / Fehler-Vermeidung
   if (params.schnaepse !== undefined && params.schnaepse !== null) {
     const schnaepse = Number(params.schnaepse);
     if (schnaepse === 0) {
@@ -606,14 +585,14 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
     }
   }
 
-  // 6. Platzierung im normalen Spiel
+  // 7. Platzierung im normalen Spiel
   if (params.rank === 1 || params.isWinner) {
     items.push({ label: '1. Platz / Sieg', xp: 2, icon: '🏆' });
   } else if (params.rank === 2) {
     items.push({ label: '2. Platz', xp: 1, icon: '🥈' });
   }
 
-  // 7. Turnier-Ergebnisse am Finaltable
+  // 8. Turnier-Ergebnisse am Finaltable
   if (params.tournamentRank === 1) {
     items.push({ label: '1. Platz am Finaltable', xp: 10, icon: '🥇' });
   } else if (params.tournamentRank === 2) {
@@ -622,18 +601,13 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
     items.push({ label: '3. Platz am Finaltable', xp: 3, icon: '🥉' });
   }
 
-  // 8. Achievements in dieser Runde
-  if (params.achievementsCount && params.achievementsCount > 0) {
-    items.push({ label: `${params.achievementsCount}x Achievement(s) errungen`, xp: params.achievementsCount * 5, icon: '🏆' });
-  }
-
   const totalXp = items.reduce((sum, item) => sum + item.xp, 0);
   return { totalXp, items };
 };
 
 /**
- * Ermittelt faire kumulierte Basis-XP aus historischen Profilstatistiken,
- * falls der Spieler noch keine expliziten XP in der Datenbank gespeichert hat.
+ * Ermittelt faire kumulierte Basis-XP aus historischen Profilstatistiken
+ * (ohne Berücksichtigung von Achievements).
  */
 export const calculateTotalXpFromStats = (stats: any): number => {
   if (!stats) return 0;
@@ -643,9 +617,8 @@ export const calculateTotalXpFromStats = (stats: any): number => {
 
   const gamesPlayed = Number(stats.games_played ?? stats.gamesPlayed ?? 0);
   const totalSchnaepse = Number(stats.total_points ?? stats.totalPoints ?? stats.totalSchnaepse ?? 0);
-  const achievementsCount = Number(stats.achievements_count ?? stats.achievementsCount ?? 0);
   const gamesWon = Number(stats.games_won ?? stats.gamesWon ?? 0);
 
-  const estimated = (gamesPlayed * 60) + (totalSchnaepse * 8) + (achievementsCount * 30) + (gamesWon * 50);
+  const estimated = (gamesPlayed * 60) + (totalSchnaepse * 8) + (gamesWon * 50);
   return Math.max(0, estimated);
 };

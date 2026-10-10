@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_AVATAR_URL } from './supabaseClient';
 import { User, Session } from '@supabase/supabase-js';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -1887,6 +1887,66 @@ const App: React.FC = () => {
   const [schnaepseSortMode, setSchnaepseSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   const [avgSortMode, setAvgSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   const [totalSortMode, setTotalSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
+  const [schnaepseSortDir, setSchnaepseSortDir] = useState<'asc' | 'desc'>('desc');
+  const [avgSortDir, setAvgSortDir] = useState<'asc' | 'desc'>('asc');
+  const [totalSortDir, setTotalSortDir] = useState<'asc' | 'desc'>('asc');
+  const [speedmeisterSortDir, setSpeedmeisterSortDir] = useState<'asc' | 'desc'>('asc');
+  const [speedBestsSortDir, setSpeedBestsSortDir] = useState<'asc' | 'desc'>('asc');
+  const [speedPointsSortDir, setSpeedPointsSortDir] = useState<'asc' | 'desc'>('asc');
+  const [speedHistorySortDir, setSpeedHistorySortDir] = useState<'asc' | 'desc'>('asc');
+  const [teamBestsSortDir, setTeamBestsSortDir] = useState<'asc' | 'desc'>('asc');
+  const [teamPointsSortDir, setTeamPointsSortDir] = useState<'asc' | 'desc'>('desc');
+  const [teamHistorySortDir, setTeamHistorySortDir] = useState<'asc' | 'desc'>('desc');
+  const [playerMatchesSortDir, setPlayerMatchesSortDir] = useState<'asc' | 'desc'>('desc');
+  const [isPlayerAvatarFullscreen, setIsPlayerAvatarFullscreen] = useState(false);
+  const [playerDetailsTab, setPlayerDetailsTab] = useState<'overview' | 'history'>('overview');
+  const [playerHistoryFilter, setPlayerHistoryFilter] = useState<'all' | '500ml' | '0,33L' | 'Speedwiegen' | 'Teamwiegen'>('all');
+  const [playerHistorySortDir, setPlayerHistorySortDir] = useState<'desc' | 'asc'>('desc');
+  const [playerGuildInfo, setPlayerGuildInfo] = useState<{ name: string; tag: string; logoUrl?: string; role?: string } | null>(null);
+
+  useEffect(() => {
+    if (!selectedPlayerForDetails) {
+      setPlayerGuildInfo(null);
+      setIsPlayerAvatarFullscreen(false);
+      return;
+    }
+    const target = selectedPlayerForDetails.trim().toLowerCase();
+    let foundUserId = '';
+    if (supabaseUser && ((supabaseUser.user_metadata?.username || '').trim().toLowerCase() === target || supabaseUser.email?.trim().toLowerCase() === target)) {
+      foundUserId = supabaseUser.id;
+    } else {
+      const match = clerkUsers.find(u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target);
+      if (match?.id) foundUserId = match.id;
+    }
+
+    if (foundUserId) {
+      (async () => {
+        try {
+          const { data: memberData } = await supabase
+            .from('guild_members')
+            .select('role, guild_id, guilds(id, name, tag, logo_url)')
+            .eq('user_id', foundUserId)
+            .maybeSingle();
+
+          if (memberData && (memberData as any).guilds) {
+            const g = (memberData as any).guilds;
+            setPlayerGuildInfo({
+              name: g.name,
+              tag: g.tag,
+              logoUrl: g.logo_url,
+              role: memberData.role
+            });
+          } else {
+            setPlayerGuildInfo(null);
+          }
+        } catch {
+          setPlayerGuildInfo(null);
+        }
+      })();
+    } else {
+      setPlayerGuildInfo(null);
+    }
+  }, [selectedPlayerForDetails, clerkUsers, supabaseUser]);
   
   // Tournament States
   const [showTournamentOverview, setShowTournamentOverview] = useState(false);
@@ -3241,6 +3301,7 @@ const App: React.FC = () => {
     setAccountResultsSaved([]);
     setTeamCount(2);
     setTeamSizes({ 1: 2, 2: 2 });
+    setTeamStepIndex(0);
     setRounds([]);
     setPlayers([]);
     setTeams([]);
@@ -3280,6 +3341,7 @@ const App: React.FC = () => {
     setRounds([]);
     setPlayers([]);
     setTeams([]);
+    setTeamStepIndex(0);
     setActiveQuests([]);
     setQuestHistory([]);
     setActiveEffects([]);
@@ -4484,10 +4546,15 @@ const App: React.FC = () => {
     if (teams.length === 0) return;
     const maxTeamSize = Math.max(...teams.map(t => t.playerIds.length));
     const safeRowIndex = Math.min(teamStepIndex, maxTeamSize - 1);
+    const roundOffset = Math.max(0, rounds.length - 1);
 
-    // Find all player IDs present in row safeRowIndex
+    // Find all player IDs present in row safeRowIndex (rotating order per round)
     const activeRowPlayerIds = teams
-      .map(t => t.playerIds[safeRowIndex])
+      .map(t => {
+        if (safeRowIndex >= t.playerIds.length) return null;
+        const memberIdx = (roundOffset + safeRowIndex) % t.playerIds.length;
+        return t.playerIds[memberIdx];
+      })
       .filter((pid): pid is string => Boolean(pid));
 
     const missing = activeRowPlayerIds.some(
@@ -5995,6 +6062,7 @@ const App: React.FC = () => {
           if (!teams || teams.length === 0) return null;
           const maxTeamSize = Math.max(...teams.map(t => t.playerIds.length));
           const safeRowIndex = Math.min(teamStepIndex, maxTeamSize - 1);
+          const roundOffset = Math.max(0, rounds.length - 1);
 
           const currentRound = rounds[rounds.length - 1];
           const targetWeight = currentRound ? currentRound.targetWeight : 0;
@@ -6014,11 +6082,15 @@ const App: React.FC = () => {
               {/* Prominent Target Weight */}
               <div>
                 <div className="text-xs font-black uppercase tracking-widest opacity-50 mb-1" style={{ color: BRAND_COLOR }}>
-                  Runde {rounds.length} • Mitglied {safeRowIndex + 1} von {maxTeamSize}
+                  Runde {rounds.length} • Abgabe {safeRowIndex + 1} von {maxTeamSize}
                 </div>
                 <div className="text-3xl font-black flex items-center justify-center space-x-2">
                   <span>🎯 Zielgewicht:</span>
                   <span style={{ color: BRAND_COLOR }}>{targetWeight}g</span>
+                </div>
+                <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px] font-bold opacity-75 text-amber-500">
+                  <i className="fas fa-sync-alt text-[10px]"></i>
+                  <span>Rotierende Angabe: Runde {rounds.length} startet mit {((roundOffset % maxTeamSize) + 1)}. Spieler der Teams</span>
                 </div>
               </div>
 
@@ -6026,8 +6098,10 @@ const App: React.FC = () => {
               <div className={`grid gap-4 ${teams.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
                 {teams.map((team, teamIdx) => {
                   const teamColor = PLAYER_COLORS[teamIdx % PLAYER_COLORS.length];
-                  const hasMember = safeRowIndex < team.playerIds.length;
-                  const playerId = hasMember ? team.playerIds[safeRowIndex] : null;
+                  const teamSize = team.playerIds.length;
+                  const hasMember = safeRowIndex < teamSize;
+                  const memberIndex = hasMember ? (roundOffset + safeRowIndex) % teamSize : 0;
+                  const playerId = hasMember ? team.playerIds[memberIndex] : null;
                   const player = playerId ? players.find(p => p.id === playerId) : null;
 
                   // Calculate current team total distance so far
@@ -6049,11 +6123,11 @@ const App: React.FC = () => {
                           <span className="px-3 py-1 rounded-full text-xs font-black bg-gray-500 text-white">
                             {team.name}
                           </span>
-                          <span className="text-xs opacity-50 font-bold">Mitglied {safeRowIndex + 1}</span>
+                          <span className="text-xs opacity-50 font-bold">Abgabe {safeRowIndex + 1}</span>
                         </div>
 
                         <div className="py-4 text-center">
-                          <p className="text-sm font-bold opacity-70">Kein Mitglied auf dieser Position</p>
+                          <p className="text-sm font-bold opacity-70">Kein Mitglied in diesem Durchgang</p>
                         </div>
 
                         {/* Current Team Total Distance */}
@@ -6072,14 +6146,18 @@ const App: React.FC = () => {
                     ? rounds[rounds.length - 2].results[player.id]
                     : player.startWeight;
 
-                  // Calculate compensation weight
+                  // Calculate compensation weight based on teammates who weighed in earlier steps of THIS round
                   let prevMembersOffset = 0;
-                  team.playerIds.slice(0, safeRowIndex).forEach(pid => {
-                    const rawVal = currentRoundResults[pid];
-                    if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
-                      prevMembersOffset += (parseInt(rawVal) - targetWeight);
+                  for (let s = 0; s < safeRowIndex; s++) {
+                    if (s < teamSize) {
+                      const prevMemberIdx = (roundOffset + s) % teamSize;
+                      const prevPid = team.playerIds[prevMemberIdx];
+                      const rawVal = currentRoundResults[prevPid];
+                      if (rawVal !== undefined && rawVal !== '' && !isNaN(parseInt(rawVal))) {
+                        prevMembersOffset += (parseInt(rawVal) - targetWeight);
+                      }
                     }
-                  });
+                  }
                   const compensationWeight = targetWeight - prevMembersOffset;
 
                   return (
@@ -6092,7 +6170,12 @@ const App: React.FC = () => {
                         <span className="px-3 py-1 rounded-full text-xs font-black text-white" style={{ backgroundColor: teamColor }}>
                           {team.name}
                         </span>
-                        <span className="text-xs opacity-50 font-bold">Mitglied {safeRowIndex + 1}</span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                            {memberIndex + 1}. Spieler
+                          </span>
+                          <span className="text-xs opacity-50 font-bold">Abgabe {safeRowIndex + 1}</span>
+                        </div>
                       </div>
 
                       <div>
@@ -8106,12 +8189,65 @@ const App: React.FC = () => {
                                   </div>
 
                                   {currentActivePlayer ? (() => {
-                                    const playerGames = filtered.filter(f => f.playerName === currentActivePlayer);
+                                    const rawGames = filtered.filter(f => f.playerName === currentActivePlayer);
+                                    const playerGames = playerMatchesSortDir === 'asc' ? [...rawGames].reverse() : rawGames;
                                     return (
                                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                                        <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                                          <i className="fas fa-beer mr-2 text-amber-500"></i>Spiele von: {currentActivePlayer}
-                                        </h4>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-gray-500/10">
+                                          <div className="flex items-center space-x-3">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                playGlobalClickSound();
+                                                setSelectedPlayerForDetails(currentActivePlayer);
+                                              }}
+                                              className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                              title={`Profilbild von ${currentActivePlayer} in groß ansehen`}
+                                            >
+                                              <PlayerAvatar
+                                                url={getPlayerAvatarUrl(currentActivePlayer)}
+                                                avatar_frame={getPlayerAvatarFrame(currentActivePlayer)}
+                                                name={currentActivePlayer}
+                                                className="w-10 h-10 rounded-full border border-white/10 shadow-xs object-cover"
+                                              />
+                                              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-black/70 text-[8px] flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                🔍
+                                              </span>
+                                            </button>
+                                            <div>
+                                              <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                                <i className="fas fa-beer mr-2 text-amber-500"></i>Spiele von: {currentActivePlayer}
+                                              </h4>
+                                              <div className="flex items-center space-x-1.5 mt-0.5 flex-wrap">
+                                                <PlayerNameTag name={currentActivePlayer} colorKey={getPlayerNameBgColor(currentActivePlayer)} />
+                                                <PlayerLevelBadge level={getPlayerLevel(currentActivePlayer)} isGuest={isPlayerGuest(currentActivePlayer)} size="xs" />
+                                                {getPlayerTitle(currentActivePlayer) && (
+                                                  <PlayerTitleBadge title={getPlayerTitle(currentActivePlayer)} size="xs" />
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setPlayerMatchesSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+                                            }}
+                                            className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                                              playerMatchesSortDir === 'asc'
+                                                ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                                : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                                            }`}
+                                            title={playerMatchesSortDir === 'desc' ? 'Sortierung: Neueste zuerst (Klicken für Älteste zuerst)' : 'Sortierung: Älteste zuerst (Klicken für Neueste zuerst)'}
+                                            aria-label="Sortierreihenfolge umkehren"
+                                          >
+                                            <i className="fas fa-arrows-alt-v text-xs"></i>
+                                            <span className="text-[10px] font-black uppercase tracking-wider">
+                                              {playerMatchesSortDir === 'desc' ? '↓ Neu → Alt' : '↑ Alt → Neu'}
+                                            </span>
+                                          </button>
+                                        </div>
                                         <div className="overflow-x-auto">
                                           <table className="w-full text-left text-xs whitespace-nowrap">
                                             <thead>
@@ -8157,17 +8293,25 @@ const App: React.FC = () => {
                               );
                             })()}
 
-                        {activeStandardSubTab === 'highest_schnaepse' && (() => {
+                                                {activeStandardSubTab === 'highest_schnaepse' && (() => {
                           const sortedByAvgSchnaepse = [...playerStatsList].sort((a,b) => {
                             if (b.avgSchnaepsePerGame !== a.avgSchnaepsePerGame) {
-                              return b.avgSchnaepsePerGame - a.avgSchnaepsePerGame;
+                              return schnaepseSortDir === 'desc'
+                                ? b.avgSchnaepsePerGame - a.avgSchnaepsePerGame
+                                : a.avgSchnaepsePerGame - b.avgSchnaepsePerGame;
                             }
                             if (b.totalSchnaepse !== a.totalSchnaepse) {
-                              return b.totalSchnaepse - a.totalSchnaepse;
+                              return schnaepseSortDir === 'desc'
+                                ? b.totalSchnaepse - a.totalSchnaepse
+                                : a.totalSchnaepse - b.totalSchnaepse;
                             }
-                            return a.careerAverage - b.careerAverage;
+                            return schnaepseSortDir === 'desc'
+                              ? a.careerAverage - b.careerAverage
+                              : b.careerAverage - a.careerAverage;
                           });
-                          const sortedBySingleSchnaepse = [...filtered].sort((a,b) => b.schnaepse - a.schnaepse);
+                          const sortedBySingleSchnaepse = [...filtered].sort((a,b) =>
+                            schnaepseSortDir === 'desc' ? b.schnaepse - a.schnaepse : a.schnaepse - b.schnaepse
+                          );
                           
                           const topAvgSchnaepse = sortedByAvgSchnaepse[0];
                           const topSingle = sortedBySingleSchnaepse[0];
@@ -8177,18 +8321,33 @@ const App: React.FC = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {topAvgSchnaepse && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-yellow-500/20' : 'bg-emerald-500/5 border-emerald-500/10'} flex items-center space-x-4`}>
-                                    <div className="w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 text-xl font-bold">
-                                      👑
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topAvgSchnaepse.name); }}
+                                      className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                      title={`Profilbild von ${topAvgSchnaepse.name} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(topAvgSchnaepse.name)}
+                                        avatar_frame={getPlayerAvatarFrame(topAvgSchnaepse.name)}
+                                        name={topAvgSchnaepse.name}
+                                        className="w-12 h-12 rounded-full border border-yellow-500/40 shadow-xs object-cover"
+                                      />
+                                      <span className="absolute -top-1.5 -right-1 text-sm">👑</span>
+                                    </button>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Schnäpse-König (Ø pro Spiel)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <PlayerNameTag name={topAvgSchnaepse.name} colorKey={getPlayerNameBgColor(topAvgSchnaepse.name)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topAvgSchnaepse.name)} isGuest={isPlayerGuest(topAvgSchnaepse.name)} size="sm" />
-
-                                        {getPlayerTitle(topAvgSchnaepse.name) && (
-                                          <PlayerTitleBadge title={getPlayerTitle(topAvgSchnaepse.name)} size="sm" />
-                                        )}
+                                        <button
+                                          onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topAvgSchnaepse.name); }}
+                                          className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                        >
+                                          <PlayerNameTag name={topAvgSchnaepse.name} colorKey={getPlayerNameBgColor(topAvgSchnaepse.name)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topAvgSchnaepse.name)} isGuest={isPlayerGuest(topAvgSchnaepse.name)} size="sm" />
+                                          {getPlayerTitle(topAvgSchnaepse.name) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topAvgSchnaepse.name)} size="sm" />
+                                          )}
+                                        </button>
                                       </h5>
                                       <p className="text-xs font-semibold text-yellow-500">{topAvgSchnaepse.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel ({topAvgSchnaepse.gamesPlayed} Spiele)</p>
                                     </div>
@@ -8196,18 +8355,33 @@ const App: React.FC = () => {
                                 )}
                                 {topSingle && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-indigo-500/20' : 'bg-indigo-500/5 border-indigo-500/10'} flex items-center space-x-4`}>
-                                    <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-500 text-xl font-bold">
-                                      🍻
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingle.playerName); }}
+                                      className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                      title={`Profilbild von ${topSingle.playerName} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(topSingle.playerName)}
+                                        avatar_frame={getPlayerAvatarFrame(topSingle.playerName)}
+                                        name={topSingle.playerName}
+                                        className="w-12 h-12 rounded-full border border-indigo-500/40 shadow-xs object-cover"
+                                      />
+                                      <span className="absolute -top-1.5 -right-1 text-sm">🍻</span>
+                                    </button>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Rekord-Einzelspiel (Schnäpse)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <PlayerNameTag name={topSingle.playerName} colorKey={getPlayerNameBgColor(topSingle.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingle.playerName)} isGuest={isPlayerGuest(topSingle.playerName)} size="sm" />
-
-                                        {getPlayerTitle(topSingle.playerName) && (
-                                          <PlayerTitleBadge title={getPlayerTitle(topSingle.playerName)} size="sm" />
-                                        )}
+                                        <button
+                                          onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingle.playerName); }}
+                                          className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                        >
+                                          <PlayerNameTag name={topSingle.playerName} colorKey={getPlayerNameBgColor(topSingle.playerName)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topSingle.playerName)} isGuest={isPlayerGuest(topSingle.playerName)} size="sm" />
+                                          {getPlayerTitle(topSingle.playerName) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topSingle.playerName)} size="sm" />
+                                          )}
+                                        </button>
                                       </h5>
                                       <p className="text-xs font-semibold text-indigo-400">{topSingle.schnaepse} Schnäpse <span className="opacity-50 text-[10px]">({topSingle.date})</span></p>
                                     </div>
@@ -8222,27 +8396,50 @@ const App: React.FC = () => {
                                     {schnaepseSortMode === 'gesamt' ? 'Rangliste: Schnäpse-Durchschnitt (pro Spiel)' : 'Rangliste: Meiste Schnäpse Einzelspiel'}
                                   </h4>
                                   
-                                  {/* Toggle buttons */}
-                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                  {/* Toggle buttons & Sortierlogik drehen */}
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setSchnaepseSortMode('gesamt'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          schnaepseSortMode === 'gesamt'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Gesamt
+                                      </button>
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setSchnaepseSortMode('einzelspiel'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          schnaepseSortMode === 'einzelspiel'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Einzelspiel
+                                      </button>
+                                    </div>
+
+                                    {/* Sortierlogik umkehren */}
                                     <button
-                                      onClick={() => setSchnaepseSortMode('gesamt')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        schnaepseSortMode === 'gesamt'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSchnaepseSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+                                      }}
+                                      className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs ${
+                                        schnaepseSortDir === 'asc'
+                                          ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                          : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
                                       }`}
+                                      title={schnaepseSortDir === 'desc' ? 'Sortierung: Groß nach Klein (Klicken für Klein nach Groß)' : 'Sortierung: Klein nach Groß (Klicken für Groß nach Klein)'}
+                                      aria-label="Sortierreihenfolge umkehren"
                                     >
-                                      Gesamt
-                                    </button>
-                                    <button
-                                      onClick={() => setSchnaepseSortMode('einzelspiel')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        schnaepseSortMode === 'einzelspiel'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
-                                      }`}
-                                    >
-                                      Einzelspiel
+                                      <i className="fas fa-arrows-alt-v text-xs"></i>
+                                      <span className="text-[10px] font-black uppercase tracking-wider">
+                                        {schnaepseSortDir === 'desc' ? '↓ Groß → Klein' : '↑ Klein → Groß'}
+                                      </span>
                                     </button>
                                   </div>
                                 </div>
@@ -8251,22 +8448,40 @@ const App: React.FC = () => {
                                   {schnaepseSortMode === 'gesamt' ? (
                                     sortedByAvgSchnaepse.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2 pb-0.5">
-                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.name);
+                                            }}
+                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                            title={`Profilbild von ${p.name} in groß ansehen`}
+                                          >
+                                            <PlayerAvatar
+                                              url={getPlayerAvatarUrl(p.name)}
+                                              avatar_frame={getPlayerAvatarFrame(p.name)}
+                                              name={p.name}
+                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                            />
+                                          </button>
                                           <button 
-                                            onClick={() => setSelectedPlayerForDetails(p.name)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.name);
+                                            }}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
                                           >
                                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
                                             <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                             )}
                                             <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="text-right shrink-0">
                                           <span className="font-black text-sm text-yellow-500">{p.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel</span>
                                           <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
                                         </div>
@@ -8275,22 +8490,40 @@ const App: React.FC = () => {
                                   ) : (
                                     sortedBySingleSchnaepse.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2 pb-0.5">
-                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
+                                          >
+                                            <PlayerAvatar
+                                              url={getPlayerAvatarUrl(p.playerName)}
+                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
+                                              name={p.playerName}
+                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                            />
+                                          </button>
                                           <button 
-                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
                                           >
                                             <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
                                             <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
                                             <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="text-right shrink-0">
                                           <span className="font-black text-sm text-yellow-500">{p.schnaepse} Schnäpse</span>
                                           <span className="block text-[8px] opacity-40">{p.date} • Ø {p.avg.toFixed(2)}g</span>
                                         </div>
@@ -8304,8 +8537,12 @@ const App: React.FC = () => {
                         })()}
 
                         {activeStandardSubTab === 'best_avg' && (() => {
-                          const sortedByCareerAverage = [...playerStatsList].sort((a,b) => a.careerAverage - b.careerAverage);
-                          const sortedBySingleAverage = [...filtered].sort((a,b) => a.avg - b.avg);
+                          const sortedByCareerAverage = [...playerStatsList].sort((a,b) =>
+                            avgSortDir === 'asc' ? a.careerAverage - b.careerAverage : b.careerAverage - a.careerAverage
+                          );
+                          const sortedBySingleAverage = [...filtered].sort((a,b) =>
+                            avgSortDir === 'asc' ? a.avg - b.avg : b.avg - a.avg
+                          );
                           
                           const topCareerAvg = sortedByCareerAverage[0];
                           const topSingleAvg = sortedBySingleAverage[0];
@@ -8315,18 +8552,33 @@ const App: React.FC = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {topCareerAvg && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-emerald-500/20' : 'bg-emerald-500/5 border-emerald-500/10'} flex items-center space-x-4`}>
-                                    <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 text-xl font-bold">
-                                      🎯
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topCareerAvg.name); }}
+                                      className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                      title={`Profilbild von ${topCareerAvg.name} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(topCareerAvg.name)}
+                                        avatar_frame={getPlayerAvatarFrame(topCareerAvg.name)}
+                                        name={topCareerAvg.name}
+                                        className="w-12 h-12 rounded-full border border-emerald-500/40 shadow-xs object-cover"
+                                      />
+                                      <span className="absolute -top-1.5 -right-1 text-sm">🎯</span>
+                                    </button>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Präzisions-Meister (Ø Gesamt)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <PlayerNameTag name={topCareerAvg.name} colorKey={getPlayerNameBgColor(topCareerAvg.name)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topCareerAvg.name)} isGuest={isPlayerGuest(topCareerAvg.name)} size="sm" />
-
-                                        {getPlayerTitle(topCareerAvg.name) && (
-                                          <PlayerTitleBadge title={getPlayerTitle(topCareerAvg.name)} size="sm" />
-                                        )}
+                                        <button
+                                          onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topCareerAvg.name); }}
+                                          className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                        >
+                                          <PlayerNameTag name={topCareerAvg.name} colorKey={getPlayerNameBgColor(topCareerAvg.name)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topCareerAvg.name)} isGuest={isPlayerGuest(topCareerAvg.name)} size="sm" />
+                                          {getPlayerTitle(topCareerAvg.name) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topCareerAvg.name)} size="sm" />
+                                          )}
+                                        </button>
                                       </h5>
                                       <p className="text-xs font-semibold text-emerald-500">{topCareerAvg.careerAverage.toFixed(2)}g Ø-Abweichung</p>
                                     </div>
@@ -8334,18 +8586,33 @@ const App: React.FC = () => {
                                 )}
                                 {topSingleAvg && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-amber-500/20' : 'bg-amber-500/5 border-amber-500/10'} flex items-center space-x-4`}>
-                                    <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 text-xl font-bold">
-                                      ⚡
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingleAvg.playerName); }}
+                                      className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                      title={`Profilbild von ${topSingleAvg.playerName} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(topSingleAvg.playerName)}
+                                        avatar_frame={getPlayerAvatarFrame(topSingleAvg.playerName)}
+                                        name={topSingleAvg.playerName}
+                                        className="w-12 h-12 rounded-full border border-amber-500/40 shadow-xs object-cover"
+                                      />
+                                      <span className="absolute -top-1.5 -right-1 text-sm">⚡</span>
+                                    </button>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzelspiel (Avg)</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <PlayerNameTag name={topSingleAvg.playerName} colorKey={getPlayerNameBgColor(topSingleAvg.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingleAvg.playerName)} isGuest={isPlayerGuest(topSingleAvg.playerName)} size="sm" />
-
-                                        {getPlayerTitle(topSingleAvg.playerName) && (
-                                          <PlayerTitleBadge title={getPlayerTitle(topSingleAvg.playerName)} size="sm" />
-                                        )}
+                                        <button
+                                          onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingleAvg.playerName); }}
+                                          className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                        >
+                                          <PlayerNameTag name={topSingleAvg.playerName} colorKey={getPlayerNameBgColor(topSingleAvg.playerName)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topSingleAvg.playerName)} isGuest={isPlayerGuest(topSingleAvg.playerName)} size="sm" />
+                                          {getPlayerTitle(topSingleAvg.playerName) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topSingleAvg.playerName)} size="sm" />
+                                          )}
+                                        </button>
                                       </h5>
                                       <p className="text-xs font-semibold text-amber-500">{topSingleAvg.avg.toFixed(2)}g Abweichung <span className="opacity-50 text-[10px]">({topSingleAvg.date})</span></p>
                                     </div>
@@ -8360,27 +8627,50 @@ const App: React.FC = () => {
                                     Rangliste: Durchschnitt
                                   </h4>
                                   
-                                  {/* Toggle buttons */}
-                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                  {/* Toggle buttons & Sortierlogik drehen */}
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setAvgSortMode('gesamt'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          avgSortMode === 'gesamt'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Gesamtdurchschnitt
+                                      </button>
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setAvgSortMode('einzelspiel'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          avgSortMode === 'einzelspiel'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Einzelspiel
+                                      </button>
+                                    </div>
+
+                                    {/* Sortierlogik umkehren */}
                                     <button
-                                      onClick={() => setAvgSortMode('gesamt')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        avgSortMode === 'gesamt'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setAvgSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                      }}
+                                      className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs ${
+                                        avgSortDir === 'desc'
+                                          ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                          : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
                                       }`}
+                                      title={avgSortDir === 'asc' ? 'Sortierung: Klein nach Groß (Klicken für Groß nach Klein)' : 'Sortierung: Groß nach Klein (Klicken für Klein nach Groß)'}
+                                      aria-label="Sortierreihenfolge umkehren"
                                     >
-                                      Gesamtdurchschnitt
-                                    </button>
-                                    <button
-                                      onClick={() => setAvgSortMode('einzelspiel')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        avgSortMode === 'einzelspiel'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
-                                      }`}
-                                    >
-                                      Einzelspiel
+                                      <i className="fas fa-arrows-alt-v text-xs"></i>
+                                      <span className="text-[10px] font-black uppercase tracking-wider">
+                                        {avgSortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                                      </span>
                                     </button>
                                   </div>
                                 </div>
@@ -8389,22 +8679,40 @@ const App: React.FC = () => {
                                   {avgSortMode === 'gesamt' ? (
                                     sortedByCareerAverage.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2 pb-0.5">
-                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.name);
+                                            }}
+                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                            title={`Profilbild von ${p.name} in groß ansehen`}
+                                          >
+                                            <PlayerAvatar
+                                              url={getPlayerAvatarUrl(p.name)}
+                                              avatar_frame={getPlayerAvatarFrame(p.name)}
+                                              name={p.name}
+                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                            />
+                                          </button>
                                           <button 
-                                            onClick={() => setSelectedPlayerForDetails(p.name)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.name);
+                                            }}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
                                           >
                                             <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
                                             <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-
                                             {getPlayerTitle(p.name) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                             )}
                                             <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="text-right shrink-0">
                                           <span className="font-black text-sm text-emerald-500">{p.careerAverage.toFixed(2)}g</span>
                                           <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
                                         </div>
@@ -8413,22 +8721,40 @@ const App: React.FC = () => {
                                   ) : (
                                     sortedBySingleAverage.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2 pb-0.5">
-                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
+                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
+                                          >
+                                            <PlayerAvatar
+                                              url={getPlayerAvatarUrl(p.playerName)}
+                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
+                                              name={p.playerName}
+                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                            />
+                                          </button>
                                           <button 
-                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
                                           >
                                             <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
                                             <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
                                             <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="text-right shrink-0">
                                           <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
                                           <span className="block text-[8px] opacity-40">{p.date} • {p.schnaepse} Pkt</span>
                                         </div>
@@ -8442,11 +8768,13 @@ const App: React.FC = () => {
                         })()}
 
                         {activeStandardSubTab === 'best_total' && (() => {
-                          const sortedBySingleTotal = [...filtered].sort((a,b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse));
+                          const sortedBySingleTotal = [...filtered].sort((a,b) =>
+                            totalSortDir === 'asc' ? (a.avg + a.schnaepse) - (b.avg + b.schnaepse) : (b.avg + b.schnaepse) - (a.avg + a.schnaepse)
+                          );
                           const sortedByCareerAverageTotal = [...playerStatsList].sort((a,b) => {
                             const aTotalAvg = a.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / a.gamesPlayed;
                             const bTotalAvg = b.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / b.gamesPlayed;
-                            return aTotalAvg - bTotalAvg;
+                            return totalSortDir === 'asc' ? aTotalAvg - bTotalAvg : bTotalAvg - aTotalAvg;
                           });
                           
                           const topSingleTotal = sortedBySingleTotal[0];
@@ -8457,18 +8785,33 @@ const App: React.FC = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {topSingleTotal && (
                                   <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-purple-500/20' : 'bg-purple-500/5 border-purple-500/10'} flex items-center space-x-4`}>
-                                    <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-500 text-xl font-bold">
-                                      🏆
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingleTotal.playerName); }}
+                                      className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                      title={`Profilbild von ${topSingleTotal.playerName} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(topSingleTotal.playerName)}
+                                        avatar_frame={getPlayerAvatarFrame(topSingleTotal.playerName)}
+                                        name={topSingleTotal.playerName}
+                                        className="w-12 h-12 rounded-full border border-purple-500/40 shadow-xs object-cover"
+                                      />
+                                      <span className="absolute -top-1.5 -right-1 text-sm">🏆</span>
+                                    </button>
                                     <div>
                                       <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Einzel-Total</span>
                                       <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                        <PlayerNameTag name={topSingleTotal.playerName} colorKey={getPlayerNameBgColor(topSingleTotal.playerName)} />
-                                        <PlayerLevelBadge level={getPlayerLevel(topSingleTotal.playerName)} isGuest={isPlayerGuest(topSingleTotal.playerName)} size="sm" />
-
-                                        {getPlayerTitle(topSingleTotal.playerName) && (
-                                          <PlayerTitleBadge title={getPlayerTitle(topSingleTotal.playerName)} size="sm" />
-                                        )}
+                                        <button
+                                          onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topSingleTotal.playerName); }}
+                                          className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                        >
+                                          <PlayerNameTag name={topSingleTotal.playerName} colorKey={getPlayerNameBgColor(topSingleTotal.playerName)} />
+                                          <PlayerLevelBadge level={getPlayerLevel(topSingleTotal.playerName)} isGuest={isPlayerGuest(topSingleTotal.playerName)} size="sm" />
+                                          {getPlayerTitle(topSingleTotal.playerName) && (
+                                            <PlayerTitleBadge title={getPlayerTitle(topSingleTotal.playerName)} size="sm" />
+                                          )}
+                                        </button>
                                       </h5>
                                       <p className="text-xs font-semibold text-purple-400">Total: {(topSingleTotal.avg + topSingleTotal.schnaepse).toFixed(2)} <span className="opacity-75 text-[10px]">({topSingleTotal.avg.toFixed(2)}g Avg + {topSingleTotal.schnaepse} Schnäpse)</span></p>
                                     </div>
@@ -8478,18 +8821,33 @@ const App: React.FC = () => {
                                   const avgTotal = topCareerAverageTotal.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / topCareerAverageTotal.gamesPlayed;
                                   return (
                                     <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-blue-500/20' : 'bg-blue-500/5 border-blue-500/10'} flex items-center space-x-4`}>
-                                      <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 text-xl font-bold">
-                                        📊
-                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topCareerAverageTotal.name); }}
+                                        className="relative group shrink-0 cursor-pointer focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                                        title={`Profilbild von ${topCareerAverageTotal.name} in groß ansehen`}
+                                      >
+                                        <PlayerAvatar
+                                          url={getPlayerAvatarUrl(topCareerAverageTotal.name)}
+                                          avatar_frame={getPlayerAvatarFrame(topCareerAverageTotal.name)}
+                                          name={topCareerAverageTotal.name}
+                                          className="w-12 h-12 rounded-full border border-blue-500/40 shadow-xs object-cover"
+                                        />
+                                        <span className="absolute -top-1.5 -right-1 text-sm">📊</span>
+                                      </button>
                                       <div>
                                         <span className="text-[10px] uppercase font-bold opacity-50 block">Bestes Durchschnitts-Total</span>
                                         <h5 className="font-black text-base flex items-center space-x-2 flex-wrap gap-y-1">
-                                          <PlayerNameTag name={topCareerAverageTotal.name} colorKey={getPlayerNameBgColor(topCareerAverageTotal.name)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(topCareerAverageTotal.name)} isGuest={isPlayerGuest(topCareerAverageTotal.name)} size="sm" />
-
-                                          {getPlayerTitle(topCareerAverageTotal.name) && (
-                                            <PlayerTitleBadge title={getPlayerTitle(topCareerAverageTotal.name)} size="sm" />
-                                          )}
+                                          <button
+                                            onClick={() => { playGlobalClickSound(); setSelectedPlayerForDetails(topCareerAverageTotal.name); }}
+                                            className="hover:underline text-left cursor-pointer flex items-center space-x-1.5 group flex-wrap"
+                                          >
+                                            <PlayerNameTag name={topCareerAverageTotal.name} colorKey={getPlayerNameBgColor(topCareerAverageTotal.name)} />
+                                            <PlayerLevelBadge level={getPlayerLevel(topCareerAverageTotal.name)} isGuest={isPlayerGuest(topCareerAverageTotal.name)} size="sm" />
+                                            {getPlayerTitle(topCareerAverageTotal.name) && (
+                                              <PlayerTitleBadge title={getPlayerTitle(topCareerAverageTotal.name)} size="sm" />
+                                            )}
+                                          </button>
                                         </h5>
                                         <p className="text-xs font-semibold text-blue-400">Ø Total: {avgTotal.toFixed(2)} <span className="opacity-50 text-[10px]">({topCareerAverageTotal.gamesPlayed} Spiele)</span></p>
                                       </div>
@@ -8505,27 +8863,50 @@ const App: React.FC = () => {
                                     Rangliste: Total
                                   </h4>
                                   
-                                  {/* Toggle buttons */}
-                                  <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                  {/* Toggle buttons & Sortierlogik drehen */}
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1.5 p-1 rounded-xl bg-black/10 w-fit">
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setTotalSortMode('gesamt'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          totalSortMode === 'gesamt'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Gesamtdurchschnitt
+                                      </button>
+                                      <button
+                                        onClick={() => { playGlobalClickSound(); setTotalSortMode('einzelspiel'); }}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                          totalSortMode === 'einzelspiel'
+                                            ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
+                                            : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                        }`}
+                                      >
+                                        Einzelspiel
+                                      </button>
+                                    </div>
+
+                                    {/* Sortierlogik umkehren */}
                                     <button
-                                      onClick={() => setTotalSortMode('gesamt')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        totalSortMode === 'gesamt'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setTotalSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                      }}
+                                      className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs ${
+                                        totalSortDir === 'desc'
+                                          ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                          : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
                                       }`}
+                                      title={totalSortDir === 'asc' ? 'Sortierung: Klein nach Groß (Klicken für Groß nach Klein)' : 'Sortierung: Groß nach Klein (Klicken für Klein nach Groß)'}
+                                      aria-label="Sortierreihenfolge umkehren"
                                     >
-                                      Gesamtdurchschnitt
-                                    </button>
-                                    <button
-                                      onClick={() => setTotalSortMode('einzelspiel')}
-                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        totalSortMode === 'einzelspiel'
-                                          ? 'bg-indigo-600 text-white shadow shadow-indigo-600/30'
-                                          : (darkMode ? 'hover:bg-slate-800 text-gray-300' : 'hover:bg-gray-200 text-gray-800')
-                                      }`}
-                                    >
-                                      Einzelspiel
+                                      <i className="fas fa-arrows-alt-v text-xs"></i>
+                                      <span className="text-[10px] font-black uppercase tracking-wider">
+                                        {totalSortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                                      </span>
                                     </button>
                                   </div>
                                 </div>
@@ -8536,22 +8917,40 @@ const App: React.FC = () => {
                                       const careerTotalAvg = p.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / p.gamesPlayed;
                                       return (
                                         <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                          <div className="flex items-center space-x-2 pb-0.5">
-                                            <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                            <button 
-                                              onClick={() => setSelectedPlayerForDetails(p.name)}
-                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                          <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                            <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                playGlobalClickSound();
+                                                setSelectedPlayerForDetails(p.name);
+                                              }}
+                                              className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                              title={`Profilbild von ${p.name} in groß ansehen`}
                                             >
-                                              <span>{p.name}</span>
+                                              <PlayerAvatar
+                                                url={getPlayerAvatarUrl(p.name)}
+                                                avatar_frame={getPlayerAvatarFrame(p.name)}
+                                                name={p.name}
+                                                className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                              />
+                                            </button>
+                                            <button 
+                                              onClick={() => {
+                                                playGlobalClickSound();
+                                                setSelectedPlayerForDetails(p.name);
+                                              }}
+                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                            >
+                                              <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
                                               <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-
                                               {getPlayerTitle(p.name) && (
                                                 <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                               )}
                                               <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                             </button>
                                           </div>
-                                          <div className="text-right">
+                                          <div className="text-right shrink-0">
                                             <span className="font-black text-sm text-purple-400">{careerTotalAvg.toFixed(2)}</span>
                                             <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
                                           </div>
@@ -8561,22 +8960,40 @@ const App: React.FC = () => {
                                   ) : (
                                     sortedBySingleTotal.slice(0, 10).map((p, idx) => (
                                       <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2 pb-0.5">
-                                          <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                          <button 
-                                            onClick={() => setSelectedPlayerForDetails(p.playerName)}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
                                           >
-                                            <span>{p.playerName}</span>
+                                            <PlayerAvatar
+                                              url={getPlayerAvatarUrl(p.playerName)}
+                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
+                                              name={p.playerName}
+                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                            />
+                                          </button>
+                                          <button 
+                                            onClick={() => {
+                                              playGlobalClickSound();
+                                              setSelectedPlayerForDetails(p.playerName);
+                                            }}
+                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                          >
+                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
                                             <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-
                                             {getPlayerTitle(p.playerName) && (
                                               <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                             )}
                                             <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                           </button>
                                         </div>
-                                        <div className="text-right">
+                                        <div className="text-right shrink-0">
                                           <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(2)}</span>
                                           <span className="block text-[8px] opacity-40">{p.avg.toFixed(2)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
                                         </div>
@@ -8611,45 +9028,106 @@ const App: React.FC = () => {
                     }
                   });
 
+                  const isSpeedTab = effectiveGameTab === 'Speedwiegen';
+                  const activeBestsSortDir = isSpeedTab ? speedBestsSortDir : teamBestsSortDir;
+                  const activePointsSortDir = isSpeedTab ? speedPointsSortDir : teamPointsSortDir;
+                  const activeHistorySortDir = isSpeedTab ? speedHistorySortDir : teamHistorySortDir;
+
                   const leaderboardAverages = Object.entries(personalBests)
                     .map(([name, data]) => ({ name, ...data }))
-                    .sort((a, b) => a.avg - b.avg); // lower is better
+                    .sort((a, b) => activeBestsSortDir === 'asc' ? a.avg - b.avg : b.avg - a.avg);
 
                   // 2. Leaderboard of highest single-game points (schnaepse) (lowest time is better for Speedwiegen)
                   const pointsLeaderboard = [...filtered]
-                    .sort((a, b) => effectiveGameTab === 'Speedwiegen' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse)
-                    .slice(0, 10); // top 10
+                    .sort((a, b) => {
+                      if (isSpeedTab) {
+                        return activePointsSortDir === 'asc' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse;
+                      }
+                      return activePointsSortDir === 'desc' ? b.schnaepse - a.schnaepse : a.schnaepse - b.schnaepse;
+                    })
+                    .slice(0, 10);
 
                   const speedmeisterList = [...filtered]
-                    .sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse));
+                    .sort((a, b) => speedmeisterSortDir === 'asc'
+                      ? (a.avg + a.schnaepse) - (b.avg + b.schnaepse)
+                      : (b.avg + b.schnaepse) - (a.avg + a.schnaepse)
+                    );
 
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
                       {effectiveGameTab === 'Speedwiegen' ? (
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                          <h4 className="text-sm font-black uppercase mb-1 tracking-wider text-yellow-500 flex items-center">
-                            <i className="fas fa-trophy mr-2 text-amber-400"></i>Speedmeister-Rangliste
-                          </h4>
-                          <p className="text-[10px] opacity-50 mb-3 font-bold">
-                            (Ø Abstand + Zeit in Sekunden – je niedriger desto besser)
-                          </p>
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 pb-2 border-b border-gray-500/10">
+                            <div>
+                              <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                <i className="fas fa-trophy mr-2 text-amber-400"></i>Speedmeister-Rangliste
+                              </h4>
+                              <p className="text-[10px] opacity-50 font-bold">
+                                (Ø Abstand + Zeit in Sekunden – je niedriger desto besser)
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                playGlobalClickSound();
+                                setSpeedmeisterSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                              }}
+                              className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                                speedmeisterSortDir === 'desc'
+                                  ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                  : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                              }`}
+                              title={speedmeisterSortDir === 'asc' ? 'Sortierung: Klein nach Groß (Klicken für Groß nach Klein)' : 'Sortierung: Groß nach Klein (Klicken für Klein nach Groß)'}
+                              aria-label="Sortierreihenfolge umkehren"
+                            >
+                              <i className="fas fa-arrows-alt-v text-xs"></i>
+                              <span className="text-[10px] font-black uppercase tracking-wider">
+                                {speedmeisterSortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                              </span>
+                            </button>
+                          </div>
+
                           <div className="space-y-2">
                             {speedmeisterList.slice(0, 10).map((p, idx) => {
                               const score = (p.avg + p.schnaepse).toFixed(1);
                               return (
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                  <div className="flex items-center space-x-3">
-                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black text-sm flex items-center space-x-1.5 flex-wrap">
-                                      <span>{p.playerName}</span>
+                                  <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                    <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.playerName);
+                                      }}
+                                      className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                      title={`Profilbild von ${p.playerName} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(p.playerName)}
+                                        avatar_frame={getPlayerAvatarFrame(p.playerName)}
+                                        name={p.playerName}
+                                        className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.playerName);
+                                      }}
+                                      className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                    >
+                                      <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
                                       <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                       )}
-                                    </span>
+                                      <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                    </button>
                                   </div>
-                                  <div className="text-right">
+                                  <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-amber-400">Score: {score}</span>
                                     <span className="block text-[10px] opacity-60">
                                       (Ø {p.avg.toFixed(1)}g + {p.schnaepse.toFixed(1)}s{p.levels !== undefined ? ` • ${p.levels} Stufen` : ''} • {p.date})
@@ -8669,25 +9147,77 @@ const App: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {/* Averages Section */}
                           <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                            <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                              <i className="fas fa-medal mr-2 text-amber-400"></i>Persönliche Bestwerte (Ø Abstand)
-                            </h4>
-                            <p className="text-[10px] opacity-50 mb-3 uppercase font-bold">Niedrigster Ø-Abstand zählt (Je niedriger desto besser)</p>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 pb-2 border-b border-gray-500/10">
+                              <div>
+                                <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                  <i className="fas fa-medal mr-2 text-amber-400"></i>Persönliche Bestwerte (Ø Abstand)
+                                </h4>
+                                <p className="text-[10px] opacity-50 uppercase font-bold">Niedrigster Ø-Abstand zählt</p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  playGlobalClickSound();
+                                  if (isSpeedTab) {
+                                    setSpeedBestsSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setTeamBestsSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                  }
+                                }}
+                                className={`p-1 px-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                                  activeBestsSortDir === 'desc'
+                                    ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                    : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                                }`}
+                                title="Sortierreihenfolge umkehren"
+                                aria-label="Sortierreihenfolge umkehren"
+                              >
+                                <i className="fas fa-arrows-alt-v text-xs"></i>
+                                <span className="text-[10px] font-black uppercase tracking-wider">
+                                  {activeBestsSortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                                </span>
+                              </button>
+                            </div>
+
                             <div className="space-y-2">
                               {leaderboardAverages.slice(0, 10).map((p, idx) => (
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                  <div className="flex items-center space-x-3">
-                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black flex items-center space-x-1.5 flex-wrap">
-                                      <span>{p.name}</span>
+                                  <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                    <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.name);
+                                      }}
+                                      className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                      title={`Profilbild von ${p.name} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(p.name)}
+                                        avatar_frame={getPlayerAvatarFrame(p.name)}
+                                        name={p.name}
+                                        className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.name);
+                                      }}
+                                      className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                    >
+                                      <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
                                       <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-
                                       {getPlayerTitle(p.name) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                       )}
-                                    </span>
+                                      <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                    </button>
                                   </div>
-                                  <div className="text-right">
+                                  <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
                                     <span className="block text-[8px] opacity-40">
                                       {p.date}{effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
@@ -8705,28 +9235,80 @@ const App: React.FC = () => {
 
                           {/* Points (Schnäpse) / Time Section */}
                           <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                            <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                              <i className={effectiveGameTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
-                              {effectiveGameTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
-                            </h4>
-                            <p className="text-[10px] opacity-50 mb-3 uppercase font-bold font-bold">
-                              {effectiveGameTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
-                            </p>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 pb-2 border-b border-gray-500/10">
+                              <div>
+                                <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                  <i className={effectiveGameTab === 'Speedwiegen' ? "fas fa-stopwatch mr-2 text-yellow-500" : "fas fa-crown mr-2 text-yellow-500"}></i>
+                                  {effectiveGameTab === 'Speedwiegen' ? 'Schnellste Zeiten' : 'Meiste Schnäpse in einem Spiel'}
+                                </h4>
+                                <p className="text-[10px] opacity-50 uppercase font-bold">
+                                  {effectiveGameTab === 'Speedwiegen' ? 'Kürzeste benötigte Zeit' : 'Meiste erlangte Punkte / Schnäpse'}
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  playGlobalClickSound();
+                                  if (isSpeedTab) {
+                                    setSpeedPointsSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setTeamPointsSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                  }
+                                }}
+                                className={`p-1 px-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                                  (isSpeedTab ? activePointsSortDir === 'desc' : activePointsSortDir === 'asc')
+                                    ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                    : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                                }`}
+                                title="Sortierreihenfolge umkehren"
+                                aria-label="Sortierreihenfolge umkehren"
+                              >
+                                <i className="fas fa-arrows-alt-v text-xs"></i>
+                                <span className="text-[10px] font-black uppercase tracking-wider">
+                                  {activePointsSortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                                </span>
+                              </button>
+                            </div>
+
                             <div className="space-y-2">
                               {pointsLeaderboard.map((p, idx) => (
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                  <div className="flex items-center space-x-3">
-                                    <span className="font-black text-xs opacity-50">#{idx + 1}</span>
-                                    <span className="font-black flex items-center space-x-1.5 flex-wrap">
-                                      <span>{p.playerName}</span>
+                                  <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
+                                    <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.playerName);
+                                      }}
+                                      className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                      title={`Profilbild von ${p.playerName} in groß ansehen`}
+                                    >
+                                      <PlayerAvatar
+                                        url={getPlayerAvatarUrl(p.playerName)}
+                                        avatar_frame={getPlayerAvatarFrame(p.playerName)}
+                                        name={p.playerName}
+                                        className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setSelectedPlayerForDetails(p.playerName);
+                                      }}
+                                      className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                    >
+                                      <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
                                       <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-
                                       {getPlayerTitle(p.playerName) && (
                                         <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
                                       )}
-                                    </span>
+                                      <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
+                                    </button>
                                   </div>
-                                  <div className="text-right">
+                                  <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-indigo-400">
                                       {effectiveGameTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
                                     </span>
@@ -8748,30 +9330,65 @@ const App: React.FC = () => {
 
                       {/* Complete Game History Log / Ranking im Speedwiegen */}
                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                        <h4 className="text-sm font-black uppercase mb-4 tracking-wider text-yellow-500 flex items-center">
-                          <i className="fas fa-history mr-2 opacity-50"></i>
-                          {effectiveGameTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
-                        </h4>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-2 border-b border-gray-500/10">
+                          <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                            <i className="fas fa-history mr-2 opacity-50"></i>
+                            {effectiveGameTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
+                          </h4>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playGlobalClickSound();
+                              if (isSpeedTab) {
+                                setSpeedHistorySortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setTeamHistorySortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                              }
+                            }}
+                            className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                              activeHistorySortDir === 'desc'
+                                ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                                : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                            }`}
+                            title="Sortierreihenfolge umkehren"
+                            aria-label="Sortierreihenfolge umkehren"
+                          >
+                            <i className="fas fa-arrows-alt-v text-xs"></i>
+                            <span className="text-[10px] font-black uppercase tracking-wider">
+                              {activeHistorySortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
+                            </span>
+                          </button>
+                        </div>
+
                         <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
+                          <table className="w-full text-left text-xs whitespace-nowrap">
                             <thead>
                               <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold">
-                                <th className="pb-2">Datum</th>
-                                <th className="pb-2">Spieler/Team</th>
-                                <th className="pb-2">Ø-Abstand</th>
-                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2">Stufen</th>}
-                                <th className="pb-2 text-right">{effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
+                                <th className="pb-2 pr-3">Datum</th>
+                                <th className="pb-2 pr-3">Spieler/Team</th>
+                                <th className="pb-2 pr-3">Ø-Abstand</th>
+                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2 pr-3">Stufen</th>}
+                                <th className="pb-2 text-right pr-3">{effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
                                 {effectiveGameTab === 'Speedwiegen' && <th className="pb-2 text-right">Score</th>}
                               </tr>
                             </thead>
                             <tbody>
                               {(() => {
-                                const displayList = effectiveGameTab === 'Speedwiegen'
-                                  ? [...filtered].sort((a, b) => (a.avg + a.schnaepse) - (b.avg + b.schnaepse))
-                                  : filtered;
+                                let displayList = [...filtered];
+                                if (effectiveGameTab === 'Speedwiegen') {
+                                  displayList.sort((a, b) => activeHistorySortDir === 'asc'
+                                    ? (a.avg + a.schnaepse) - (b.avg + b.schnaepse)
+                                    : (b.avg + b.schnaepse) - (a.avg + a.schnaepse)
+                                  );
+                                } else {
+                                  if (activeHistorySortDir === 'asc') {
+                                    displayList.reverse();
+                                  }
+                                }
                                 return displayList.slice(0, 50).map((item, idx) => (
                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
-                                    <td className="py-2 opacity-75 font-semibold">
+                                    <td className="py-2.5 opacity-75 font-semibold pr-3">
                                       <div>{item.date}</div>
                                       {item.tournament_name && (
                                         <div className="mt-0.5">
@@ -8781,42 +9398,53 @@ const App: React.FC = () => {
                                         </div>
                                       )}
                                     </td>
-                                    <td className="py-2 font-black">
-                                      {effectiveGameTab === 'Standardspiel' ? (
+                                    <td className="py-2.5 font-black pr-3">
+                                      <div className="flex items-center space-x-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            playGlobalClickSound();
+                                            setSelectedPlayerForDetails(item.playerName);
+                                          }}
+                                          className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
+                                          title={`Profilbild von ${item.playerName} in groß ansehen`}
+                                        >
+                                          <PlayerAvatar
+                                            url={getPlayerAvatarUrl(item.playerName)}
+                                            avatar_frame={getPlayerAvatarFrame(item.playerName)}
+                                            name={item.playerName}
+                                            className="w-7 h-7 rounded-full border border-white/10 shadow-xs object-cover"
+                                          />
+                                        </button>
                                         <button 
-                                          onClick={() => setSelectedPlayerForDetails(item.playerName)}
-                                          className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap"
+                                          type="button"
+                                          onClick={() => {
+                                            playGlobalClickSound();
+                                            setSelectedPlayerForDetails(item.playerName);
+                                          }}
+                                          className="hover:underline text-left cursor-pointer hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
                                         >
                                           <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} isGuest={isPlayerGuest(item.playerName)} size="sm" />
+                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} isGuest={isPlayerGuest(item.playerName)} size="xs" />
 
                                           {getPlayerTitle(item.playerName) && (
-                                            <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
+                                            <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="xs" />
                                           )}
                                           <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
                                         </button>
-                                      ) : (
-                                        <span className="inline-flex items-center space-x-1.5 flex-wrap">
-                                          <PlayerNameTag name={item.playerName} colorKey={getPlayerNameBgColor(item.playerName)} />
-                                          <PlayerLevelBadge level={getPlayerLevel(item.playerName)} isGuest={isPlayerGuest(item.playerName)} size="sm" />
-
-                                          {getPlayerTitle(item.playerName) && (
-                                            <PlayerTitleBadge title={getPlayerTitle(item.playerName)} size="sm" />
-                                          )}
-                                        </span>
-                                      )}
+                                      </div>
                                     </td>
-                                    <td className="py-2 text-emerald-500 font-bold">{item.avg.toFixed(2)}g</td>
+                                    <td className="py-2.5 text-emerald-500 font-bold pr-3">{item.avg.toFixed(2)}g</td>
                                     {effectiveGameTab === 'Speedwiegen' && (
-                                      <td className="py-2 text-indigo-400 font-bold">
+                                      <td className="py-2.5 text-indigo-400 font-bold pr-3">
                                         {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
                                       </td>
                                     )}
-                                    <td className="py-2 text-right font-black text-indigo-400">
+                                    <td className="py-2.5 text-right font-black text-indigo-400 pr-3">
                                       {effectiveGameTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
                                     </td>
                                     {effectiveGameTab === 'Speedwiegen' && (
-                                      <td className="py-2 text-right font-black text-purple-400">
+                                      <td className="py-2.5 text-right font-black text-purple-400">
                                         {(item.avg + item.schnaepse).toFixed(1)}
                                       </td>
                                     )}
@@ -8843,64 +9471,360 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {selectedPlayerForDetails && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 flex-wrap gap-y-1" style={{ color: BRAND_COLOR }}>
-                <span>Historie:</span>
-                <PlayerNameTag name={selectedPlayerForDetails} colorKey={getPlayerNameBgColor(selectedPlayerForDetails)} className="px-2 py-0.5" />
-                <PlayerLevelBadge level={getPlayerLevel(selectedPlayerForDetails)} isGuest={isPlayerGuest(selectedPlayerForDetails)} size="md" />
-
-                {getPlayerTitle(selectedPlayerForDetails) && (
-                  <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
-                )}
-              </h3>
-              <button 
-                onClick={() => setSelectedPlayerForDetails(null)} 
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+      {/* Lightbox für Profilbild in Großansicht (wie bei Wiegschaften) */}
+      {isPlayerAvatarFullscreen && selectedPlayerForDetails && (
+        <div
+          className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
+          onClick={() => setIsPlayerAvatarFullscreen(false)}
+        >
+          <div className="absolute top-4 right-4 flex items-center space-x-2 z-10">
+            {getPlayerAvatarUrl(selectedPlayerForDetails) && getPlayerAvatarUrl(selectedPlayerForDetails).startsWith('http') && (
+              <a
+                href={getPlayerAvatarUrl(selectedPlayerForDetails)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/30 text-white text-xs font-bold transition-all flex items-center space-x-1.5 backdrop-blur-md"
               >
-                <i className="fas fa-times text-xl"></i>
+                <span>Original öffnen</span>
+                <i className="fas fa-external-link-alt text-[10px]"></i>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsPlayerAvatarFullscreen(false)}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center text-lg cursor-pointer transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="max-w-md max-h-[85vh] flex flex-col items-center justify-center space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="relative p-2.5 rounded-3xl bg-gradient-to-tr from-amber-500/30 to-yellow-500/10 border-2 border-amber-500/40 shadow-2xl">
+              <img
+                src={getPlayerAvatarUrl(selectedPlayerForDetails)}
+                alt={selectedPlayerForDetails}
+                className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-2xl"
+              />
+            </div>
+            <div className="text-center text-white/90 text-xs">
+              <span className="font-black text-white text-base">{selectedPlayerForDetails}</span>
+              <span className="mx-2 opacity-50">•</span>
+              <span>Offizielles Spieler-Profilbild</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedPlayerForDetails && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className={`rounded-3xl p-5 sm:p-7 max-w-xl w-full border shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto flex flex-col ${
+            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+          }`}>
+            {/* Header mit Titel & Close Button */}
+            <div className="flex items-center justify-between border-b border-gray-500/15 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center text-base font-black">
+                  👤
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wider flex items-center space-x-2">
+                    <span>Spieler-Profil & Details</span>
+                  </h3>
+                  <p className="text-[11px] opacity-60">Großansicht des Profilbilds und Leistungsdaten</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setSelectedPlayerForDetails(null)} 
+                className="w-8 h-8 rounded-full border border-gray-500/20 flex items-center justify-center text-sm opacity-60 hover:opacity-100 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              >
+                ✕
               </button>
             </div>
-            
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
-              {(() => {
-                const list = parseRecords(recordsData || []);
-                const targetMode = standardspielSizeTab === '500ml' ? 'Standardspiel (500ml)' : 'Standardspiel (0,33L)';
-                const filteredList = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, targetMode) && r.playerName === selectedPlayerForDetails);
-                
-                if (filteredList.length === 0) {
-                  return <p className="text-center opacity-60 py-8 text-sm">Keine Spiele für diesen Modus aufgezeichnet.</p>;
-                }
-                
-                return [...filteredList].reverse().map((item, idx) => (
-                  <div key={idx} className={`p-4 rounded-xl border flex justify-between items-center ${darkMode ? 'bg-slate-900/60 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                    <div>
-                      <p className="font-bold text-sm">{item.date}</p>
-                      {item.tournament_name && (
-                        <div className="mt-0.5">
-                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                            [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
-                          </span>
-                        </div>
+
+            {/* Hero Card: Großes Profilbild & Spieler-Infos (Wiegschaften-Stil) */}
+            {(() => {
+              const playerXp = getPlayerXp(selectedPlayerForDetails);
+              const lvlInfo = calculateLevelFromXp(playerXp);
+              const isGuest = isPlayerGuest(selectedPlayerForDetails);
+              const avatarUrl = getPlayerAvatarUrl(selectedPlayerForDetails);
+
+              return (
+                <div className={`p-4 sm:p-5 rounded-2xl border ${darkMode ? 'bg-black/30 border-white/5' : 'bg-gray-50 border-black/5'} flex flex-col sm:flex-row items-center sm:items-start gap-4`}>
+                  {/* Großes Profilbild - Klickbar für Fullscreen Lightbox */}
+                  <div className="relative group shrink-0 flex flex-col items-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playGlobalClickSound();
+                        setIsPlayerAvatarFullscreen(true);
+                      }}
+                      className="relative p-1 rounded-2xl cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none ring-2 ring-amber-500/40 hover:ring-amber-500"
+                      title="Klicken für vergrößerte Ansicht"
+                    >
+                      <PlayerAvatar
+                        url={avatarUrl}
+                        avatar_frame={getPlayerAvatarFrame(selectedPlayerForDetails)}
+                        name={selectedPlayerForDetails}
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl shadow-lg object-cover"
+                      />
+                      <div className="absolute inset-1 rounded-xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                        <i className="fas fa-search-plus text-lg"></i>
+                      </div>
+                    </button>
+                    <span className="mt-1.5 text-[9px] font-bold text-amber-500 tracking-wider flex items-center space-x-1">
+                      <i className="fas fa-expand text-[8px]"></i>
+                      <span>Großansicht</span>
+                    </span>
+                  </div>
+
+                  {/* Spieler-Details & XP */}
+                  <div className="flex-1 w-full text-center sm:text-left space-y-2">
+                    <div className="flex items-center justify-center sm:justify-start space-x-2 flex-wrap gap-y-1">
+                      <PlayerNameTag name={selectedPlayerForDetails} colorKey={getPlayerNameBgColor(selectedPlayerForDetails)} className="text-sm px-2.5 py-0.5" />
+                      <PlayerLevelBadge level={lvlInfo.level} isGuest={isGuest} size="md" />
+                      {getPlayerTitle(selectedPlayerForDetails) && (
+                        <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
                       )}
-                      <p className="text-[10px] opacity-60">
-                        {normalizeGameMode(item.game_mode || item.gameMode)}
-                      </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-emerald-500 font-bold text-sm">Ø: {item.avg.toFixed(2)}g</p>
-                      <p className="text-indigo-400 font-bold text-xs">{item.schnaepse} Pkt / Schnäpse</p>
+
+                    {/* Wiegschaft / Gilde Badge falls vorhanden */}
+                    {playerGuildInfo ? (
+                      <div className="inline-flex items-center space-x-2 px-2.5 py-1 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-600 dark:text-teal-400 text-xs font-bold">
+                        <span>🏰 Wiegschaft:</span>
+                        <span className="font-black">[{playerGuildInfo.tag}] {playerGuildInfo.name}</span>
+                        {playerGuildInfo.role && (
+                          <span className="text-[10px] opacity-75">({playerGuildInfo.role === 'leader' ? '👑 Anführer' : playerGuildInfo.role === 'officer' ? '⚔️ Offizier' : 'Mitglied'})</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] opacity-60">
+                        {isGuest ? '👤 Gastspieler (ohne Account)' : '🛡️ Freier Spieler (keine Wiegschaft)'}
+                      </div>
+                    )}
+
+                    {/* XP Progress Bar */}
+                    <div className="space-y-1 pt-1 max-w-md">
+                      <div className="flex justify-between text-[10px] font-bold opacity-75">
+                        <span>Level {lvlInfo.level} • {lvlInfo.title}</span>
+                        <span>{lvlInfo.currentLevelXp} / {lvlInfo.neededForNextLevel} XP ({Math.round(lvlInfo.progressPercent)}%)</span>
+                      </div>
+                      <div className="h-2 w-full bg-black/20 dark:bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300 rounded-full"
+                          style={{ width: `${Math.min(100, Math.max(5, lvlInfo.progressPercent))}%` }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
-                ));
-              })()}
+                </div>
+              );
+            })()}
+
+            {/* Modal Tabs */}
+            <div className="flex items-center space-x-2 p-1 rounded-xl bg-black/10 dark:bg-white/5">
+              <button
+                type="button"
+                onClick={() => setPlayerDetailsTab('overview')}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  playerDetailsTab === 'overview'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'opacity-65 hover:opacity-100'
+                }`}
+              >
+                <span>🌟</span>
+                <span>Übersicht & Rekorde</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlayerDetailsTab('history')}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  playerDetailsTab === 'history'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'opacity-65 hover:opacity-100'
+                }`}
+              >
+                <span>📜</span>
+                <span>Spiel-Historie</span>
+              </button>
             </div>
+
+            {/* Tab-Inhalte */}
+            {(() => {
+              const allParsed = parseRecords(recordsData || []);
+              const playerMatches = allParsed.filter(r => r.playerName === selectedPlayerForDetails);
+              
+              if (playerDetailsTab === 'overview') {
+                const totalGames = playerMatches.length;
+                const careerAvg = totalGames > 0
+                  ? (playerMatches.reduce((sum, g) => sum + g.avg, 0) / totalGames)
+                  : 0;
+                const bestSingle = totalGames > 0
+                  ? Math.min(...playerMatches.map(g => g.avg))
+                  : 0;
+                const totalSchnaepse = playerMatches.reduce((sum, g) => sum + g.schnaepse, 0);
+                const avgSchnaepse = totalGames > 0 ? (totalSchnaepse / totalGames) : 0;
+                const bestTotalScore = totalGames > 0
+                  ? Math.min(...playerMatches.map(g => g.avg + g.schnaepse))
+                  : 0;
+
+                const tournaments = Array.from(new Set(playerMatches.map(m => m.tournament_name).filter(Boolean)));
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">🎮 Spiele Gesamt</span>
+                        <span className="text-lg font-black text-amber-500">{totalGames}</span>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">🎯 Karriere-Ø</span>
+                        <span className="text-lg font-black text-emerald-500">{careerAvg.toFixed(2)}g</span>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">⚡ Bester Einzel-Ø</span>
+                        <span className="text-lg font-black text-emerald-400">{bestSingle.toFixed(2)}g</span>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">🍻 Schnäpse Gesamt</span>
+                        <span className="text-lg font-black text-indigo-400">{totalSchnaepse}</span>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">👑 Schnäpse-Ø</span>
+                        <span className="text-lg font-black text-yellow-500">{avgSchnaepse.toFixed(2)} / Spiel</span>
+                      </div>
+                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
+                        <span className="text-[10px] uppercase font-bold opacity-50 block">🏆 Bestes Total</span>
+                        <span className="text-lg font-black text-purple-400">{bestTotalScore.toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    {tournaments.length > 0 && (
+                      <div className={`p-3.5 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'}`}>
+                        <span className="text-[10px] uppercase font-bold opacity-60 block mb-1.5">
+                          🏅 Gespielte Turniere ({tournaments.length})
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {tournaments.map((t, idx) => (
+                            <span key={idx} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // History Tab
+              let filteredList = [...playerMatches];
+              if (playerHistoryFilter === '500ml') {
+                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Standardspiel (500ml)'));
+              } else if (playerHistoryFilter === '0,33L') {
+                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Standardspiel (0,33L)'));
+              } else if (playerHistoryFilter === 'Speedwiegen') {
+                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Speedwiegen'));
+              } else if (playerHistoryFilter === 'Teamwiegen') {
+                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Teamwiegen'));
+              }
+
+              if (playerHistorySortDir === 'asc') {
+                filteredList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              } else {
+                filteredList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              }
+
+              return (
+                <div className="space-y-3">
+                  {/* Filter Pills & Sort Button */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex flex-wrap gap-1 text-[10px] font-bold">
+                      {(['all', '500ml', '0,33L', 'Speedwiegen', 'Teamwiegen'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => {
+                            playGlobalClickSound();
+                            setPlayerHistoryFilter(mode);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                            playerHistoryFilter === mode
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : (darkMode ? 'bg-black/20 border-white/10 hover:bg-black/30' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
+                          }`}
+                        >
+                          {mode === 'all' ? 'Alle Modi' : mode === '500ml' ? '500 ml' : mode === '0,33L' ? '0,33 L' : mode}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playGlobalClickSound();
+                        setPlayerHistorySortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+                      }}
+                      className={`p-1 px-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer border shadow-xs self-start sm:self-auto ${
+                        playerHistorySortDir === 'asc'
+                          ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
+                          : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
+                      }`}
+                      title={playerHistorySortDir === 'desc' ? 'Sortierung: Neueste zuerst' : 'Sortierung: Älteste zuerst'}
+                    >
+                      <i className="fas fa-arrows-alt-v text-xs"></i>
+                      <span className="text-[10px] font-black uppercase tracking-wider">
+                        {playerHistorySortDir === 'desc' ? '↓ Neu → Alt' : '↑ Alt → Neu'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Spiele-Liste */}
+                  <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
+                    {filteredList.length === 0 ? (
+                      <p className="text-center opacity-60 py-8 text-xs">Keine Spiele für den gewählten Filter gefunden.</p>
+                    ) : (
+                      filteredList.map((item, idx) => (
+                        <div key={idx} className={`p-3 rounded-xl border flex justify-between items-center ${darkMode ? 'bg-black/20 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-xs">{item.date}</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-black/10 dark:bg-white/10 opacity-75">
+                                {normalizeGameMode(item.game_mode || item.gameMode)}
+                              </span>
+                            </div>
+                            {item.tournament_name && (
+                              <div className="mt-1">
+                                <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                  [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-emerald-500 font-bold text-xs">Ø: {item.avg.toFixed(2)}g</p>
+                            <p className="text-indigo-400 font-bold text-[11px]">
+                              {matchesGameMode(item.game_mode || item.gameMode, 'Speedwiegen')
+                                ? `${item.schnaepse.toFixed(1)}s`
+                                : `${item.schnaepse} Pkt / Schnäpse`}
+                            </p>
+                            <p className="text-purple-400 font-black text-[10px]">
+                              Total: {(item.avg + item.schnaepse).toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             
             <button 
+              type="button"
               onClick={() => setSelectedPlayerForDetails(null)} 
-              className="mt-6 w-full py-4 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow-lg active:scale-95 transition-transform" 
+              className="mt-2 w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow-lg active:scale-95 transition-transform cursor-pointer" 
               style={{ backgroundColor: BRAND_COLOR }}
             >
               Schließen

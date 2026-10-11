@@ -102,14 +102,24 @@ import {
 } from './src/constants/worldOfWiegenEffects';
 
 export const BUTTON_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/click-on-mouse.wav";
+export const WOW_SOUND_URL = "https://mrmtucopoztvjlis.public.blob.vercel-storage.com/Wow%21%5B1%5D.mp3";
 
 const buttonAudio = typeof window !== 'undefined' ? new Audio(BUTTON_SOUND_URL) : null;
 if (buttonAudio) buttonAudio.preload = 'auto';
+
+const wowAudio = typeof window !== 'undefined' ? new Audio(WOW_SOUND_URL) : null;
+if (wowAudio) wowAudio.preload = 'auto';
 
 export const playGlobalClickSound = () => {
   if (!buttonAudio) return;
   buttonAudio.currentTime = 0;
   buttonAudio.play().catch(() => {});
+};
+
+export const playWorldOfWiegenSound = () => {
+  if (!wowAudio) return;
+  wowAudio.currentTime = 0;
+  wowAudio.play().catch(() => {});
 };
 
 declare const html2canvas: any;
@@ -438,6 +448,12 @@ const App: React.FC = () => {
     );
     if (matchUser?.title && isValidTitle(matchUser.title)) return matchUser.title.trim();
 
+    // 3.5. Freunde-Liste
+    const matchFriend = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (matchFriend?.title && isValidTitle(matchFriend.title)) return matchFriend.title.trim();
+
     // 4. LocalStorage Fallback (falls lokal abgespeichert)
     try {
       const stored = localStorage.getItem(`bundeswiega_user_title_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_title_${target}`);
@@ -495,6 +511,12 @@ const App: React.FC = () => {
       u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
     if ((matchUser as any)?.name_bg_color && (matchUser as any).name_bg_color !== 'none') return (matchUser as any).name_bg_color;
+
+    // 3.5. Freunde-Liste
+    const matchFriend = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (matchFriend?.name_bg_color && matchFriend.name_bg_color !== 'none') return matchFriend.name_bg_color;
 
     // 4. LocalStorage Fallback
     try {
@@ -554,6 +576,12 @@ const App: React.FC = () => {
     );
     if ((matchUser as any)?.name_glow && (matchUser as any).name_glow !== 'none') return (matchUser as any).name_glow;
 
+    // 3.5. Freunde-Liste
+    const matchFriend = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (matchFriend?.name_glow && matchFriend.name_glow !== 'none') return matchFriend.name_glow;
+
     // 4. LocalStorage Fallback
     try {
       const stored = localStorage.getItem(`bundeswiega_user_name_glow_${playerNameOrId}`) || localStorage.getItem(`bundeswiega_user_name_glow_${target}`);
@@ -611,6 +639,12 @@ const App: React.FC = () => {
       u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
     if ((matchUser as any)?.avatar_frame && (matchUser as any).avatar_frame !== 'none') return (matchUser as any).avatar_frame;
+
+    // 3.5. Freunde-Liste
+    const matchFriend = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (matchFriend?.avatar_frame && matchFriend.avatar_frame !== 'none') return matchFriend.avatar_frame;
 
     // 4. LocalStorage Fallback
     try {
@@ -830,6 +864,15 @@ const App: React.FC = () => {
     );
     if ((matchUser as any)?.xp !== undefined) return Number((matchUser as any).xp) || 0;
 
+    // 3.5. Freunde-Liste
+    const matchFriend = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (matchFriend) {
+      if (typeof matchFriend.xp === 'number' && matchFriend.xp > 0) return matchFriend.xp;
+      if (matchFriend.level && matchFriend.level > 1) return (matchFriend.level - 1) * 100;
+    }
+
     return 0;
   };
 
@@ -844,6 +887,12 @@ const App: React.FC = () => {
     const foundInPlayers = players.find(p => p.id === playerNameOrId || p.name?.trim().toLowerCase() === target);
     if (foundInPlayers?.avatar_url && foundInPlayers.avatar_url.trim()) return foundInPlayers.avatar_url.trim();
     if (foundInPlayers?.imageUrl && foundInPlayers.imageUrl.trim()) return foundInPlayers.imageUrl.trim();
+
+    // 0.5. Treffer in Freunden
+    const foundInFriends = friends?.find(
+      f => f.id === playerNameOrId || f.name?.trim().toLowerCase() === target
+    );
+    if (foundInFriends?.imageUrl && foundInFriends.imageUrl.trim()) return foundInFriends.imageUrl.trim();
 
     // 1. Eingeloggter Benutzer (Host)
     const currentName = (supabaseUser?.user_metadata?.username || supabaseUser?.email || '').trim().toLowerCase();
@@ -1910,13 +1959,23 @@ const App: React.FC = () => {
       setIsPlayerAvatarFullscreen(false);
       return;
     }
+
+    if (!recordsData || recordsData.length === 0) {
+      fetchRecords();
+    }
+
     const target = selectedPlayerForDetails.trim().toLowerCase();
     let foundUserId = '';
     if (supabaseUser && ((supabaseUser.user_metadata?.username || '').trim().toLowerCase() === target || supabaseUser.email?.trim().toLowerCase() === target)) {
       foundUserId = supabaseUser.id;
     } else {
       const match = clerkUsers.find(u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target);
-      if (match?.id) foundUserId = match.id;
+      if (match?.id) {
+        foundUserId = match.id;
+      } else {
+        const matchFriend = friends?.find(f => f.name?.trim().toLowerCase() === target || f.id === target);
+        if (matchFriend?.id) foundUserId = matchFriend.id;
+      }
     }
 
     if (foundUserId) {
@@ -1946,7 +2005,7 @@ const App: React.FC = () => {
     } else {
       setPlayerGuildInfo(null);
     }
-  }, [selectedPlayerForDetails, clerkUsers, supabaseUser]);
+  }, [selectedPlayerForDetails, clerkUsers, supabaseUser, friends, recordsData]);
   
   // Tournament States
   const [showTournamentOverview, setShowTournamentOverview] = useState(false);
@@ -5622,7 +5681,13 @@ const App: React.FC = () => {
                       type="checkbox"
                       id="wow-switch"
                       checked={worldOfWiegenEnabled}
-                      onChange={e => setWorldOfWiegenEnabled(e.target.checked)}
+                      onChange={e => {
+                        const isChecked = e.target.checked;
+                        setWorldOfWiegenEnabled(isChecked);
+                        if (isChecked) {
+                          playWorldOfWiegenSound();
+                        }
+                      }}
                       className="opacity-0 w-0 h-0"
                     />
                     <label
@@ -7391,7 +7456,7 @@ const App: React.FC = () => {
               <div className="flex items-center space-x-2">
 
                 <button 
-                  onClick={() => { setShowRecords(false); setRecordsData(null); }}
+                  onClick={() => setShowRecords(false)}
                   className="w-10 h-10 rounded-full flex items-center justify-center border font-bold hover:bg-black/10 active:scale-90"
                 >
                   ✕
@@ -9462,7 +9527,7 @@ const App: React.FC = () => {
             )}
 
             <button 
-              onClick={() => { setShowRecords(false); setRecordsData(null); }}
+              onClick={() => setShowRecords(false)}
               className="mt-6 w-full py-4 rounded-xl font-black uppercase text-xs tracking-widest border border-gray-500/20 opacity-60 hover:opacity-100"
             >
               Schließen
@@ -9474,7 +9539,7 @@ const App: React.FC = () => {
       {/* Lightbox für Profilbild in Großansicht (wie bei Wiegschaften) */}
       {isPlayerAvatarFullscreen && selectedPlayerForDetails && (
         <div
-          className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
+          className="fixed inset-0 z-[950] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
           onClick={() => setIsPlayerAvatarFullscreen(false)}
         >
           <div className="absolute top-4 right-4 flex items-center space-x-2 z-10">
@@ -9517,7 +9582,7 @@ const App: React.FC = () => {
       )}
 
       {selectedPlayerForDetails && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+        <div className="fixed inset-0 z-[850] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
           <div className={`rounded-3xl p-5 sm:p-7 max-w-xl w-full border shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto flex flex-col ${
             darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
           }`}>
@@ -9549,6 +9614,9 @@ const App: React.FC = () => {
               const lvlInfo = calculateLevelFromXp(playerXp);
               const isGuest = isPlayerGuest(selectedPlayerForDetails);
               const avatarUrl = getPlayerAvatarUrl(selectedPlayerForDetails);
+              const isFriend = friends.some(
+                f => f.name?.trim().toLowerCase() === selectedPlayerForDetails.trim().toLowerCase() || f.id === selectedPlayerForDetails
+              );
 
               return (
                 <div className={`p-4 sm:p-5 rounded-2xl border ${darkMode ? 'bg-black/30 border-white/5' : 'bg-gray-50 border-black/5'} flex flex-col sm:flex-row items-center sm:items-start gap-4`}>
@@ -9567,10 +9635,10 @@ const App: React.FC = () => {
                         url={avatarUrl}
                         avatar_frame={getPlayerAvatarFrame(selectedPlayerForDetails)}
                         name={selectedPlayerForDetails}
-                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl shadow-lg object-cover"
+                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl shadow-lg object-cover"
                       />
-                      <div className="absolute inset-1 rounded-xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                        <i className="fas fa-search-plus text-lg"></i>
+                      <div className="absolute inset-1 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                        <i className="fas fa-search-plus text-xl"></i>
                       </div>
                     </button>
                     <span className="mt-1.5 text-[9px] font-bold text-amber-500 tracking-wider flex items-center space-x-1">
@@ -9586,6 +9654,12 @@ const App: React.FC = () => {
                       <PlayerLevelBadge level={lvlInfo.level} isGuest={isGuest} size="md" />
                       {getPlayerTitle(selectedPlayerForDetails) && (
                         <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
+                      )}
+                      {isFriend && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          <span>Befreundet</span>
+                        </span>
                       )}
                     </div>
 
@@ -9653,7 +9727,8 @@ const App: React.FC = () => {
             {/* Tab-Inhalte */}
             {(() => {
               const allParsed = parseRecords(recordsData || []);
-              const playerMatches = allParsed.filter(r => r.playerName === selectedPlayerForDetails);
+              const targetLower = selectedPlayerForDetails.trim().toLowerCase();
+              const playerMatches = allParsed.filter(r => r.playerName?.trim().toLowerCase() === targetLower);
               
               if (playerDetailsTab === 'overview') {
                 const totalGames = playerMatches.length;
@@ -11828,6 +11903,10 @@ const App: React.FC = () => {
         deletingProfile={deletingProfile}
         handleDeleteProfile={handleDeleteProfile}
         refreshUserData={refreshUserData}
+        onSelectPlayer={(name) => {
+          setSelectedPlayerForDetails(name);
+          if (!recordsData) fetchRecords();
+        }}
       />
 
       {/* 👥 FREUNDE MODAL */}
@@ -11838,6 +11917,10 @@ const App: React.FC = () => {
         supabaseUser={supabaseUser}
         darkMode={darkMode}
         brandColor={BRAND_COLOR}
+        onSelectPlayer={(name) => {
+          setSelectedPlayerForDetails(name);
+          if (!recordsData) fetchRecords();
+        }}
       />
 
       {/* 🏆 ACHIEVEMENTS ADMIN MODAL */}
@@ -11928,6 +12011,10 @@ const App: React.FC = () => {
         onOpenFriendsModal={() => {
           setProfileTab('freunde');
           setShowProfileModal(true);
+        }}
+        onSelectPlayer={(name) => {
+          setSelectedPlayerForDetails(name);
+          if (!recordsData) fetchRecords();
         }}
       />
 

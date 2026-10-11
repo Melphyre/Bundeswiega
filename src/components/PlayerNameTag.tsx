@@ -57,12 +57,14 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
     );
   }
 
+  const isSpecialBg = bgOption.cssClasses.includes('name-bg-') || bgOption.cssClasses.includes('bg-gradient');
+
   // Mit farbigem Hintergrund (& evtl. zusätzlichem Neon-Glow Rahmen)
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 ${hasGlow ? 'my-0.5 mx-0.5' : ''} rounded-lg font-black tracking-wide transition-all shadow-xs ${bgOption.cssClasses} ${glowClass} ${className}`}
       style={{
-        backgroundColor: bgOption.bgHex,
+        backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
         color: bgOption.textHex,
         borderColor: hasGlow ? undefined : bgOption.borderHex,
         ...style

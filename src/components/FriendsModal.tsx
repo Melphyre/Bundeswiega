@@ -36,6 +36,7 @@ export interface FriendsModalProps {
   supabaseUser?: any;
   darkMode?: boolean;
   brandColor?: string;
+  onSelectPlayer?: (playerName: string) => void;
 }
 
 export const FriendsModal: React.FC<FriendsModalProps> = ({
@@ -44,7 +45,8 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   currentUserId: propCurrentUserId,
   supabaseUser,
   darkMode = true,
-  brandColor = '#238183'
+  brandColor = '#238183',
+  onSelectPlayer
 }) => {
   // Robuste Ermittlung der Benutzer-ID: Funktioniert sowohl mit currentUserId={user?.id} als auch mit supabaseUser={user}
   const currentUserId =
@@ -62,6 +64,8 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [friendRequestSuccess, setFriendRequestSuccess] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedFriendPreview, setSelectedFriendPreview] = useState<Friend | null>(null);
+  const [isFriendAvatarFullscreen, setIsFriendAvatarFullscreen] = useState(false);
 
   // 1. Freundesliste und offene Anfragen laden (über friendService)
   const loadFriendships = useCallback(async () => {
@@ -374,21 +378,56 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
-                      <PlayerAvatar
-                        url={f.imageUrl}
-                        name={f.name}
-                        className="w-10 h-10 border-2 flex-shrink-0"
-                        style={{ borderColor: brandColor }}
-                      />
-                      <div className="min-w-0">
+                      {/* Interaktives Profilbild mit Hover-Effekt & Klick für Großansicht */}
+                      <div
+                        onClick={() => {
+                          playButtonSound();
+                          if (onSelectPlayer) {
+                            onSelectPlayer(f.name);
+                          } else {
+                            setSelectedFriendPreview(f);
+                          }
+                        }}
+                        className="relative group cursor-pointer shrink-0"
+                        title={`${f.name} - Profilbild vergrößern & Details ansehen`}
+                      >
+                        <PlayerAvatar
+                          url={f.imageUrl}
+                          name={f.name}
+                          avatar_frame={f.avatar_frame}
+                          className="w-11 h-11 border-2 transition-transform duration-200 group-hover:scale-105 group-active:scale-95 shadow-md"
+                          style={{ borderColor: brandColor }}
+                        />
+                        <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] pointer-events-none">
+                          <i className="fas fa-search-plus"></i>
+                        </div>
+                      </div>
+
+                      <div
+                        className="min-w-0 cursor-pointer"
+                        onClick={() => {
+                          playButtonSound();
+                          if (onSelectPlayer) {
+                            onSelectPlayer(f.name);
+                          } else {
+                            setSelectedFriendPreview(f);
+                          }
+                        }}
+                        title={`${f.name} - Details anzeigen`}
+                      >
                         <div className="font-black text-xs truncate flex items-center gap-1.5 flex-wrap">
-                          <span>{f.name}</span>
+                          <span className="hover:underline">{f.name}</span>
                           <PlayerLevelBadge level={f.level || 1} size="sm" />
                           {f.title && <PlayerTitleBadge title={f.title} size="sm" />}
                         </div>
-                        <div className="text-[10px] opacity-60 flex items-center space-x-1">
+                        <div className="text-[10px] opacity-60 flex items-center space-x-1.5 mt-0.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                           <span>Freund</span>
+                          <span className="opacity-30">•</span>
+                          <span className="text-[#238183] dark:text-[#2dd4bf] hover:underline flex items-center gap-0.5 font-bold">
+                            <i className="fas fa-id-card text-[9px]"></i>
+                            <span>Details</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -424,6 +463,131 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Fallback-Lightbox für Profilbild in Großansicht falls kein übergeordneter Handler aktiv */}
+      {isFriendAvatarFullscreen && selectedFriendPreview && (
+        <div
+          className="fixed inset-0 z-[990] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
+          onClick={() => setIsFriendAvatarFullscreen(false)}
+        >
+          <div className="absolute top-4 right-4 flex items-center space-x-2 z-10">
+            {selectedFriendPreview.imageUrl && selectedFriendPreview.imageUrl.startsWith('http') && (
+              <a
+                href={selectedFriendPreview.imageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/30 text-white text-xs font-bold transition-all flex items-center space-x-1.5 backdrop-blur-md"
+              >
+                <span>Original öffnen</span>
+                <i className="fas fa-external-link-alt text-[10px]"></i>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsFriendAvatarFullscreen(false)}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center text-lg cursor-pointer transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="max-w-md max-h-[85vh] flex flex-col items-center justify-center space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="relative p-2.5 rounded-3xl bg-gradient-to-tr from-amber-500/30 to-teal-500/10 border-2 border-teal-500/40 shadow-2xl">
+              <img
+                src={selectedFriendPreview.imageUrl}
+                alt={selectedFriendPreview.name}
+                className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-2xl"
+              />
+            </div>
+            <div className="text-center text-white/90 text-xs">
+              <span className="font-black text-white text-base">{selectedFriendPreview.name}</span>
+              <span className="mx-2 opacity-50">•</span>
+              <span>Freundes-Profilbild</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback Detail-Modal für Freund */}
+      {selectedFriendPreview && !isFriendAvatarFullscreen && (
+        <div className="fixed inset-0 z-[950] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className={`p-6 rounded-3xl max-w-md w-full border shadow-2xl space-y-4 max-h-[85vh] flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+            <div className="flex items-center justify-between border-b border-gray-500/15 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/15 text-teal-500 flex items-center justify-center text-base font-black">
+                  👤
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wider">Freundes-Profil</h3>
+                  <p className="text-[11px] opacity-60">Großansicht des Profilbilds und Details</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFriendPreview(null)}
+                className="w-8 h-8 rounded-full border border-gray-500/20 flex items-center justify-center text-sm opacity-60 hover:opacity-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-black/30 border-white/5' : 'bg-gray-50 border-black/5'} flex flex-col items-center text-center space-y-3`}>
+              {/* Großes Profilbild klickbar für Vollbild */}
+              <button
+                type="button"
+                onClick={() => {
+                  playButtonSound();
+                  setIsFriendAvatarFullscreen(true);
+                }}
+                className="relative group p-1 rounded-2xl cursor-pointer hover:scale-105 transition-transform ring-2 ring-teal-500/40 hover:ring-teal-500"
+                title="Klicken für Vollbild-Ansicht"
+              >
+                <PlayerAvatar
+                  url={selectedFriendPreview.imageUrl}
+                  name={selectedFriendPreview.name}
+                  avatar_frame={selectedFriendPreview.avatar_frame}
+                  className="w-24 h-24 rounded-2xl shadow-xl object-cover"
+                />
+                <div className="absolute inset-1 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                  <i className="fas fa-search-plus text-xl"></i>
+                </div>
+              </button>
+
+              <div className="space-y-1">
+                <h4 className="font-black text-lg">{selectedFriendPreview.name}</h4>
+                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                  <PlayerLevelBadge level={selectedFriendPreview.level || 1} size="md" />
+                  {selectedFriendPreview.title && <PlayerTitleBadge title={selectedFriendPreview.title} size="md" />}
+                </div>
+              </div>
+
+              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>Bestätigter Freund</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsFriendAvatarFullscreen(true)}
+                className="flex-1 py-2.5 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/30 text-xs font-bold hover:bg-teal-500/20 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <i className="fas fa-expand text-xs"></i>
+                <span>Profilbild in Groß</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedFriendPreview(null)}
+                className="px-5 py-2.5 rounded-xl border border-gray-500/20 text-xs font-bold opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

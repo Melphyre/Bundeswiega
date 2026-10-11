@@ -12,6 +12,7 @@ interface LiveGamesModalProps {
   onSelectGame: (game: ActiveGame) => void;
   darkMode?: boolean;
   onOpenFriendsModal?: () => void;
+  onSelectPlayer?: (name: string) => void;
 }
 
 export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
@@ -20,7 +21,8 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
   currentUserId,
   onSelectGame,
   darkMode = true,
-  onOpenFriendsModal
+  onOpenFriendsModal,
+  onSelectPlayer
 }) => {
   const [games, setGames] = useState<ActiveGame[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,11 +206,27 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     {/* Host & Meta Info */}
                     <div className="flex items-start space-x-3">
-                      <PlayerAvatar
-                        url={host?.avatar_url}
-                        name={host?.username || 'Host'}
-                        className="w-12 h-12 rounded-2xl border-2 border-teal-500 shadow-sm flex-shrink-0"
-                      />
+                      <div
+                        onClick={e => {
+                          if (onSelectPlayer && host?.username) {
+                            e.stopPropagation();
+                            onSelectPlayer(host.username);
+                          }
+                        }}
+                        className={onSelectPlayer && host?.username ? "cursor-pointer group relative hover:scale-105 active:scale-95 transition-transform shrink-0" : "shrink-0"}
+                        title={onSelectPlayer && host?.username ? `${host.username} - Profilbild vergrößern & Details ansehen` : undefined}
+                      >
+                        <PlayerAvatar
+                          url={host?.avatar_url}
+                          name={host?.username || 'Host'}
+                          className="w-12 h-12 rounded-2xl border-2 border-teal-500 shadow-sm"
+                        />
+                        {onSelectPlayer && host?.username && (
+                          <div className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] pointer-events-none">
+                            <i className="fas fa-search-plus"></i>
+                          </div>
+                        )}
+                      </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-black text-base truncate">

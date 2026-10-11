@@ -61,13 +61,35 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
       return { friends: [], pendingRequests: [] };
     }
 
-    // 3. Profile laden
-    const { data: profiles, error: profErr } = await supabase
-      .from('profiles')
-      .select('id, username, email, avatar_url, title, level, xp')
-      .in('id', allNeededUserIds);
+    // 3. Profile laden (tolerant mit mehrstufigem Fallback)
+    let profiles: any[] = [];
+    try {
+      const { data: profData, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, username, email, avatar_url, title, selected_title, active_title, level, xp, avatar_frame, name_bg_color, name_glow')
+        .in('id', allNeededUserIds);
 
-    if (profErr) throw profErr;
+      if (!profErr && Array.isArray(profData)) {
+        profiles = profData;
+      } else {
+        console.warn('Erweiterte Profildaten konnten nicht geladen werden, verwende Basisfelder:', profErr?.message);
+        const { data: baseData, error: baseErr } = await supabase
+          .from('profiles')
+          .select('id, username, email, avatar_url, title, level, xp')
+          .in('id', allNeededUserIds);
+        if (!baseErr && Array.isArray(baseData)) {
+          profiles = baseData;
+        } else {
+          const { data: minData } = await supabase
+            .from('profiles')
+            .select('id, username, email')
+            .in('id', allNeededUserIds);
+          profiles = minData || [];
+        }
+      }
+    } catch (e: any) {
+      console.warn('Fehler beim Laden der Profile für Freundesliste:', e?.message || e);
+    }
 
     const profMap = new Map((profiles || []).map(p => [p.id, p]));
 
@@ -80,9 +102,12 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: getAvatarUrl(p?.avatar_url),
           friendshipId: r.id,
-          title: (p as any)?.title || (p as any)?.selected_title || undefined,
+          title: (p as any)?.title || (p as any)?.selected_title || (p as any)?.active_title || undefined,
           level: Number((p as any)?.level) || 1,
-          xp: Number((p as any)?.xp) || 0
+          xp: Number((p as any)?.xp) || 0,
+          avatar_frame: (p as any)?.avatar_frame || 'none',
+          name_bg_color: (p as any)?.name_bg_color || 'none',
+          name_glow: (p as any)?.name_glow || 'none'
         };
       }),
       ...acceptedReceived.map(r => {
@@ -92,9 +117,12 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
           name: p?.username || p?.email || 'Unbekannt',
           imageUrl: getAvatarUrl(p?.avatar_url),
           friendshipId: r.id,
-          title: (p as any)?.title || (p as any)?.selected_title || undefined,
+          title: (p as any)?.title || (p as any)?.selected_title || (p as any)?.active_title || undefined,
           level: Number((p as any)?.level) || 1,
-          xp: Number((p as any)?.xp) || 0
+          xp: Number((p as any)?.xp) || 0,
+          avatar_frame: (p as any)?.avatar_frame || 'none',
+          name_bg_color: (p as any)?.name_bg_color || 'none',
+          name_glow: (p as any)?.name_glow || 'none'
         };
       })
     ];
@@ -106,7 +134,7 @@ export async function fetchFriendsAndRequests(userId: string): Promise<FetchFrie
         id: req.id,
         requesterId: req.requester_id,
         requesterName: p?.username || p?.email || 'Unbekannter Spieler',
-        title: (p as any)?.title || (p as any)?.selected_title || undefined,
+        title: (p as any)?.title || (p as any)?.selected_title || (p as any)?.active_title || undefined,
         level: Number((p as any)?.level) || 1
       };
     });
@@ -149,13 +177,23 @@ export async function sendFriendRequest(
 
     // Fallback: Suche per E-Mail
     if (!targetProfile) {
-      const { data: byEmail, error: errEmail } = await supabase
+      const { data: byEmail } = await supabase
         .from('profiles')
         .select('id, username, email')
         .ilike('email', query);
 
-      if (errEmail) throw errEmail;
       targetProfile = byEmail && byEmail.length > 0 ? byEmail[0] : null;
+    }
+
+    // Zusätzlicher Fallback: Teilweiser Username-Match (falls Nutzer nur einen Teil eingegeben hat)
+    if (!targetProfile) {
+      const { data: byPartial } = await supabase
+        .from('profiles')
+        .select('id, username, email')
+        .ilike('username', `%${query}%`)
+        .limit(1);
+
+      targetProfile = byPartial && byPartial.length > 0 ? byPartial[0] : null;
     }
 
     if (!targetProfile || !isValidUuid(targetProfile.id)) {

@@ -47,6 +47,12 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
   { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
   { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
+  // Neue Level-2 Quests (Einfarbige & animierte Hintergründe):
+  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel', colorReward: 'neon_orange', rewardDescription: 'Hintergrundfarbe Neon-Orange' },
+  { id: 'l2_royal_blue', level: 2, title: 'Erreiche 3x einen Durchschnitt < 3 Gramm', xpReward: 15, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 3, colorReward: 'royal_blue', rewardDescription: 'Hintergrundfarbe Königsblau' },
+  { id: 'l2_deep_purple', level: 2, title: 'Nimm an 5 Teamwiegen teil', xpReward: 15, metric: 'teamwiegen_count', targetValue: 5, targetCount: 5, colorReward: 'deep_purple', rewardDescription: 'Hintergrundfarbe Purpur' },
+  { id: 'l2_toxic_green', level: 2, title: 'Spiele 5 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Speedwiegen', colorReward: 'toxic_green', rewardDescription: 'Hintergrundfarbe Giftgrün' },
+  { id: 'l2_gold_solid', level: 2, title: 'Gewinne 3 Turniere', xpReward: 25, metric: 'tournament_count', targetValue: 3, targetCount: 3, colorReward: 'gold_solid', rewardDescription: 'Hintergrundfarbe Gold-Gelb' },
 
   // --- LEVEL 3 ---
   { id: 'l3_15_standard', level: 3, title: 'Spiele 15 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 15, targetCount: 15, gameMode: 'Standardspiel' },
@@ -55,6 +61,12 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l3_tournament_3', level: 3, title: 'Nimm an 3 Turnieren teil', xpReward: 20, metric: 'tournament_count', targetValue: 3, targetCount: 3 },
   { id: 'l3_avg_sub2', level: 3, title: 'Durchschnitt unter 2,0 Gramm in einem Spiel', xpReward: 20, titleReward: 'Präzisions-Schütze', metric: 'avg_less_than', targetValue: 2.0, threshold: 2.0, targetCount: 1 },
   { id: 'l3_5x_sub2_schnaepse', level: 3, title: 'Spiele 5 Spiele mit maximal 2 Schnäpsen', xpReward: 15, metric: 'max_schnaepse', targetValue: 2, threshold: 2, targetCount: 5 },
+  // Neue Level-3 Quests (Gemusterte & effektvolle Hintergründe):
+  { id: 'l3_pattern_carbon', level: 3, title: 'Absolviere 20 Spiele', xpReward: 20, metric: 'games_count', targetValue: 20, targetCount: 20, colorReward: 'pattern_carbon', rewardDescription: 'Hintergrundmuster Carbon-Faser' },
+  { id: 'l3_pattern_cyberpunk', level: 3, title: 'Erreiche 5x einen Durchschnitt unter 3 Gramm', xpReward: 25, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 5, colorReward: 'pattern_cyberpunk', rewardDescription: 'Hintergrund Cyberpunk-Glitch' },
+  { id: 'l3_pattern_gold_glitter', level: 3, title: 'Nimm an 8 Teamwiegen teil', xpReward: 25, metric: 'teamwiegen_count', targetValue: 8, targetCount: 8, colorReward: 'pattern_gold_glitter', rewardDescription: 'Hintergrund Goldener Glitter' },
+  { id: 'l3_pattern_matrix', level: 3, title: 'Spiele 10 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Speedwiegen', colorReward: 'pattern_matrix', rewardDescription: 'Hintergrund Matrix-Digital' },
+  { id: 'l3_pattern_tartan', level: 3, title: 'Sammle 50 Achievements', xpReward: 25, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pattern_tartan', rewardDescription: 'Hintergrund Tartan / Karo' },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -103,6 +115,78 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l10_20x_zero_schnaepse', level: 10, title: 'Absolviere 20 Spiele völlig ohne Schnäpse', xpReward: 80, titleReward: 'Fehlerfrei', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 20 }
 ];
 
+/**
+ * Ermittelt einen eindeutigen Schlüssel für ein Turnier anhand des Turniernamens.
+ * Tische, Vorrunden und Finalrunden desselben Turniers (z.B. "Sommerturnier - Vorrunde",
+ * "Sommerturnier - Finale", "Sommerturnier (Tisch 1)") werden auf den gemeinsamen
+ * Grundnamen ("sommerturnier") normiert, sodass sie als ein einziges Turnier zählen.
+ */
+export function getCanonicalTournamentKey(r: any): string | null {
+  if (!r) return null;
+
+  const rawMode = String(r.game_mode || '').toLowerCase();
+  const isTournament =
+    r.is_tournament === true ||
+    Boolean(r.tournament_id) ||
+    Boolean(r.tournament_name) ||
+    rawMode.includes('turnier');
+
+  if (!isTournament) return null;
+
+  let rawName = String(r.tournament_name || '').trim();
+
+  // Falls kein tournament_name vorliegt, versuchen wir den Namen aus game_mode zu extrahieren
+  if (!rawName && rawMode.includes('turnier')) {
+    const bracketMatch = String(r.game_mode).match(/turnier(?:spiel)?\s*[\(:–—]\s*([^)\n]+)[\)]?/i);
+    if (bracketMatch && bracketMatch[1]) {
+      const candidate = bracketMatch[1].trim();
+      if (!/^(?:tisch(?:\s*\d+)?|table(?:\s*\d+)?|vorrunde|finale)$/i.test(candidate)) {
+        rawName = candidate;
+      }
+    }
+  }
+
+  if (rawName) {
+    let clean = rawName.toLowerCase();
+    
+    // 1. Klammern mit Runden-/Tisch-Angaben entfernen:
+    clean = clean.replace(/\s*[\(\[\{](?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|gruppe\s*[a-z0-9]+|tisch\s*\d+|table\s*\d+|runde\s*\d+)[^\)\]\}]*[\)\]\}]/gi, '');
+    
+    // 2. Trennzeichen (- , : /) gefolgt von Runden-/Tischangaben entfernen:
+    clean = clean.replace(/\s*[-–—:/]\s*(?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|gruppe\s*[a-z0-9]+|tisch\s*\d+|table\s*\d+|runde\s*\d+)\b.*$/gi, '');
+    
+    // 3. Nachgestellte Wörter für Runde/Tisch entfernen:
+    clean = clean.replace(/\s+\b(?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|tisch\s*\d+|table\s*\d+|runde\s*\d+)$/gi, '');
+    
+    // 4. Leerzeichen und Satzzeichen am Ende bereinigen
+    clean = clean.replace(/[\s\-–—:/.]+$/, '').trim();
+
+    // Falls die Bereinigung den ganzen Namen geleert hätte, Original behalten
+    if (!clean) {
+      clean = rawName.toLowerCase().trim();
+    }
+
+    if (clean) {
+      return `name:${clean}`;
+    }
+  }
+
+  // Fallback: tournament_id (falls vorhanden, z.B. turnier-uuid ohne Suffix)
+  if (r.tournament_id) {
+    let tid = String(r.tournament_id).trim().toLowerCase();
+    tid = tid.replace(/_(?:table_\d+|final|second_chance|round_\d+|vorrunde)$/i, '');
+    return `id:${tid}`;
+  }
+
+  // Fallback: Wenn mehrere Turnierspiele am selben Datum gespielt wurden, gehören sie zum selben Turnier
+  const dateKey = r.date || (r.created_at ? new Date(r.created_at).toLocaleDateString('de-DE') : null);
+  if (dateKey) {
+    return `date:${String(dateKey).trim()}`;
+  }
+
+  return `game:${r.id || 'unknown'}`;
+}
+
 export function getQuestTarget(quest: QuestDefinition): number {
   if (quest.targetCount !== undefined) return quest.targetCount;
   if (quest.metric === 'profile_pic') return 1;
@@ -117,7 +201,6 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
   if (!db) return;
 
   try {
-    // 1. Profil & vorhandene Quests/Titel laden
     let profile: any = null;
     try {
       const { data } = await db
@@ -133,7 +216,6 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
     let userLevel = profile ? Number(profile.level) || 1 : 1;
     let effectiveAvatarUrl = profile?.avatar_url || profile?.image_url || '';
 
-    // Falls Profil kein Bild hat oder unknown.svg ist: auth.users metadata prüfen
     if (!effectiveAvatarUrl || effectiveAvatarUrl.includes('unknown.svg')) {
       try {
         if (db.auth?.getUser) {
@@ -142,9 +224,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             effectiveAvatarUrl = authData.user.user_metadata.avatar_url;
           }
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       try {
         if (db.auth?.admin?.getUserById) {
@@ -153,20 +233,15 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             effectiveAvatarUrl = adminAuthData.user.user_metadata.avatar_url;
           }
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
     if (effectiveAvatarUrl && !effectiveAvatarUrl.includes('unknown.svg') && profile && !profile.avatar_url) {
       try {
         await db.from('profiles').update({ avatar_url: effectiveAvatarUrl }).eq('id', userId);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
-    // Spiele laden (eigene Spiele)
     let safeResults: any[] = [];
     try {
       const { data: results } = await db
@@ -176,11 +251,8 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       if (Array.isArray(results)) {
         safeResults = [...results];
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
-    // Auch Spiele aus teamwiegen_players einbinden (mit breiterem Scope für teamGameIds)
     let teamGameIds: string[] = [];
     try {
       const { data: teamPlayers } = await db
@@ -214,9 +286,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           }
         }
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     let questProgress: any[] = [];
     try {
@@ -227,9 +297,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       if (Array.isArray(qpData)) {
         questProgress = qpData;
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     let existingTitles: any[] = [];
     try {
@@ -240,19 +308,49 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       if (Array.isArray(tData)) {
         existingTitles = tData;
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     const completedQuestIds = new Set(questProgress.filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
     const unlockedTitles = new Set(existingTitles.map((t: any) => t.title));
+    
+    const questCreatedAtMap = new Map<string, string>();
+    questProgress.forEach((qp: any) => {
+      if (qp.created_at) {
+        questCreatedAtMap.set(qp.quest_id, qp.created_at);
+      }
+    });
 
-    // 2. Filtere Quests: Nur Quests bis zum aktuellen User-Level, die noch nicht abgeschlossen sind
     const availableQuests = LEVEL_QUESTS.filter(q => q.level <= userLevel && !completedQuestIds.has(q.id));
 
     let bonusXpEarned = 0;
+    const nowIso = new Date().toISOString();
 
     for (const q of availableQuests) {
+      let questStartedAt = questCreatedAtMap.get(q.id);
+      if (!questStartedAt) {
+        questStartedAt = nowIso;
+        try {
+          await db.from('user_quest_progress').upsert({
+            user_id: userId,
+            quest_id: q.id,
+            current_progress: 0,
+            is_completed: false,
+            created_at: nowIso,
+            updated_at: nowIso
+          }, { onConflict: 'user_id,quest_id' });
+          questCreatedAtMap.set(q.id, nowIso);
+        } catch (err) {
+          console.warn('Could not initialize quest progress:', err);
+        }
+      }
+
+      const startDate = new Date(questStartedAt);
+      const filteredResults = safeResults.filter(r => {
+        const gameDate = r.created_at || r.timestamp || r.date;
+        if (!gameDate) return true;
+        return new Date(gameDate) >= startDate;
+      });
+
       let progress = 0;
       const targetCount = getQuestTarget(q);
 
@@ -269,7 +367,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           break;
 
         case 'games_count':
-          progress = safeResults.filter(r => {
+          progress = filteredResults.filter(r => {
             if (!q.gameMode) return true;
             const targetModeNorm = normalizeGameMode(q.gameMode);
             const rModeNorm = normalizeGameMode(r.game_mode);
@@ -283,7 +381,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
 
         case 'avg_less_than': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          progress = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -298,7 +396,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
 
         case 'total_less_than': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          progress = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -313,7 +411,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
 
         case 'max_schnaepse': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          progress = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -327,8 +425,6 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
         }
 
         case 'teamwiegen_count': {
-          // Genauso wie unter Meine Spiele Reiter Teamwiegen:
-          // Kombiniert game_results (wo user_id = userId) UND teamwiegen_players (verknüpfte Spiele)
           const isTeamGame = (r: any): boolean => {
             if (!r) return false;
             if (r.is_team_player || r.is_team_member) return true;
@@ -338,47 +434,47 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             return norm === 'Teamwiegen';
           };
 
-          const matchingTeamGames = safeResults.filter(isTeamGame);
+          const matchingTeamGames = filteredResults.filter(isTeamGame);
           const uniqueGameIds = new Set<string>();
           matchingTeamGames.forEach(g => {
             if (g.id) uniqueGameIds.add(String(g.id));
           });
-          teamGameIds.forEach(id => {
-            if (id) uniqueGameIds.add(String(id));
-          });
-
-          progress = Math.max(matchingTeamGames.length, uniqueGameIds.size);
+          progress = uniqueGameIds.size || matchingTeamGames.length;
           break;
         }
 
         case 'tournament_count': {
-          progress = safeResults.filter(r => 
-            r.is_tournament === true || 
-            r.tournament_id !== null || 
-            (r.game_mode || '').toLowerCase().includes('turnier')
-          ).length;
+          const uniqueTournaments = new Set<string>();
+
+          for (const r of filteredResults) {
+            const key = getCanonicalTournamentKey(r);
+            if (key) {
+              uniqueTournaments.add(key);
+            }
+          }
+
+          progress = uniqueTournaments.size;
           break;
         }
 
         case 'achievements_count': {
-          let count = Number(profile?.achievements_count || (profile as any)?.achievementsCount || 0);
+          let count = 0;
           try {
             const { count: exactCount } = await db
               .from('achievements')
               .select('id', { count: 'exact', head: true })
-              .eq('user_id', userId);
+              .eq('user_id', userId)
+              .gte('created_at', questStartedAt);
             if (typeof exactCount === 'number') {
-              count = Math.max(count, exactCount);
+              count = exactCount;
             }
-          } catch {
-            // ignore
-          }
+          } catch {}
           progress = count;
           break;
         }
 
         case 'wins_count': {
-          const wins = safeResults.filter(r => {
+          progress = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetNorm = normalizeGameMode(q.gameMode);
               const rNorm = normalizeGameMode(r.game_mode);
@@ -386,34 +482,29 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             return r.is_winner === true || r.rank === 1 || r.won === true;
           }).length;
-          const profileWins = Number(profile?.games_won || (profile as any)?.gamesWon || 0);
-          progress = Math.max(wins, profileWins);
           break;
         }
       }
 
       const isCompleted = progress >= targetCount;
 
-      // Update / Insert in user_quest_progress
       try {
         await db.from('user_quest_progress').upsert({
           user_id: userId,
           quest_id: q.id,
           current_progress: Math.min(progress, targetCount),
           is_completed: isCompleted,
-          completed_at: isCompleted ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString()
+          completed_at: isCompleted ? nowIso : null,
+          updated_at: nowIso
         }, { onConflict: 'user_id,quest_id' });
       } catch (upsertErr) {
         console.warn('user_quest_progress upsert error:', upsertErr);
       }
 
-      // Wenn frisch abgeschlossen: Belohnungen vergeben
       if (isCompleted) {
         bonusXpEarned += q.xpReward;
         completedQuestIds.add(q.id);
 
-        // Farb-Belohnung (z. B. Rosa bei 50 Achievements, Türkis bei 5 Standard-Siegen)
         if (q.colorReward) {
           try {
             const stored = localStorage.getItem(`bundeswiega_user_unlocked_colors_${userId}`);
@@ -430,7 +521,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             await db.from('user_titles').upsert({
               user_id: userId,
               title: q.titleReward,
-              created_at: new Date().toISOString()
+              created_at: nowIso
             }, { onConflict: 'user_id,title' });
             unlockedTitles.add(q.titleReward);
           } catch (tErr) {
@@ -440,7 +531,6 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
       }
     }
 
-    // Falls neue XP verdient wurden, Profil-XP/Level anpassen
     if (bonusXpEarned > 0 && profile) {
       try {
         const currentXp = Number(profile.xp) || 0;

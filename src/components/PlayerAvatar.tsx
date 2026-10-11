@@ -19,6 +19,10 @@ export interface PlayerAvatarProps {
   avatar_frame?: string | null;
   avatarFrame?: string | null;
   frame?: string | null;
+  /** Klick-Handler für interaktive Avatare (z. B. Großansicht & Details) */
+  onClick?: (e: React.MouseEvent<HTMLImageElement>) => void;
+  /** Tooltip-Titel */
+  title?: string;
 }
 
 const sizeClassesMap = {
@@ -47,7 +51,9 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   size = 'custom',
   avatar_frame,
   avatarFrame,
-  frame
+  frame,
+  onClick,
+  title
 }) => {
   const targetUrl = (avatar_url !== undefined && avatar_url !== null) ? avatar_url : url;
   const finalSrc = getAvatarUrl(targetUrl);
@@ -59,8 +65,10 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
     <img
       src={finalSrc}
       alt={name ? `Profilbild von ${name}` : 'Profilbild'}
+      title={title}
+      onClick={onClick}
       onError={handleAvatarError}
-      className={`rounded-full object-cover select-none shrink-0 ${sizeClass} ${frameClass} ${className}`}
+      className={`rounded-full object-cover select-none shrink-0 ${onClick ? 'cursor-pointer hover:opacity-95 active:scale-95' : ''} ${sizeClass} ${frameClass} ${className}`}
       style={style}
       loading="lazy"
     />

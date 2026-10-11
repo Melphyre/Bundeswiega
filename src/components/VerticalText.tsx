@@ -10,12 +10,13 @@ export const VerticalText: React.FC<{
   const glowOption = getNameGlowOption(glowKey);
   const hasBg = bgOption.id !== 'none';
   const hasGlow = glowOption.id !== 'none';
+  const isSpecialBg = bgOption.cssClasses.includes('name-bg-') || bgOption.cssClasses.includes('bg-gradient');
 
   return (
     <div
       className={`flex flex-col items-center justify-center leading-[0.9] font-black text-[10px] md:text-xs select-none transition-all ${
         hasBg
-          ? 'px-1.5 py-1.5 rounded-lg shadow-sm border-2'
+          ? `px-1.5 py-1.5 rounded-lg shadow-sm border-2 ${bgOption.cssClasses}`
           : hasGlow
           ? 'px-1.5 py-1.5 rounded-lg border-2 bg-slate-900/40 dark:bg-slate-900/60'
           : 'py-1'
@@ -23,7 +24,7 @@ export const VerticalText: React.FC<{
       style={
         hasBg
           ? {
-              backgroundColor: bgOption.bgHex,
+              backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
               color: bgOption.textHex,
               borderColor: hasGlow ? undefined : bgOption.borderHex
             }

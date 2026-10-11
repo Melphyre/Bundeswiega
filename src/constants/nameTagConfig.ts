@@ -8,6 +8,16 @@ export type NameBgColorId =
   | 'white'
   | 'pink'
   | 'turquoise'
+  | 'neon_orange'
+  | 'royal_blue'
+  | 'deep_purple'
+  | 'toxic_green'
+  | 'gold_solid'
+  | 'pattern_carbon'
+  | 'pattern_cyberpunk'
+  | 'pattern_gold_glitter'
+  | 'pattern_matrix'
+  | 'pattern_tartan'
   | 'neon_mint'
   | 'cyberpunk_pink_yellow'
   | 'aurora_name_glow'
@@ -122,6 +132,128 @@ export const NAME_TAG_COLORS: NameBgColorOption[] = [
     requiredQuestId: 'l2_5_wins_standard',
     unlockConditionText: 'Quest: Gewinne 5 Standardspiele'
   },
+  // Neue Level-2 Quests: Einfarbige & animierte Farben
+  {
+    id: 'neon_orange',
+    label: 'Neon-Orange',
+    bgHex: '#FF5E00',
+    textHex: '#FFFFFF',
+    borderHex: '#EA580C',
+    cssClasses: 'bg-[#FF5E00] text-white shadow-md shadow-[#FF5E00]/50 border-2 border-[#FF7A00] font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 2,
+    requiredQuestId: 'l2_neon_orange',
+    unlockConditionText: 'Quest: Spiele 8 Standardspiele'
+  },
+  {
+    id: 'royal_blue',
+    label: 'Königsblau',
+    bgHex: '#1E3A8A',
+    textHex: '#FFFFFF',
+    borderHex: '#3B82F6',
+    cssClasses: 'name-bg-royal-blue text-white shadow-md shadow-blue-900/60 border border-blue-400 font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 2,
+    requiredQuestId: 'l2_royal_blue',
+    unlockConditionText: 'Quest: Erreiche 3x einen Durchschnitt < 3 Gramm'
+  },
+  {
+    id: 'deep_purple',
+    label: 'Purpur',
+    bgHex: '#4C1D95',
+    textHex: '#FFFFFF',
+    borderHex: '#7C3AED',
+    cssClasses: 'bg-[#4C1D95] text-purple-100 shadow-md shadow-purple-950/60 border border-purple-500 font-black',
+    textCssClasses: 'text-purple-100 font-black',
+    requiredLevel: 2,
+    requiredQuestId: 'l2_deep_purple',
+    unlockConditionText: 'Quest: Nimm an 5 Teamwiegen teil'
+  },
+  {
+    id: 'toxic_green',
+    label: 'Giftgrün',
+    bgHex: '#76FF03',
+    textHex: '#022C22',
+    borderHex: '#39FF14',
+    cssClasses: 'bg-[#76FF03] text-slate-950 shadow-md shadow-[#76FF03]/60 border border-[#39FF14] font-black',
+    textCssClasses: 'text-slate-950 font-black',
+    requiredLevel: 2,
+    requiredQuestId: 'l2_toxic_green',
+    unlockConditionText: 'Quest: Spiele 5 Speedwiegen'
+  },
+  {
+    id: 'gold_solid',
+    label: 'Gold-Gelb',
+    bgHex: '#D97706',
+    textHex: '#FFFFFF',
+    borderHex: '#F59E0B',
+    cssClasses: 'name-bg-gold-solid text-white shadow-md shadow-amber-900/60 border border-amber-300 font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 2,
+    requiredQuestId: 'l2_gold_solid',
+    unlockConditionText: 'Quest: Gewinne 3 Turniere'
+  },
+  // Neue Level-3 Quests: Gemusterte & effektvolle Hintergründe
+  {
+    id: 'pattern_carbon',
+    label: 'Carbon-Faser',
+    bgHex: '#18181B',
+    textHex: '#FFFFFF',
+    borderHex: '#52525B',
+    cssClasses: 'name-bg-pattern-carbon text-white shadow-md border border-zinc-600 font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 3,
+    requiredQuestId: 'l3_pattern_carbon',
+    unlockConditionText: 'Quest: Absolviere 20 Spiele'
+  },
+  {
+    id: 'pattern_cyberpunk',
+    label: 'Cyberpunk-Glitch',
+    bgHex: '#050505',
+    textHex: '#00F0FF',
+    borderHex: '#FF0055',
+    cssClasses: 'name-bg-pattern-cyberpunk text-cyan-300 shadow-md border border-pink-500 font-black',
+    textCssClasses: 'text-cyan-300 font-black',
+    requiredLevel: 3,
+    requiredQuestId: 'l3_pattern_cyberpunk',
+    unlockConditionText: 'Quest: Erreiche 5x einen Durchschnitt unter 3 Gramm'
+  },
+  {
+    id: 'pattern_gold_glitter',
+    label: 'Goldener Glitter',
+    bgHex: '#B45309',
+    textHex: '#FFFFFF',
+    borderHex: '#FDE047',
+    cssClasses: 'name-bg-pattern-gold-glitter text-white shadow-md border border-amber-300 font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 3,
+    requiredQuestId: 'l3_pattern_gold_glitter',
+    unlockConditionText: 'Quest: Nimm an 8 Teamwiegen teil'
+  },
+  {
+    id: 'pattern_matrix',
+    label: 'Matrix-Digital',
+    bgHex: '#022C22',
+    textHex: '#00FF41',
+    borderHex: '#00FF41',
+    cssClasses: 'name-bg-pattern-matrix text-emerald-400 shadow-md border border-emerald-500 font-black',
+    textCssClasses: 'text-emerald-400 font-black',
+    requiredLevel: 3,
+    requiredQuestId: 'l3_pattern_matrix',
+    unlockConditionText: 'Quest: Spiele 10 Speedwiegen'
+  },
+  {
+    id: 'pattern_tartan',
+    label: 'Tartan / Karo',
+    bgHex: '#7F1D1D',
+    textHex: '#FFFFFF',
+    borderHex: '#DC2626',
+    cssClasses: 'name-bg-pattern-tartan text-white shadow-md border border-red-500 font-black',
+    textCssClasses: 'text-white font-black',
+    requiredLevel: 3,
+    requiredQuestId: 'l3_pattern_tartan',
+    unlockConditionText: 'Quest: Sammle 50 Achievements'
+  },
   {
     id: 'neon_mint',
     label: 'Neon-Mint',
@@ -181,7 +313,32 @@ const COLOR_ALIAS_MAP: Record<string, NameBgColorId> = {
   rosa: 'pink',
   pink: 'pink',
   tuerkis: 'turquoise',
-  türkis: 'turquoise'
+  türkis: 'turquoise',
+  orange: 'neon_orange',
+  neonorange: 'neon_orange',
+  neon_orange: 'neon_orange',
+  koenigsblau: 'royal_blue',
+  königsblau: 'royal_blue',
+  royal_blue: 'royal_blue',
+  purpur: 'deep_purple',
+  violett: 'deep_purple',
+  deep_purple: 'deep_purple',
+  giftgruen: 'toxic_green',
+  giftgrün: 'toxic_green',
+  toxic_green: 'toxic_green',
+  gold: 'gold_solid',
+  gold_gelb: 'gold_solid',
+  gold_solid: 'gold_solid',
+  carbon: 'pattern_carbon',
+  pattern_carbon: 'pattern_carbon',
+  cyberpunk: 'pattern_cyberpunk',
+  pattern_cyberpunk: 'pattern_cyberpunk',
+  glitter: 'pattern_gold_glitter',
+  pattern_gold_glitter: 'pattern_gold_glitter',
+  matrix: 'pattern_matrix',
+  pattern_matrix: 'pattern_matrix',
+  tartan: 'pattern_tartan',
+  pattern_tartan: 'pattern_tartan'
 };
 
 /**
@@ -299,32 +456,30 @@ export const isColorUnlocked = (
   const opt = getNameTagOption(colorId);
   if (opt.id === 'none') return { unlocked: true };
 
-  // Explizit freigeschaltet
+  // Explizit freigeschaltet (z.B. durch Quest-Abschluss in LocalStorage)
   if (unlockedContext?.unlockedColors?.includes(opt.id)) {
     return { unlocked: true };
+  }
+
+  // Quests-Bindung (prüft ob die Quest abgeschlossen ist)
+  if (opt.requiredQuestId) {
+    if (unlockedContext?.completedQuestIds?.includes(opt.requiredQuestId)) {
+      return { unlocked: true };
+    }
+    // Fallbacks für spezielle Zähler
+    if (opt.id === 'pink' && (unlockedContext?.achievementsCount ?? 0) >= 50 && userLevel >= 2) {
+      return { unlocked: true };
+    }
+    if (opt.id === 'turquoise' && (unlockedContext?.standardWins ?? 0) >= 5 && userLevel >= 2) {
+      return { unlocked: true };
+    }
+    return { unlocked: false, reason: opt.unlockConditionText || 'Quest noch nicht abgeschlossen' };
   }
 
   // Farben ab Level 3: Schwarz und Weiß
   if (opt.id === 'black' || opt.id === 'white') {
     if (userLevel >= 3) return { unlocked: true };
     return { unlocked: false, reason: 'Freischaltung ab Level 3' };
-  }
-
-  // Farben aus Quests ab Level 2:
-  // - Rosa: Sammle 50 Achievements
-  if (opt.id === 'pink') {
-    const hasQuest = unlockedContext?.completedQuestIds?.includes('l2_50_achievements');
-    const hasAchCount = (unlockedContext?.achievementsCount ?? 0) >= 50;
-    if (userLevel >= 2 && (hasQuest || hasAchCount)) return { unlocked: true };
-    return { unlocked: false, reason: 'Quest: Sammle 50 Achievements' };
-  }
-
-  // - Türkis: Gewinne 5 Standardspiele
-  if (opt.id === 'turquoise') {
-    const hasQuest = unlockedContext?.completedQuestIds?.includes('l2_5_wins_standard');
-    const hasWins = (unlockedContext?.standardWins ?? 0) >= 5;
-    if (userLevel >= 2 && (hasQuest || hasWins)) return { unlocked: true };
-    return { unlocked: false, reason: 'Quest: Gewinne 5 Standardspiele' };
   }
 
   // Höhere Level-Farben (Level 6, 11, 15, 16)

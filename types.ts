@@ -67,6 +67,9 @@ export interface Friend {
   title?: string;
   level?: number;
   xp?: number;
+  avatar_frame?: string;
+  name_bg_color?: string;
+  name_glow?: string;
 }
 
 export interface PendingFriendRequest {

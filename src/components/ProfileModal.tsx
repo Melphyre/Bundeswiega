@@ -96,6 +96,7 @@ interface ProfileModalProps {
   deletingProfile: boolean;
   handleDeleteProfile: () => Promise<void>;
   refreshUserData?: () => Promise<void>;
+  onSelectPlayer?: (playerName: string) => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -128,6 +129,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   myGameData,
   myAchievementsData,
   recordsSubTab,
+  onSelectPlayer,
   setRecordsSubTab,
   recordsSortBy,
   setRecordsSortBy,
@@ -1322,7 +1324,30 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                               }`}
                             >
                               {unlockedNameColors.map((opt) => {
-                                const emoji = opt.id === 'none' ? '🚫' : opt.id === 'red' ? '🔴' : opt.id === 'blue' ? '🔵' : opt.id === 'green' ? '🟢' : opt.id === 'yellow' ? '🟡' : opt.id === 'black' ? '⚫' : opt.id === 'white' ? '⚪' : opt.id === 'pink' ? '🌸' : opt.id === 'turquoise' ? '💎' : opt.id === 'neon_mint' ? '🌿' : opt.id === 'cyberpunk_pink_yellow' ? '🧬' : opt.id === 'aurora_name_glow' ? '🌌' : opt.id === 'galaxy_pattern' ? '🪐' : '🎨';
+                                const emoji =
+                                  opt.id === 'none' ? '🚫' :
+                                  opt.id === 'red' ? '🔴' :
+                                  opt.id === 'blue' ? '🔵' :
+                                  opt.id === 'green' ? '🟢' :
+                                  opt.id === 'yellow' ? '🟡' :
+                                  opt.id === 'black' ? '⚫' :
+                                  opt.id === 'white' ? '⚪' :
+                                  opt.id === 'pink' ? '🌸' :
+                                  opt.id === 'turquoise' ? '💎' :
+                                  opt.id === 'neon_orange' ? '🔥' :
+                                  opt.id === 'royal_blue' ? '👑' :
+                                  opt.id === 'deep_purple' ? '🔮' :
+                                  opt.id === 'toxic_green' ? '🧪' :
+                                  opt.id === 'gold_solid' ? '🏆' :
+                                  opt.id === 'pattern_carbon' ? '🏁' :
+                                  opt.id === 'pattern_cyberpunk' ? '⚡' :
+                                  opt.id === 'pattern_gold_glitter' ? '✨' :
+                                  opt.id === 'pattern_matrix' ? '💻' :
+                                  opt.id === 'pattern_tartan' ? '🧣' :
+                                  opt.id === 'neon_mint' ? '🌿' :
+                                  opt.id === 'cyberpunk_pink_yellow' ? '🧬' :
+                                  opt.id === 'aurora_name_glow' ? '🌌' :
+                                  opt.id === 'galaxy_pattern' ? '🪐' : '🎨';
                                 return (
                                   <option key={opt.id} value={opt.id}>
                                     {emoji} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
@@ -1660,6 +1685,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                       questProgresses={questProgresses}
                       loading={loadingQuests}
                       onQuestUpdated={loadQuestProgress}
+                      darkMode={darkMode}
                     />
                   );
                 })()}
@@ -1986,21 +2012,54 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {friends.map(f => (
                         <div key={f.id} className={`p-3 rounded-xl border flex items-center justify-between ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                          <div className="flex items-center space-x-3">
-                            <PlayerAvatar
-                              url={f.imageUrl}
-                              name={f.name}
-                              className="w-8 h-8"
-                            />
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-sm">{f.name}</span>
-                              <PlayerLevelBadge level={f.level || 1} size="sm" />
-                              {f.title && <PlayerTitleBadge title={f.title} size="sm" />}
+                          <div className="flex items-center space-x-3 min-w-0">
+                            {/* Interaktives Profilbild mit Hover & Klick für Großansicht */}
+                            <div
+                              onClick={() => {
+                                playButtonSound();
+                                if (onSelectPlayer) onSelectPlayer(f.name);
+                              }}
+                              className="relative group cursor-pointer shrink-0"
+                              title={`${f.name} - Profilbild vergrößern & Details ansehen`}
+                            >
+                              <PlayerAvatar
+                                url={f.imageUrl}
+                                name={f.name}
+                                avatar_frame={f.avatar_frame}
+                                className="w-10 h-10 border transition-transform duration-200 group-hover:scale-105 group-active:scale-95 shadow-sm"
+                              />
+                              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] pointer-events-none">
+                                <i className="fas fa-search-plus"></i>
+                              </div>
+                            </div>
+
+                            <div
+                              className="min-w-0 cursor-pointer"
+                              onClick={() => {
+                                playButtonSound();
+                                if (onSelectPlayer) onSelectPlayer(f.name);
+                              }}
+                              title={`${f.name} - Details anzeigen`}
+                            >
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-sm hover:underline">{f.name}</span>
+                                <PlayerLevelBadge level={f.level || 1} size="sm" />
+                                {f.title && <PlayerTitleBadge title={f.title} size="sm" />}
+                              </div>
+                              <div className="text-[10px] opacity-60 flex items-center space-x-1.5 mt-0.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                                <span>Freund</span>
+                                <span className="opacity-30">•</span>
+                                <span className="text-[#238183] dark:text-[#2dd4bf] hover:underline flex items-center gap-0.5 font-bold">
+                                  <i className="fas fa-id-card text-[9px]"></i>
+                                  <span>Details</span>
+                                </span>
+                              </div>
                             </div>
                           </div>
                           <button
                             onClick={() => onRemoveFriend(f.friendshipId)}
-                            className="px-3 py-1.5 rounded-lg border border-red-500/40 text-red-500 hover:bg-red-500/10 text-xs font-bold cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg border border-red-500/40 text-red-500 hover:bg-red-500/10 text-xs font-bold cursor-pointer shrink-0"
                           >
                             Entfernen
                           </button>

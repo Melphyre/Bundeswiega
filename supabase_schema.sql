@@ -18,6 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 
 -- Kosmetik- & Design-Spalten für Profiles (Level 5-20 Belohnungen)
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name_bg_color TEXT DEFAULT 'none';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name_glow TEXT DEFAULT 'none';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_frame TEXT DEFAULT 'none';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS leaderboard_row_theme TEXT DEFAULT 'none';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS ingame_column_theme TEXT DEFAULT 'none';

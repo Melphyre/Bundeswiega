@@ -313,6 +313,12 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
   { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
   { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
+  // Neue Level-2 Quests (Einfarbige & animierte Hintergründe):
+  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel', colorReward: 'neon_orange', rewardDescription: 'Hintergrundfarbe Neon-Orange' },
+  { id: 'l2_royal_blue', level: 2, title: 'Erreiche 3x einen Durchschnitt < 3 Gramm', xpReward: 15, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 3, colorReward: 'royal_blue', rewardDescription: 'Hintergrundfarbe Königsblau' },
+  { id: 'l2_deep_purple', level: 2, title: 'Nimm an 5 Teamwiegen teil', xpReward: 15, metric: 'teamwiegen_count', targetValue: 5, targetCount: 5, colorReward: 'deep_purple', rewardDescription: 'Hintergrundfarbe Purpur' },
+  { id: 'l2_toxic_green', level: 2, title: 'Spiele 5 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Speedwiegen', colorReward: 'toxic_green', rewardDescription: 'Hintergrundfarbe Giftgrün' },
+  { id: 'l2_gold_solid', level: 2, title: 'Gewinne 3 Turniere', xpReward: 25, metric: 'tournament_count', targetValue: 3, targetCount: 3, colorReward: 'gold_solid', rewardDescription: 'Hintergrundfarbe Gold-Gelb' },
 
   // --- LEVEL 3 ---
   { id: 'l3_15_standard', level: 3, title: 'Spiele 15 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 15, targetCount: 15, gameMode: 'Standardspiel' },
@@ -321,6 +327,12 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l3_tournament_3', level: 3, title: 'Nimm an 3 Turnieren teil', xpReward: 20, metric: 'tournament_count', targetValue: 3, targetCount: 3 },
   { id: 'l3_avg_sub2', level: 3, title: 'Durchschnitt unter 2,0 Gramm in einem Spiel', xpReward: 20, titleReward: 'Präzisions-Schütze', metric: 'avg_less_than', targetValue: 2.0, threshold: 2.0, targetCount: 1 },
   { id: 'l3_5x_sub2_schnaepse', level: 3, title: 'Spiele 5 Spiele mit maximal 2 Schnäpsen', xpReward: 15, metric: 'max_schnaepse', targetValue: 2, threshold: 2, targetCount: 5 },
+  // Neue Level-3 Quests (Gemusterte & effektvolle Hintergründe):
+  { id: 'l3_pattern_carbon', level: 3, title: 'Absolviere 20 Spiele', xpReward: 20, metric: 'games_count', targetValue: 20, targetCount: 20, colorReward: 'pattern_carbon', rewardDescription: 'Hintergrundmuster Carbon-Faser' },
+  { id: 'l3_pattern_cyberpunk', level: 3, title: 'Erreiche 5x einen Durchschnitt unter 3 Gramm', xpReward: 25, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 5, colorReward: 'pattern_cyberpunk', rewardDescription: 'Hintergrund Cyberpunk-Glitch' },
+  { id: 'l3_pattern_gold_glitter', level: 3, title: 'Nimm an 8 Teamwiegen teil', xpReward: 25, metric: 'teamwiegen_count', targetValue: 8, targetCount: 8, colorReward: 'pattern_gold_glitter', rewardDescription: 'Hintergrund Goldener Glitter' },
+  { id: 'l3_pattern_matrix', level: 3, title: 'Spiele 10 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Speedwiegen', colorReward: 'pattern_matrix', rewardDescription: 'Hintergrund Matrix-Digital' },
+  { id: 'l3_pattern_tartan', level: 3, title: 'Sammle 50 Achievements', xpReward: 25, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pattern_tartan', rewardDescription: 'Hintergrund Tartan / Karo' },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -368,6 +380,60 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l10_legend_avg', level: 10, title: 'Legendreifer Durchschnitt unter 0,8 Gramm', xpReward: 100, titleReward: 'Unantastbar', metric: 'avg_less_than', targetValue: 0.8, threshold: 0.8, targetCount: 1 },
   { id: 'l10_20x_zero_schnaepse', level: 10, title: 'Absolviere 20 Spiele völlig ohne Schnäpse', xpReward: 80, titleReward: 'Fehlerfrei', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 20 }
 ];
+
+function getCanonicalTournamentKey(r: any): string | null {
+  if (!r) return null;
+
+  const rawMode = String(r.game_mode || '').toLowerCase();
+  const isTournament =
+    r.is_tournament === true ||
+    Boolean(r.tournament_id) ||
+    Boolean(r.tournament_name) ||
+    rawMode.includes('turnier');
+
+  if (!isTournament) return null;
+
+  let rawName = String(r.tournament_name || '').trim();
+
+  if (!rawName && rawMode.includes('turnier')) {
+    const bracketMatch = String(r.game_mode).match(/turnier(?:spiel)?\s*[\(:–—]\s*([^)\n]+)[\)]?/i);
+    if (bracketMatch && bracketMatch[1]) {
+      const candidate = bracketMatch[1].trim();
+      if (!/^(?:tisch(?:\s*\d+)?|table(?:\s*\d+)?|vorrunde|finale)$/i.test(candidate)) {
+        rawName = candidate;
+      }
+    }
+  }
+
+  if (rawName) {
+    let clean = rawName.toLowerCase();
+    clean = clean.replace(/\s*[\(\[\{](?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|gruppe\s*[a-z0-9]+|tisch\s*\d+|table\s*\d+|runde\s*\d+)[^\)\]\}]*[\)\]\}]/gi, '');
+    clean = clean.replace(/\s*[-–—:/]\s*(?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|gruppe\s*[a-z0-9]+|tisch\s*\d+|table\s*\d+|runde\s*\d+)\b.*$/gi, '');
+    clean = clean.replace(/\s+\b(?:vorrunde|finale|finalrunde|finaltisch|final|halbfinale|viertelfinale|second\s*chance|trostrunde|tisch\s*\d+|table\s*\d+|runde\s*\d+)$/gi, '');
+    clean = clean.replace(/[\s\-–—:/.]+$/, '').trim();
+
+    if (!clean) {
+      clean = rawName.toLowerCase().trim();
+    }
+
+    if (clean) {
+      return `name:${clean}`;
+    }
+  }
+
+  if (r.tournament_id) {
+    let tid = String(r.tournament_id).trim().toLowerCase();
+    tid = tid.replace(/_(?:table_\d+|final|second_chance|round_\d+|vorrunde)$/i, '');
+    return `id:${tid}`;
+  }
+
+  const dateKey = r.date || (r.created_at ? new Date(r.created_at).toLocaleDateString('de-DE') : null);
+  if (dateKey) {
+    return `date:${String(dateKey).trim()}`;
+  }
+
+  return `game:${r.id || 'unknown'}`;
+}
 
 async function serverEvaluateQuestsForUser(userId: string) {
   if (!userId || !supabaseAdmin) return;
@@ -522,11 +588,16 @@ async function serverEvaluateQuestsForUser(userId: string) {
         }
 
         case 'tournament_count': {
-          progress = safeResults.filter(r =>
-            r.is_tournament === true ||
-            r.tournament_id !== null ||
-            (r.game_mode || '').toLowerCase().includes('turnier')
-          ).length;
+          const uniqueTournaments = new Set<string>();
+
+          for (const r of safeResults) {
+            const key = getCanonicalTournamentKey(r);
+            if (key) {
+              uniqueTournaments.add(key);
+            }
+          }
+
+          progress = uniqueTournaments.size;
           break;
         }
 

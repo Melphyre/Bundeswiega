@@ -26,7 +26,8 @@ export const VerticalText: React.FC<{
           ? {
               backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
               color: bgOption.textHex,
-              borderColor: hasGlow ? undefined : bgOption.borderHex
+              borderColor: hasGlow ? undefined : bgOption.borderHex,
+              ...(bgOption.style || {})
             }
           : undefined
       }
@@ -37,7 +38,7 @@ export const VerticalText: React.FC<{
       }
     >
       {text.split('').map((char, i) => (
-        <span key={i} className="block">{char === ' ' ? '\u00A0' : char}</span>
+        <span key={i} className="block relative z-10">{char === ' ' ? '\u00A0' : char}</span>
       ))}
     </div>
   );

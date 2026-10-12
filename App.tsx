@@ -94,6 +94,7 @@ import {
   evaluateQuestAtRoundEnd,
   getQuestById,
   createQuestInstance,
+  isWorldOfWiegenQuestTriggered,
   WORLD_OF_WIEGEN_QUESTS
 } from './src/constants/worldOfWiegenQuests';
 import {
@@ -1889,6 +1890,28 @@ const App: React.FC = () => {
       setPendingQuestChoicePlayer(null);
       setPendingQuestDistributionContext(null);
     }
+  };
+
+  const handleUpdatePendingEffect = (updatedEffect: ActiveEffect) => {
+    if (pendingEffectUnlock) {
+      setPendingEffectUnlock(prev => prev ? { ...prev, activeEffect: updatedEffect } : null);
+    }
+    setActiveEffects(prev => prev.map(e => (e.id === updatedEffect.id ? updatedEffect : e)));
+    setEffectHistory(prev => prev.map(e => (e.id === updatedEffect.id ? updatedEffect : e)));
+  };
+
+  const handleUpdatePendingQuestTarget = (targetPlayer: Player) => {
+    if (!pendingNewQuest) return;
+    let customDesc = pendingNewQuest.customDescription;
+    if (pendingNewQuest.questId === 'wiegebuddy') {
+      customDesc = `Wiegebuddy-Gleichklang: Wiege in den nächsten 2 Runden im Einklang auf derselben Seite des Zielgewichts wie ${targetPlayer.name}!`;
+    }
+    setPendingNewQuest(prev => prev ? {
+      ...prev,
+      targetPlayerId: targetPlayer.id,
+      targetPlayerName: targetPlayer.name,
+      customDescription: customDesc
+    } : null);
   };
   const [pendingEffectUnlock, setPendingEffectUnlock] = useState<{
     quest: ActiveQuest;
@@ -4174,11 +4197,27 @@ const App: React.FC = () => {
       );
 
       // 4. Offer new quests if needed:
-      // Quests start from round 2 (after round 1 is evaluated, so updatedRounds.length >= 1)
-      // The player is asked ZUERST whether they want Kreiswiega (leichter) or Championswieg (schwerer)
-      const playersWithoutQuest = activePlayers.filter(
-        p => !remainingQuests.some(q => q.playerId === p.id)
-      );
+      // REGEL 1: AUSLÖSER-BEDINGUNG (TRIGGER)
+      // Aufgaben dürfen erst abgerufen oder ausgelost werden, wenn:
+      // a) Mindestens Runde 2 erreicht ist (nextRoundNumber >= 2), ODER
+      // b) Ein Spieler unter die Marke von 420 Gramm gefallen ist.
+      // Vorher werden keine Aufgaben vergeben!
+      const nextRoundNumber = updatedRounds.length + 1;
+      const isQuestTriggered = isWorldOfWiegenQuestTriggered(nextRoundNumber, updatedPlayers, updatedRounds);
+
+      // REGEL 2: ONE-TIME-COMPLETION (KEINE SCHLEIFE)
+      // Sobald ein Spieler eine zugewiesene "World of Wiegen"-Aufgabe erfolgreich erfüllt hat, ist diese abgeschlossen.
+      // Der Spieler erhält danach KEINE neuen Aufgaben mehr in derselben Runde / demselben Spiel (einmalig pro Match).
+      const completedPlayerIds = new Set<string>([
+        ...questHistory.filter(q => q.status === 'completed').map(q => q.playerId),
+        ...newlyCompletedQuests.map(q => q.playerId)
+      ]);
+
+      const playersWithoutQuest = isQuestTriggered
+        ? activePlayers.filter(
+            p => !remainingQuests.some(q => q.playerId === p.id) && !completedPlayerIds.has(p.id)
+          )
+        : [];
 
       setActiveQuests(remainingQuests);
 
@@ -5465,16 +5504,14 @@ const App: React.FC = () => {
                   }}
                   className="px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center space-x-2 cursor-pointer hover:opacity-90 shadow transition-all"
                   style={{ backgroundColor: BRAND_COLOR }}
+                  title="Profil verwalten"
                 >
                   <PlayerAvatar
                     url={supabaseUser?.user_metadata?.avatar_url}
                     name={supabaseUser?.user_metadata?.username || 'Mein Profil'}
                     className="w-5 h-5"
                   />
-                  <PlayerNameTag name={supabaseUser?.user_metadata?.username || 'Profil verwalten'} colorKey={userNameBgColor} className="px-1.5 py-0.5" />
-                  <PlayerLevelBadge level={userLevel} isGuest={!supabaseUser?.id} size="sm" />
-                  {userTitle && <PlayerTitleBadge title={userTitle} size="sm" />}
-                  {isAdmin && <span className="text-yellow-300">👑</span>}
+                  <PlayerNameTag name={supabaseUser?.user_metadata?.username || 'Profil'} colorKey={userNameBgColor} className="px-1.5 py-0.5" />
                   {pendingRequests.length > 0 && (
                     <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black animate-pulse">
                       {pendingRequests.length}
@@ -6244,7 +6281,18 @@ const App: React.FC = () => {
                       </div>
 
                       <div>
-                        <h3 className="text-xl font-black">{player.name}</h3>
+                        <h3 className="text-xl font-black">
+                          {getPlayerNameBgColor(player.id, player) || getPlayerNameGlow(player.id, player) ? (
+                            <PlayerNameTag
+                              name={player.name}
+                              colorKey={getPlayerNameBgColor(player.id, player)}
+                              glowKey={getPlayerNameGlow(player.id, player)}
+                              className="text-xl font-black px-3 py-1 rounded-xl"
+                            />
+                          ) : (
+                            player.name
+                          )}
+                        </h3>
                         <p className="text-xs opacity-50 font-bold">Aktueller Füllstand: {currentWeight}g</p>
                       </div>
 
@@ -7223,6 +7271,9 @@ const App: React.FC = () => {
             selectedPlayer={announcer}
             playerAccountLinks={playerAccountLinks}
             getPlayerTitle={getPlayerTitle}
+            getPlayerNameBgColor={getPlayerNameBgColor}
+            getPlayerNameGlow={getPlayerNameGlow}
+            getPlayerAvatarFrame={getPlayerAvatarFrame}
             darkMode={darkMode}
           />
         );
@@ -12047,6 +12098,7 @@ const App: React.FC = () => {
         pendingQuestPlayer={pendingQuestChoicePlayer}
         pendingQuest={pendingNewQuest}
         pendingEffect={pendingEffectUnlock}
+        allPlayers={players}
         onSelectDifficultyForPlayer={handleSelectQuestDifficulty}
         onConfirmRevealedQuest={handleConfirmRevealedQuest}
         onDismissQuest={() => {
@@ -12060,6 +12112,8 @@ const App: React.FC = () => {
           setPendingNewQuest(null);
         }}
         onDismissEffect={() => setPendingEffectUnlock(null)}
+        onUpdateActiveEffect={handleUpdatePendingEffect}
+        onUpdatePendingQuestTarget={handleUpdatePendingQuestTarget}
         darkMode={darkMode}
       />
 

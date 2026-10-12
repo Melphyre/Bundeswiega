@@ -67,11 +67,12 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
         backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
         color: bgOption.textHex,
         borderColor: hasGlow ? undefined : bgOption.borderHex,
+        ...(bgOption.style || {}),
         ...style
       }}
       title={tooltipText}
     >
-      <span className="truncate">{name}</span>
+      <span className="relative z-10 truncate">{name}</span>
     </span>
   );
 };

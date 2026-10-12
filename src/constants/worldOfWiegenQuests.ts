@@ -209,6 +209,19 @@ export const WORLD_OF_WIEGEN_QUESTS: QuestDefinition[] = [
     pool: 'both',
     icon: '✨',
     difficulty: 'normal'
+  },
+  {
+    id: 'wiegebuddy',
+    name: 'Wiegebuddy',
+    shortTitle: 'Wiegebuddy',
+    description: 'Suche dir deinen Wiegebuddy aktiv aus: Wiegt in den nächsten 2 Runden im Einklang auf derselben Seite des Zielgewichts.',
+    epicLore: 'Zwei Krüge, ein Geist! Hand in Hand am Wiegetisch im Gleichklang.',
+    category: 'social',
+    durationRounds: 2,
+    pool: 'both',
+    icon: '🍻',
+    difficulty: 'normal',
+    requiresMinPlayers: 2
   }
 ];
 
@@ -280,7 +293,7 @@ export function selectEligibleQuest(
 
   // Pick suitable target player for rival / partner quests
   let targetPlayer: Player | undefined;
-  if (['better_than_x', 'opposite_to_x', 'parallel_to_x', 'no_schnaps_when_x'].includes(chosen.id)) {
+  if (['better_than_x', 'opposite_to_x', 'parallel_to_x', 'no_schnaps_when_x', 'wiegebuddy'].includes(chosen.id)) {
     const opponents = allPlayers.filter(p => p.id !== player.id && !p.isDisqualified);
     if (opponents.length > 0) {
       if (chosen.id === 'better_than_x') {
@@ -410,6 +423,11 @@ export function createQuestInstance(
     customDescription = isChampionswieg
       ? 'Verbessere deine Genauigkeit 2 Runden hintereinander!'
       : 'Sei in der nächsten Runde genauer als in der Vorrunde.';
+  } else if (questDef.id === 'wiegebuddy') {
+    requiredStreak = 2;
+    durationRounds = 2;
+    const buddyName = targetPlayer?.name || 'dein Wiegebuddy';
+    customDescription = `Wiegebuddy-Gleichklang: Wiege in den nächsten 2 Runden im Einklang auf derselben Seite des Zielgewichts wie ${buddyName}!`;
   }
 
   return {
@@ -710,6 +728,7 @@ export function evaluateQuestAtRoundEnd(
       break;
     }
 
+    case 'wiegebuddy':
     case 'parallel_to_x': {
       if (quest.targetPlayerId) {
         const rivalWeight = currentRound.results[quest.targetPlayerId];
@@ -720,9 +739,11 @@ export function evaluateQuestAtRoundEnd(
             newStreak += 1;
             if (newStreak >= quest.requiredStreak) {
               newStatus = 'completed';
-              progressText = `👥 ${quest.requiredStreak} Runden im Gleichschritt mit ${quest.targetPlayerName} gewogen!`;
+              progressText = quest.questId === 'wiegebuddy'
+                ? `🍻 ${quest.requiredStreak} Runden im Einklang mit deinem Wiegebuddy ${quest.targetPlayerName} gewogen! Quest bestanden!`
+                : `👥 ${quest.requiredStreak} Runden im Gleichschritt mit ${quest.targetPlayerName} gewogen!`;
             } else {
-              progressText = `Gleichläufig gewogen! Streak: ${newStreak}/${quest.requiredStreak}.`;
+              progressText = `Gleichläufig mit ${quest.targetPlayerName} gewogen! Streak: ${newStreak}/${quest.requiredStreak}.`;
             }
           } else {
             newStreak = 0;
@@ -811,4 +832,32 @@ export function evaluateQuestAtRoundEnd(
   }
 
   return { status: newStatus, progressText, streakCount: newStreak };
+}
+
+/**
+ * Regel 1: Auslöser-Bedingung (Trigger)
+ * Quests dürfen erst abgerufen oder ausgelost werden, wenn:
+ * a) Mindestens Runde 2 erreicht ist (currentRoundNumber >= 2), ODER
+ * b) Ein Spieler unter die Marke von 420 Gramm gefallen ist.
+ * Vorher werden keine Aufgaben vergeben.
+ */
+export function isWorldOfWiegenQuestTriggered(
+  currentRoundNumber: number,
+  players: Player[],
+  rounds: Round[]
+): boolean {
+  // Check (b): Ein Spieler unter die Marke von 420 Gramm gefallen
+  const hasPlayerUnder420 = players.some(p => {
+    if (p.startWeight !== undefined && p.startWeight > 0 && p.startWeight < 420) return true;
+    for (const r of rounds) {
+      const w = r.results[p.id];
+      if (w !== undefined && !isNaN(w) && w > 0 && w < 420) return true;
+    }
+    return false;
+  });
+
+  if (hasPlayerUnder420) return true;
+
+  // Check (a): Mindestens Runde 2 erreicht ist
+  return currentRoundNumber >= 2;
 }

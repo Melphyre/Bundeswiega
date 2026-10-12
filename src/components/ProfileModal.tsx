@@ -6,7 +6,16 @@ import { getUnlockedTitles, PLAYER_TITLES, extractProfileStats } from '../consta
 import PlayerTitleBadge from './PlayerTitleBadge';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import { calculateLevelFromXp } from '../utils/levelSystem';
-import { NAME_TAG_COLORS, getNameTagOption, NAME_GLOW_OPTIONS, isColorUnlocked } from '../constants/nameTagConfig';
+import {
+  NAME_TAG_COLORS,
+  getNameTagOption,
+  NAME_GLOW_OPTIONS,
+  isColorUnlocked,
+  parseNameBg,
+  NameBgColorId,
+  NameBgAnimationId
+} from '../constants/nameTagConfig';
+import NameBgSelector from './NameBgSelector';
 import {
   hasUnlockedAnyAvatarFrame,
   hasUnlockedAnyColumnTheme,
@@ -548,34 +557,56 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     }
   };
 
-  const handleNameBgColorChange = async (newColor: string) => {
+  const handleNameBgSave = async (
+    newColorId: NameBgColorId,
+    newAnimationId: NameBgAnimationId,
+    serialized: string
+  ) => {
     const userId = supabaseUser?.id;
     if (!userId) return;
 
-    setSelectedNameBgColor(newColor);
+    setSelectedNameBgColor(serialized);
     setNameBgLoading(true);
     setNameBgMessage(null);
 
     try {
-      // 1. Supabase Auth Metadaten aktualisieren
+      // 1. Supabase Auth Metadaten aktualisieren (beinhaltet name_bg_color, bg_color, bg_animation)
       const { error: authErr } = await supabase.auth.updateUser({
-        data: { name_bg_color: newColor }
+        data: {
+          name_bg_color: serialized,
+          bg_color: newColorId,
+          bg_animation: newAnimationId
+        }
       });
       if (authErr) console.warn('auth updateUser name_bg_color warn:', authErr);
 
-      // 2. Profiles Tabelle aktualisieren
+      // 2. Profiles Tabelle aktualisieren (versuche beide Spalten, mit Fallback auf name_bg_color)
       try {
-        await supabase
+        const { error: dbErr } = await supabase
           .from('profiles')
-          .update({ name_bg_color: newColor })
+          .update({
+            name_bg_color: serialized,
+            bg_color: newColorId,
+            bg_animation: newAnimationId
+          })
           .eq('id', userId);
+
+        if (dbErr) {
+          // Fallback falls extra Spalten im Schema noch nicht existieren
+          await supabase
+            .from('profiles')
+            .update({ name_bg_color: serialized })
+            .eq('id', userId);
+        }
       } catch (dbErr) {
         console.warn('profiles.name_bg_color update warn:', dbErr);
       }
 
       // 3. LocalStorage sichern
       try {
-        localStorage.setItem(`bundeswiega_user_name_bg_${userId}`, newColor);
+        localStorage.setItem(`bundeswiega_user_name_bg_${userId}`, serialized);
+        localStorage.setItem(`bundeswiega_user_bg_color_${userId}`, newColorId);
+        localStorage.setItem(`bundeswiega_user_bg_anim_${userId}`, newAnimationId);
       } catch {
         // ignore
       }
@@ -585,13 +616,18 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         await fetch('/api/users/update-name-bg', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, name_bg_color: newColor })
+          body: JSON.stringify({
+            userId,
+            name_bg_color: serialized,
+            bg_color: newColorId,
+            bg_animation: newAnimationId
+          })
         });
       } catch {
         // ignore
       }
 
-      const opt = getNameTagOption(newColor);
+      const opt = getNameTagOption(serialized);
       setNameBgMessage(`✅ Namenshintergrund "${opt.label}" erfolgreich gespeichert!`);
       if (refreshUserData) await refreshUserData();
     } catch (e: any) {
@@ -600,6 +636,11 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     } finally {
       setNameBgLoading(false);
     }
+  };
+
+  const handleNameBgColorChange = async (newColor: string) => {
+    const parsed = parseNameBg(newColor);
+    return handleNameBgSave(parsed.colorId, parsed.animationId, newColor);
   };
 
   const handleNameGlowChange = async (newGlow: string) => {
@@ -994,10 +1035,19 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         valA = a.time_seconds !== undefined && a.time_seconds !== null ? a.time_seconds : (a.schnaepse ?? 0);
         valB = b.time_seconds !== undefined && b.time_seconds !== null ? b.time_seconds : (b.schnaepse ?? 0);
         break;
-      case 'total':
-        valA = a.total ?? 0;
-        valB = b.total ?? 0;
+      case 'total': {
+        const calcTotal = (g: any) => {
+          if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
+            return Number(g.total);
+          }
+          const avgVal = Number(g.avg) || 0;
+          const schnapsVal = Number(g.schnaepse) || 0;
+          return Math.round((avgVal + schnapsVal) * 100) / 100;
+        };
+        valA = calcTotal(a);
+        valB = calcTotal(b);
         break;
+      }
     }
     return recordsSortDir === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
   });
@@ -1257,16 +1307,6 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     completedQuestIds.push('l2_5_wins_standard');
                   }
 
-                  const unlockedNameColors = NAME_TAG_COLORS.filter((opt) => {
-                    const check = isColorUnlocked(opt.id, levelInfo.level, {
-                      completedQuestIds,
-                      achievementsCount: totalAchievementsCount,
-                      standardWins: standardWinsCount,
-                      unlockedColors: userUnlockedColors
-                    });
-                    return check.unlocked;
-                  });
-
                   const unlockedAvatarFrames = getUnlockedAvatarFrames(levelInfo.level);
                   const unlockedColumnThemes = getUnlockedColumnThemes(levelInfo.level);
                   const unlockedRowThemes = getUnlockedRowThemes(levelInfo.level);
@@ -1301,12 +1341,12 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                       </div>
 
                       <div className="space-y-4">
-                        {/* Kategorie 1: Namenshintergrund (ab Level 2 sichtbar) */}
+                        {/* Kategorie 1: Namenshintergrund (ab Level 2 sichtbar) - Entkoppeltes Farb- & Animationssystem */}
                         {showNameBgs && (
                           <div className="space-y-2 p-3.5 rounded-xl border border-teal-500/20 bg-teal-500/5">
                             <div className="flex items-center justify-between flex-wrap gap-1">
                               <label className="block text-xs font-bold flex items-center space-x-1.5">
-                                <span>🎨 Namenshintergrund auswählen:</span>
+                                <span>🎨 Namenshintergrund & Effekte konfigurieren:</span>
                               </label>
                               {selectedNameBgColor && selectedNameBgColor !== 'none' && (
                                 <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
@@ -1315,59 +1355,22 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                               )}
                             </div>
 
-                            <select
-                              value={selectedNameBgColor || 'none'}
-                              onChange={(e) => handleNameBgColorChange(e.target.value)}
+                            <NameBgSelector
+                              currentValue={selectedNameBgColor}
+                              userLevel={levelInfo.level}
+                              unlockedContext={{
+                                completedQuestIds,
+                                achievementsCount: totalAchievementsCount,
+                                standardWins: standardWinsCount,
+                                unlockedColors: userUnlockedColors
+                              }}
+                              playerName={profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.user_metadata?.display_name || 'Dein Name'}
+                              activeGlow={selectedNameGlow}
                               disabled={nameBgLoading}
-                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
-                                darkMode ? 'border-white/20 bg-slate-900 text-white' : 'border-black/20 bg-white text-black'
-                              }`}
-                            >
-                              {unlockedNameColors.map((opt) => {
-                                const emoji =
-                                  opt.id === 'none' ? '🚫' :
-                                  opt.id === 'red' ? '🔴' :
-                                  opt.id === 'blue' ? '🔵' :
-                                  opt.id === 'green' ? '🟢' :
-                                  opt.id === 'yellow' ? '🟡' :
-                                  opt.id === 'black' ? '⚫' :
-                                  opt.id === 'white' ? '⚪' :
-                                  opt.id === 'pink' ? '🌸' :
-                                  opt.id === 'turquoise' ? '💎' :
-                                  opt.id === 'neon_orange' ? '🔥' :
-                                  opt.id === 'royal_blue' ? '👑' :
-                                  opt.id === 'deep_purple' ? '🔮' :
-                                  opt.id === 'toxic_green' ? '🧪' :
-                                  opt.id === 'gold_solid' ? '🏆' :
-                                  opt.id === 'pattern_carbon' ? '🏁' :
-                                  opt.id === 'pattern_cyberpunk' ? '⚡' :
-                                  opt.id === 'pattern_gold_glitter' ? '✨' :
-                                  opt.id === 'pattern_matrix' ? '💻' :
-                                  opt.id === 'pattern_tartan' ? '🧣' :
-                                  opt.id === 'neon_mint' ? '🌿' :
-                                  opt.id === 'cyberpunk_pink_yellow' ? '🧬' :
-                                  opt.id === 'aurora_name_glow' ? '🌌' :
-                                  opt.id === 'galaxy_pattern' ? '🪐' : '🎨';
-                                return (
-                                  <option key={opt.id} value={opt.id}>
-                                    {emoji} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
-                                  </option>
-                                );
-                              })}
-                            </select>
-
-                            <div className="flex items-center justify-between text-[11px] opacity-60 px-1 pt-0.5 flex-wrap gap-1">
-                              <span>
-                                Freigeschaltet: <strong className="text-emerald-500">{unlockedNameColors.length}</strong> von {NAME_TAG_COLORS.length} Namensfarben
-                              </span>
-                              <span>Weitere Farben werden durch Levelaufstiege freigeschaltet</span>
-                            </div>
-
-                            {nameBgMessage && (
-                              <p className={`text-xs font-bold animate-in fade-in ${nameBgMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {nameBgMessage}
-                              </p>
-                            )}
+                              onSave={handleNameBgSave}
+                              message={nameBgMessage}
+                              darkMode={darkMode}
+                            />
                           </div>
                         )}
 
@@ -1841,6 +1844,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                         <option value="datum">Datum</option>
                         <option value="avg">Bester Ø</option>
                         <option value="schnaepse">Schnäpse / Zeit</option>
+                        <option value="total">Bestes Total</option>
                       </select>
                       <button
                         onClick={() => setRecordsSortDir(recordsSortDir === 'asc' ? 'desc' : 'asc')}
@@ -1878,13 +1882,37 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             )}
                             <div className="text-[10px] opacity-50">{g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}</div>
                           </div>
-                          <div className="text-right space-x-3">
-                            <span className="text-emerald-500">Ø {g.avg !== undefined ? Number(g.avg).toFixed(2) : '-'}</span>
+                          <div className="text-right flex items-center justify-end gap-2.5 sm:gap-3 flex-wrap">
+                            <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung">
+                              Ø {g.avg !== undefined ? Number(g.avg).toFixed(2) : '-'}
+                            </span>
                             {g.time_seconds ? (
-                              <span className="text-amber-500">{Number(g.time_seconds).toFixed(1)}s</span>
+                              <span className="text-amber-500 font-bold" title="Zeit">
+                                {Number(g.time_seconds).toFixed(1)}s
+                              </span>
                             ) : (
-                              <span className="text-amber-500">{g.schnaepse ?? 0} Schnäpse</span>
+                              <span className="text-amber-500 font-bold" title="Schnäpse">
+                                {g.schnaepse ?? 0} Schnäpse
+                              </span>
                             )}
+                            {(() => {
+                              const totalVal = (() => {
+                                if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
+                                  return Number(g.total);
+                                }
+                                const avgVal = Number(g.avg) || 0;
+                                const schnapsVal = Number(g.schnaepse) || 0;
+                                return Math.round((avgVal + schnapsVal) * 100) / 100;
+                              })();
+                              return (
+                                <span
+                                  className="text-purple-400 font-black px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20"
+                                  title="Gesamtwertung (Total: Ø + Schnäpse)"
+                                >
+                                  Total {totalVal.toFixed(2)}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                       ))

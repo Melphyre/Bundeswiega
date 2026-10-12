@@ -106,15 +106,12 @@ export const WorldOfWiegenInfoModal: React.FC<WorldOfWiegenInfoModalProps> = ({
         {/* Quest Lifecycle & Gating */}
         <div className="space-y-2 text-xs opacity-85 leading-relaxed">
           <h4 className="font-black text-xs uppercase tracking-wider opacity-75">
-            🎯 Dynamic Skill &amp; Leaderboard Gating
+            🎯 Spielregeln &amp; Quest-Ablauf
           </h4>
-          <p>
-            Quests starten automatisch ab Runde 2 und richten sich nach eurem aktuellen Tabellenplatz und Pre-Average:
-          </p>
-          <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] opacity-80">
-            <li><strong>Starke Wieger (Pre-Average &lt; 7.0g):</strong> Erhalten schwere Präzisions-Aufgaben (z.B. Schnapszahl treffen, Volltreffer ±1g).</li>
-            <li><strong>Kellerkinder:</strong> Erhalten Comeback-Aufgaben (z.B. Rote Laterne abgeben, Rang aufholen).</li>
-            <li><strong>Führende:</strong> Erhalten Führungsverteidigungs-Herausforderungen.</li>
+          <ul className="list-disc list-inside space-y-1.5 pl-1 text-[11px] opacity-80">
+            <li><strong>Auslöser-Bedingung:</strong> Aufgaben werden erst vergeben, wenn <em>mindestens Runde 2 erreicht ist</em> ODER <em>ein Spieler unter 420g gefallen ist</em>. Vorher werden keine Aufgaben verlost.</li>
+            <li><strong>Einmalig pro Match (One-Time-Completion):</strong> Sobald ein Spieler eine Aufgabe erfolgreich erfüllt hat, ist diese abgeschlossen. Der Spieler erhält danach keine weiteren Quests mehr im laufenden Match.</li>
+            <li><strong>Wiegebuddy-Auswahl:</strong> Erhält ein Spieler den Effekt oder die Aufgabe „Wiegebuddy“, wird der Partner nicht per Zufall zugelost, sondern darf aktiv im Dialog frei gewählt werden.</li>
           </ul>
         </div>
 

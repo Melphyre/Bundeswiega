@@ -1049,11 +1049,23 @@ async function handleUpdateNameBg(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   try {
     const body = parseBody(req);
-    const { userId, name_bg_color } = body;
+    const { userId, name_bg_color, bg_color, bg_animation } = body;
     if (!userId || !supabaseAdmin) {
       return res.status(200).json({ success: false });
     }
-    await supabaseAdmin.from('profiles').update({ name_bg_color: name_bg_color || 'none' }).eq('id', userId);
+    const updates: Record<string, any> = { name_bg_color: name_bg_color || 'none' };
+    if (bg_color !== undefined) updates.bg_color = bg_color;
+    if (bg_animation !== undefined) updates.bg_animation = bg_animation;
+
+    try {
+      const { error } = await supabaseAdmin.from('profiles').update(updates).eq('id', userId);
+      if (error) {
+        // Fallback falls bg_color / bg_animation noch nicht in profiles existieren
+        await supabaseAdmin.from('profiles').update({ name_bg_color: name_bg_color || 'none' }).eq('id', userId);
+      }
+    } catch {
+      await supabaseAdmin.from('profiles').update({ name_bg_color: name_bg_color || 'none' }).eq('id', userId);
+    }
     return res.status(200).json({ success: true });
   } catch (err: any) {
     console.error("handleUpdateNameBg Crash:", err);

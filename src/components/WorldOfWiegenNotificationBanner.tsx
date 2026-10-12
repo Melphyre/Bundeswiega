@@ -12,11 +12,14 @@ interface WorldOfWiegenNotificationBannerProps {
     effect: EffectDefinition;
     activeEffect: ActiveEffect;
   } | null;
+  allPlayers?: Player[];
   onSelectDifficultyForPlayer?: (player: Player, pool: WorldOfWiegenPool) => void;
   onConfirmRevealedQuest?: () => void;
   onDismissQuest: () => void;
   onAcceptQuestWithPool?: (questId: string, pool: WorldOfWiegenPool) => void;
   onDismissEffect: () => void;
+  onUpdateActiveEffect?: (updatedEffect: ActiveEffect) => void;
+  onUpdatePendingQuestTarget?: (targetPlayer: Player) => void;
   darkMode: boolean;
 }
 
@@ -24,11 +27,14 @@ export const WorldOfWiegenNotificationBanner: React.FC<WorldOfWiegenNotification
   pendingQuestPlayer,
   pendingQuest,
   pendingEffect,
+  allPlayers = [],
   onSelectDifficultyForPlayer,
   onConfirmRevealedQuest,
   onDismissQuest,
   onAcceptQuestWithPool,
   onDismissEffect,
+  onUpdateActiveEffect,
+  onUpdatePendingQuestTarget,
   darkMode
 }) => {
   // 1. Prioritize Quest Completed & Effect Unlocked Modal
@@ -128,7 +134,100 @@ export const WorldOfWiegenNotificationBanner: React.FC<WorldOfWiegenNotification
             <p className="text-xs leading-relaxed pt-1">{effect.description}</p>
 
             {/* Spezifische Zuweisungen */}
-            {activeEffect.drinkBuddyPairs && activeEffect.drinkBuddyPairs.length > 0 && (
+            {/* 🍻 MANUELLE WIEGEBUDDY-AUSWAHL (Regel 3) */}
+            {(effect.code === 'E02' || effect.name === 'Wiegebuddy' || (activeEffect.drinkBuddyPairs && activeEffect.drinkBuddyPairs.length > 0)) && (() => {
+              const otherPlayers = allPlayers.filter(p => p.id !== quest.playerId);
+              const currentBuddyId = activeEffect.targetPlayerIds?.[0] || otherPlayers[0]?.id;
+              const currentBuddyName = activeEffect.drinkBuddyPairs?.[0]?.playerB || otherPlayers.find(p => p.id === currentBuddyId)?.name || 'Mitspieler';
+
+              return (
+                <div className="p-3.5 rounded-2xl border-2 border-amber-500/70 bg-amber-500/15 dark:bg-amber-500/20 text-left space-y-2.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-2xl animate-bounce">🍻</span>
+                    <div>
+                      <h5 className="font-black text-xs uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        Wiegebuddy aktiv auswählen
+                      </h5>
+                      <p className="text-[11px] opacity-85 font-semibold leading-tight">
+                        {quest.playerName}, suche dir deinen Wiegebuddy aktiv aus:
+                      </p>
+                    </div>
+                  </div>
+
+                  {otherPlayers.length > 0 ? (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-wider opacity-70 mb-1">
+                          Mitspieler im Dropdown wählen:
+                        </label>
+                        <select
+                          value={currentBuddyId}
+                          onChange={(e) => {
+                            const chosen = otherPlayers.find(p => p.id === e.target.value);
+                            if (chosen && onUpdateActiveEffect) {
+                              onUpdateActiveEffect({
+                                ...activeEffect,
+                                targetPlayerIds: [chosen.id],
+                                targetPlayerNames: [chosen.name],
+                                drinkBuddyPairs: [{ playerA: quest.playerName, playerB: chosen.name }]
+                              });
+                            }
+                          }}
+                          className="w-full p-2.5 rounded-xl border border-amber-500/50 bg-white dark:bg-slate-800 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
+                        >
+                          {otherPlayers.map(p => (
+                            <option key={p.id} value={p.id}>
+                              🍻 {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Schnellklick-Buttons der Mitspieler */}
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {otherPlayers.map(p => {
+                          const isSelected = p.id === currentBuddyId || activeEffect.drinkBuddyPairs?.[0]?.playerB === p.name;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                if (onUpdateActiveEffect) {
+                                  onUpdateActiveEffect({
+                                    ...activeEffect,
+                                    targetPlayerIds: [p.id],
+                                    targetPlayerNames: [p.name],
+                                    drinkBuddyPairs: [{ playerA: quest.playerName, playerB: p.name }]
+                                  });
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95 ${
+                                isSelected
+                                  ? 'bg-amber-500 text-black border-amber-500 shadow-md font-black ring-2 ring-amber-400'
+                                  : 'bg-black/5 dark:bg-white/5 opacity-80 hover:opacity-100 border-gray-500/25 hover:border-amber-500/50'
+                              }`}
+                            >
+                              <span>🍻</span>
+                              <span>{p.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="p-2 rounded-xl bg-black/10 dark:bg-black/30 text-[11px] font-bold text-amber-600 dark:text-amber-300">
+                        🍻 Bestätigtes Wiegebuddy-Paar: {quest.playerName} &amp; {currentBuddyName} trinken ab sofort solidarisch zusammen!
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[11px] opacity-75 font-semibold">
+                      Keine weiteren Mitspieler vorhanden.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {activeEffect.drinkBuddyPairs && activeEffect.drinkBuddyPairs.length > 0 && !(effect.code === 'E02' || effect.name === 'Wiegebuddy') && (
               <div className="p-2.5 rounded-xl bg-black/10 dark:bg-black/30 text-xs font-bold text-amber-600 dark:text-amber-300">
                 🍻 Zuweisung: {activeEffect.drinkBuddyPairs[0].playerA} &amp; {activeEffect.drinkBuddyPairs[0].playerB} trinken ab sofort immer zusammen!
               </div>
@@ -340,10 +439,14 @@ export const WorldOfWiegenNotificationBanner: React.FC<WorldOfWiegenNotification
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <span className="text-base">{isChampionswieg ? '👑' : '⚔️'}</span>
+                  <span className="text-base">{pendingQuest.questId === 'wiegebuddy' ? '🍻' : isChampionswieg ? '👑' : '⚔️'}</span>
                   <div>
                     <span className="block text-[9px] uppercase tracking-wider opacity-75 font-black">
-                      {isChampionswieg ? 'Zugewiesener Spitzen-Rivale (Platz 1):' : 'Zugewiesener Tabellennachbar:'}
+                      {pendingQuest.questId === 'wiegebuddy'
+                        ? 'Ausgewählter Wiegebuddy:'
+                        : isChampionswieg
+                        ? 'Zugewiesener Spitzen-Rivale (Platz 1):'
+                        : 'Zugewiesener Tabellennachbar / Partner:'}
                     </span>
                     <span className="text-sm font-black">{pendingQuest.targetPlayerName}</span>
                   </div>
@@ -355,10 +458,39 @@ export const WorldOfWiegenNotificationBanner: React.FC<WorldOfWiegenNotification
                       : 'bg-teal-500/30 text-teal-700 dark:text-teal-200'
                   }`}
                 >
-                  {isChampionswieg ? 'Meister-Herausforderung' : 'Naher Abstand'}
+                  {pendingQuest.questId === 'wiegebuddy' ? 'Wiegebuddy' : isChampionswieg ? 'Meister-Herausforderung' : 'Partner'}
                 </span>
               </div>
             )}
+
+            {/* Manuelle Partner / Wiegebuddy Auswahl für Quests */}
+            {['wiegebuddy', 'parallel_to_x', 'opposite_to_x', 'no_schnaps_when_x'].includes(pendingQuest.questId) && (() => {
+              const otherPlayers = allPlayers.filter(p => p.id !== pendingQuest.playerId);
+              if (otherPlayers.length <= 1) return null;
+              return (
+                <div className="p-2.5 rounded-xl bg-black/10 dark:bg-black/30 border border-gray-500/20 text-left space-y-1.5">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    🍻 {pendingQuest.questId === 'wiegebuddy' ? 'Wiegebuddy aktiv auswählen:' : 'Partner / Rivale frei wählen:'}
+                  </label>
+                  <select
+                    value={pendingQuest.targetPlayerId || otherPlayers[0]?.id}
+                    onChange={(e) => {
+                      const chosen = otherPlayers.find(p => p.id === e.target.value);
+                      if (chosen && onUpdatePendingQuestTarget) {
+                        onUpdatePendingQuestTarget(chosen);
+                      }
+                    }}
+                    className="w-full p-2 rounded-lg border border-amber-500/40 bg-white dark:bg-slate-800 text-xs font-bold text-gray-900 dark:text-white cursor-pointer"
+                  >
+                    {otherPlayers.map(p => (
+                      <option key={p.id} value={p.id}>
+                        🍻 {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
             <p className="text-xs leading-relaxed opacity-95 font-semibold">
               {pendingQuest.customDescription || def?.description}
             </p>

@@ -3,14 +3,18 @@ import { Player } from '../../types';
 import { PLAYER_COLORS, BRAND_COLOR } from '../constants';
 import PlayerTitleBadge from './PlayerTitleBadge';
 import PlayerAvatar from './PlayerAvatar';
+import { PlayerNameTag } from './PlayerNameTag';
 
 interface StartPlayerDrawModalProps {
   isOpen: boolean;
   onClose: () => void;
   players: Player[];
   selectedPlayer: Player | null;
-  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null }>;
+  playerAccountLinks?: Record<string, { userId: string; userName: string; imageUrl?: string | null; name_bg_color?: string; avatar_frame?: string; name_glow?: string }>;
   getPlayerTitle?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
+  getPlayerNameBgColor?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
+  getPlayerNameGlow?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
+  getPlayerAvatarFrame?: (playerNameOrId?: string, playerObj?: Player) => string | undefined;
   darkMode: boolean;
 }
 
@@ -21,6 +25,9 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
   selectedPlayer,
   playerAccountLinks,
   getPlayerTitle,
+  getPlayerNameBgColor,
+  getPlayerNameGlow,
+  getPlayerAvatarFrame,
   darkMode
 }) => {
   const [isSpinning, setIsSpinning] = useState(true);
@@ -81,6 +88,46 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
     : currentDisplayPlayer.title;
   const playerTitle = rawTitle || undefined;
 
+  // ─── KOSMETIK-AUFLÖSUNG (Namenshintergrund, Glow-Rahmen, Avatar-Rahmen) ───
+  const rawNameBg = getPlayerNameBgColor
+    ? (getPlayerNameBgColor(currentDisplayPlayer.id, currentDisplayPlayer) || getPlayerNameBgColor(currentDisplayPlayer.name, currentDisplayPlayer))
+    : undefined;
+  const directNameBg = rawNameBg || currentDisplayPlayer.name_bg_color || (currentDisplayPlayer as any).name_bg || accountLink?.name_bg_color;
+  let resolvedNameBg = directNameBg && directNameBg !== 'none' ? directNameBg : undefined;
+  if (!resolvedNameBg) {
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_name_bg_${currentDisplayPlayer.id}`) ||
+                     localStorage.getItem(`bundeswiega_user_name_bg_${currentDisplayPlayer.name.trim().toLowerCase()}`);
+      if (stored && stored !== 'none') resolvedNameBg = stored;
+    } catch {}
+  }
+
+  const rawNameGlow = getPlayerNameGlow
+    ? (getPlayerNameGlow(currentDisplayPlayer.id, currentDisplayPlayer) || getPlayerNameGlow(currentDisplayPlayer.name, currentDisplayPlayer))
+    : undefined;
+  const directNameGlow = rawNameGlow || currentDisplayPlayer.name_glow || (currentDisplayPlayer as any).name_glow || accountLink?.name_glow;
+  let resolvedNameGlow = directNameGlow && directNameGlow !== 'none' ? directNameGlow : undefined;
+  if (!resolvedNameGlow) {
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_name_glow_${currentDisplayPlayer.id}`) ||
+                     localStorage.getItem(`bundeswiega_user_name_glow_${currentDisplayPlayer.name.trim().toLowerCase()}`);
+      if (stored && stored !== 'none') resolvedNameGlow = stored;
+    } catch {}
+  }
+
+  const rawAvatarFrame = getPlayerAvatarFrame
+    ? (getPlayerAvatarFrame(currentDisplayPlayer.id, currentDisplayPlayer) || getPlayerAvatarFrame(currentDisplayPlayer.name, currentDisplayPlayer))
+    : undefined;
+  const directAvatarFrame = rawAvatarFrame || (currentDisplayPlayer as any).avatar_frame || (currentDisplayPlayer as any).frame || accountLink?.avatar_frame;
+  let resolvedAvatarFrame = directAvatarFrame && directAvatarFrame !== 'none' ? directAvatarFrame : undefined;
+  if (!resolvedAvatarFrame) {
+    try {
+      const stored = localStorage.getItem(`bundeswiega_user_avatar_frame_${currentDisplayPlayer.id}`) ||
+                     localStorage.getItem(`bundeswiega_user_avatar_frame_${currentDisplayPlayer.name.trim().toLowerCase()}`);
+      if (stored && stored !== 'none') resolvedAvatarFrame = stored;
+    } catch {}
+  }
+
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div
@@ -127,17 +174,24 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
               isSpinning ? 'rotate-3 scale-95' : 'scale-105 shadow-xl'
             }`}
             style={{
-              background: `linear-gradient(135deg, ${playerColor}, #f59e0b)`
+              background: (resolvedAvatarFrame && resolvedAvatarFrame !== 'none')
+                ? 'transparent'
+                : `linear-gradient(135deg, ${playerColor}, #f59e0b)`
             }}
           >
             <PlayerAvatar
               url={avatarUrl}
               name={currentDisplayPlayer.name}
-              className="w-24 h-24 sm:w-28 sm:h-28 border-4 border-white dark:border-slate-900 shadow-inner"
+              avatar_frame={resolvedAvatarFrame}
+              className={`w-24 h-24 sm:w-28 sm:h-28 shadow-inner ${
+                resolvedAvatarFrame && resolvedAvatarFrame !== 'none'
+                  ? ''
+                  : 'border-4 border-white dark:border-slate-900'
+              }`}
             />
 
             {!isSpinning && (
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 text-white flex items-center justify-center text-sm font-black shadow-md animate-in zoom-in">
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 text-white flex items-center justify-center text-sm font-black shadow-md animate-in zoom-in z-10">
                 ✓
               </div>
             )}
@@ -158,12 +212,21 @@ export const StartPlayerDrawModal: React.FC<StartPlayerDrawModalProps> = ({
 
         {/* Player Name */}
         <h3
-          className={`text-2xl sm:text-3xl font-black mb-1 tracking-tight transition-all duration-300 ${
+          className={`text-2xl sm:text-3xl font-black mb-1 tracking-tight transition-all duration-300 flex items-center justify-center ${
             isSpinning ? 'opacity-80 scale-95' : 'scale-100'
           }`}
-          style={{ color: playerColor }}
+          style={{ color: (resolvedNameBg || resolvedNameGlow) ? undefined : playerColor }}
         >
-          {currentDisplayPlayer.name}
+          {resolvedNameBg || resolvedNameGlow ? (
+            <PlayerNameTag
+              name={currentDisplayPlayer.name}
+              colorKey={resolvedNameBg}
+              glowKey={resolvedNameGlow}
+              className="text-2xl sm:text-3xl px-4 py-1.5 rounded-2xl shadow-md inline-flex items-center"
+            />
+          ) : (
+            currentDisplayPlayer.name
+          )}
         </h3>
 
         {/* Weight & Action Description */}

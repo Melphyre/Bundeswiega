@@ -19,7 +19,8 @@ export type QuestId =
   | 'same_weight'
   | 'even_only'
   | 'odd_only'
-  | 'target_end_digit';
+  | 'target_end_digit'
+  | 'wiegebuddy';
 
 export interface QuestDefinition {
   id: QuestId;

@@ -18,9 +18,9 @@ export const WORLD_OF_WIEGEN_EFFECTS: EffectDefinition[] = [
   {
     id: 'E02',
     code: 'E02',
-    name: 'Drinkbuddy',
-    subtitle: 'Schicksalsgemeinschaft',
-    description: 'Ein Drinkbuddy wird zugewiesen: Wann immer der Auserwählte trinken muss, trinkt sein Buddy solidarisch mit (ohne Score-Abzug).',
+    name: 'Wiegebuddy',
+    subtitle: 'Schicksalsgemeinschaft (Drinkbuddy)',
+    description: 'Ein Wiegebuddy wird bestimmt: Wann immer der Auserwählte trinken muss, trinkt sein Buddy solidarisch mit (ohne Score-Abzug).',
     flavorText: 'Geteiltes Leid ist doppeltes Vergnügen am Tresen der Ewigkeit!',
     duration: 'rest_of_game',
     durationLabel: 'Restliches Spiel',

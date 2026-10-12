@@ -99,7 +99,7 @@ export const WorldOfWiegenQuestlogModal: React.FC<WorldOfWiegenQuestlogModalProp
               <div className="p-8 text-center space-y-2 opacity-60 text-xs border border-gray-500/15 rounded-2xl">
                 <div>🛡️</div>
                 <p>Aktuell keine Nebenquests aktiv.</p>
-                <p className="text-[10px]">Neue Quests werden automatisch im Hintergrund ab Runde 2 vergeben!</p>
+                <p className="text-[10px]">Aufgaben werden ab Runde 2 vergeben (oder sobald ein Spieler unter 420g fällt). Jede erfüllte Quest ist einmalig pro Match!</p>
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1">
@@ -236,10 +236,10 @@ export const WorldOfWiegenQuestlogModal: React.FC<WorldOfWiegenQuestlogModalProp
                       </div>
                     </div>
 
-                    {/* Drinkbuddy Details */}
+                    {/* Wiegebuddy Details */}
                     {eff.drinkBuddyPairs && eff.drinkBuddyPairs.length > 0 && (
                       <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                        🍻 Drinkbuddy-Paar: {eff.drinkBuddyPairs[0].playerA} &amp; {eff.drinkBuddyPairs[0].playerB}
+                        🍻 Wiegebuddy-Paar: {eff.drinkBuddyPairs[0].playerA} &amp; {eff.drinkBuddyPairs[0].playerB}
                       </div>
                     )}
 

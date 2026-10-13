@@ -233,7 +233,11 @@ export type NameBgAnimationId =
   | 'cyberpunk'
   | 'glitter'
   | 'matrix'
-  | 'tartan';
+  | 'tartan'
+  | 'fire'
+  | 'lightning'
+  | 'snow'
+  | 'waves';
 
 export interface NameBgAnimationOption {
   id: NameBgAnimationId;
@@ -261,8 +265,9 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     icon: '🚩',
     description: 'Ein leichter, dunkler Schatten-/Waber-Effekt, der wie eine im Wind wehende Flagge über den Hintergrund zieht',
     cssClass: 'name-anim-flag',
-    requiredLevel: 2,
-    unlockConditionText: 'Freischaltung ab Level 2'
+    requiredLevel: 3,
+    requiredQuestId: 'l3_flag_animation_quest',
+    unlockConditionText: 'Quest: Nimm an 5 Teamwiegen teil'
   },
   {
     id: 'carbon',
@@ -313,6 +318,47 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     requiredLevel: 3,
     requiredQuestId: 'l3_pattern_tartan',
     unlockConditionText: 'Quest: Sammle 50 Achievements'
+  },
+  // Neue Level-4 Animationen
+  {
+    id: 'fire',
+    label: 'Feuer',
+    icon: '🔥',
+    description: 'Züngelnde Flammen und aufsteigende Glut-Partikel über deinem gewählten Hintergrund',
+    cssClass: 'name-anim-fire',
+    requiredLevel: 4,
+    requiredQuestId: 'l4_fire_animation_quest',
+    unlockConditionText: 'Quest: Lande 10 Volltreffer'
+  },
+  {
+    id: 'lightning',
+    label: 'Blitze',
+    icon: '⚡',
+    description: 'Helle Blitze, die von oben nach unten vertikal über das Namensschild zucken',
+    cssClass: 'name-anim-lightning',
+    requiredLevel: 4,
+    requiredQuestId: 'l4_lightning_animation_quest',
+    unlockConditionText: 'Quest: Triff 10 mal eine Schnapszahl'
+  },
+  {
+    id: 'snow',
+    label: 'Schneeflocken',
+    icon: '❄️',
+    description: 'Sanft rieselnde Schneeflocken und Eiskristalle über deinem gewählten Hintergrund',
+    cssClass: 'name-anim-snow',
+    requiredLevel: 4,
+    requiredQuestId: 'l4_snow_animation_quest',
+    unlockConditionText: 'Quest: Erziele 10 mal das selbe Gewicht wie ein anderer Spieler'
+  },
+  {
+    id: 'waves',
+    label: 'Wasser & Wellen',
+    icon: '🌊',
+    description: 'Sanft fließende und pulsierende Wasserwellen-Muster über dem Namensschild',
+    cssClass: 'name-anim-waves',
+    requiredLevel: 4,
+    requiredQuestId: 'l4_waves_animation_quest',
+    unlockConditionText: 'Quest: Lande 10 mal auf einer vollen Hunderterzahl'
   }
 ];
 
@@ -394,7 +440,21 @@ const ANIMATION_ALIAS_MAP: Record<string, NameBgAnimationId> = {
   glitzer: 'glitter',
   matrix: 'matrix',
   tartan: 'tartan',
-  karo: 'tartan'
+  karo: 'tartan',
+  fire: 'fire',
+  feuer: 'fire',
+  flamme: 'fire',
+  flammen: 'fire',
+  lightning: 'lightning',
+  blitz: 'lightning',
+  blitze: 'lightning',
+  snow: 'snow',
+  schnee: 'snow',
+  schneeflocken: 'snow',
+  waves: 'waves',
+  welle: 'waves',
+  wellen: 'waves',
+  wasser: 'waves'
 };
 
 // ─── 4. PARSER: DECOUPLING COLOR & ANIMATION ───
@@ -664,12 +724,6 @@ export const isAnimationUnlocked = (
   const clean = (animId || '').trim().toLowerCase();
   const aliasResolved = ANIMATION_ALIAS_MAP[clean] || clean;
   if (!aliasResolved || aliasResolved === 'none') return { unlocked: true };
-
-  // Flagge ab Level 2 mit Namenshintergründen freigeschaltet
-  if (aliasResolved === 'flag') {
-    if (userLevel >= 2) return { unlocked: true };
-    return { unlocked: false, reason: 'Freischaltung ab Level 2' };
-  }
 
   // Explizit freigeschaltet in Kontext (unterstützt auch legacy pattern_ ids)
   if (

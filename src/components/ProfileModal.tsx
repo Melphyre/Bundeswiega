@@ -1294,6 +1294,15 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     }
                   })();
 
+                  const userUnlockedPatterns: string[] = (() => {
+                    try {
+                      const s = localStorage.getItem(`bundeswiega_user_unlocked_patterns_${effectiveUserId || supabaseUser?.id}`);
+                      return s ? JSON.parse(s) : [];
+                    } catch {
+                      return [];
+                    }
+                  })();
+
                   const completedQuestIds = questProgresses.filter(qp => qp.is_completed).map(qp => qp.quest_id);
                   const totalAchievementsCount = (myAchievementsData || []).filter((a: any) => a.unlocked || a.is_unlocked).length;
                   if (totalAchievementsCount >= 50 && !completedQuestIds.includes('l2_50_achievements')) {
@@ -1362,7 +1371,8 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                                 completedQuestIds,
                                 achievementsCount: totalAchievementsCount,
                                 standardWins: standardWinsCount,
-                                unlockedColors: userUnlockedColors
+                                unlockedColors: userUnlockedColors,
+                                unlockedPatterns: userUnlockedPatterns
                               }}
                               playerName={profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.user_metadata?.display_name || 'Dein Name'}
                               activeGlow={selectedNameGlow}

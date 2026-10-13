@@ -164,6 +164,12 @@ export const QuestList: React.FC<QuestListProps> = ({
                                   <span>{quest.rewardDescription || 'Farbe'}</span>
                                 </span>
                               )}
+                              {quest.animationReward && (
+                                <span className="px-2 py-0.5 rounded bg-pink-500/15 text-pink-400 font-bold flex items-center gap-1">
+                                  <span>✨</span>
+                                  <span>{quest.rewardDescription || `Animation: ${quest.animationReward}`}</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -289,6 +295,9 @@ export const QuestList: React.FC<QuestListProps> = ({
                           )}
                           {quest.colorReward && (
                             <span>• 🎨 {quest.rewardDescription || 'Farb-Belohnung'}</span>
+                          )}
+                          {quest.animationReward && (
+                            <span>• ✨ {quest.rewardDescription || `Animation: ${quest.animationReward}`}</span>
                           )}
                         </div>
                       </div>

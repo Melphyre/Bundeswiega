@@ -58,6 +58,7 @@ import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
+import { recordQuestStat, processQuestsForUser } from './src/utils/questEvaluator';
 import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
@@ -2948,6 +2949,12 @@ const App: React.FC = () => {
               }
               loadProfileStats(userId);
             }
+            // Quest-Fortschritt & Belohnungen nach Spielende auswerten
+            try {
+              await processQuestsForUser(userId);
+            } catch (procQuestErr) {
+              console.warn('processQuestsForUser error after saving game:', procQuestErr);
+            }
           }
         } catch (err) {
           console.error(`Netzwerkfehler beim Speichern für ${playerName}:`, err);
@@ -4098,6 +4105,48 @@ const App: React.FC = () => {
           return updated;
         });
       }
+    }
+
+    // Level-4 Quests: Metriken auswerten (Volltreffer, Schnapszahlen, Gleiches Gewicht, Hunderterzahlen)
+    try {
+      const activeInRound = updatedPlayers.filter(p => !p.isDisqualified && currentRound.results[p.id] !== undefined);
+      activeInRound.forEach(p => {
+        const weight = currentRound.results[p.id];
+        if (typeof weight !== 'number' || isNaN(weight)) return;
+
+        const target = (currentRound.isFinal && currentRound.individualTargets)
+          ? currentRound.individualTargets[p.id]
+          : currentRound.targetWeight;
+        const dist = typeof target === 'number' ? Math.abs(weight - target) : null;
+
+        const targetUserId = p.userId || (p as any).user_id || playerAccountLinks[p.id]?.userId || (
+          supabaseUser && (p.id === supabaseUser.id || p.name.trim().toLowerCase() === supabaseUser.user_metadata?.username?.trim().toLowerCase())
+            ? supabaseUser.id
+            : null
+        );
+
+        if (targetUserId) {
+          // 1. Volltreffer (l4_fire_animation_quest: dist === 0)
+          if (dist === 0) {
+            recordQuestStat(targetUserId, 'perfect_hits_count', 1);
+          }
+          // 2. Schnapszahl (l4_lightning_animation_quest: SPECIAL_NUMBERS oder identische Ziffern)
+          if (SPECIAL_NUMBERS.includes(weight) || (weight >= 11 && String(weight).split('').every(ch => ch === String(weight)[0]))) {
+            recordQuestStat(targetUserId, 'schnapszahl_count', 1);
+          }
+          // 3. Selbes Gewicht wie ein anderer Spieler (l4_snow_animation_quest)
+          const hasSameWeight = activeInRound.some(other => other.id !== p.id && currentRound.results[other.id] === weight);
+          if (hasSameWeight) {
+            recordQuestStat(targetUserId, 'same_weight_count', 1);
+          }
+          // 4. Volle Hunderterzahl (l4_waves_animation_quest: 100, 200, 300, etc.)
+          if (weight > 0 && weight % 100 === 0) {
+            recordQuestStat(targetUserId, 'hundreds_count', 1);
+          }
+        }
+      });
+    } catch (questStatErr) {
+      console.warn('Error recording quest statistics in finishRoundLogic:', questStatErr);
     }
 
     // World of Wiegen (Wiegen forever) - Quest Lifecycle & Effect Evaluation

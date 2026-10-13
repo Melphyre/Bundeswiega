@@ -888,6 +888,238 @@ html, body {
   z-index: 1;
 }
 
+/* 7. Feuer: Züngelnde Flammen und aufsteigende Glut-Partikel über dem Farb-Hintergrund */
+@keyframes fireFlickerLick {
+  0%, 100% {
+    transform: scaleY(0.96) scaleX(1);
+    filter: brightness(1) drop-shadow(0 -2px 6px rgba(255, 69, 0, 0.7));
+    opacity: 0.85;
+  }
+  25% {
+    transform: scaleY(1.08) scaleX(0.98) skewX(-1.5deg);
+    filter: brightness(1.25) drop-shadow(0 -3px 9px rgba(255, 140, 0, 0.9));
+    opacity: 0.95;
+  }
+  50% {
+    transform: scaleY(0.94) scaleX(1.02) skewX(1deg);
+    filter: brightness(1.1) drop-shadow(0 -2px 7px rgba(255, 69, 0, 0.75));
+    opacity: 0.9;
+  }
+  75% {
+    transform: scaleY(1.12) scaleX(0.97) skewX(-0.5deg);
+    filter: brightness(1.3) drop-shadow(0 -4px 11px rgba(255, 200, 0, 0.95));
+    opacity: 1;
+  }
+}
+
+@keyframes emberAscent {
+  0% {
+    background-position: 0 24px, 6px 30px, 12px 18px;
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  100% {
+    background-position: -8px -24px, 2px -30px, 18px -24px;
+    opacity: 0.2;
+  }
+}
+
+.name-anim-fire {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.name-anim-fire::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(0deg, rgba(239, 68, 68, 0.75) 0%, rgba(249, 115, 22, 0.5) 40%, rgba(234, 179, 8, 0.25) 75%, transparent 100%),
+    radial-gradient(ellipse at 50% 120%, rgba(254, 240, 138, 0.9) 0%, rgba(249, 115, 22, 0.6) 45%, transparent 75%);
+  animation: fireFlickerLick 1.9s infinite ease-in-out;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.name-anim-fire::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, #fef08a 18%, transparent 28%),
+    radial-gradient(circle, #f97316 22%, transparent 32%),
+    radial-gradient(circle, #ffedd5 16%, transparent 26%);
+  background-size: 14px 16px, 18px 20px, 22px 24px;
+  animation: emberAscent 1.7s infinite linear;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 2;
+}
+
+/* 8. Blitze: Blitze, die von oben nach unten zucken (abgegrenzt zu Cyberpunk!) */
+@keyframes verticalLightningBoltStrike {
+  0%, 86%, 100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  88% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: drop-shadow(0 0 10px #ffffff) drop-shadow(0 0 16px #60a5fa);
+  }
+  90% {
+    opacity: 0.2;
+  }
+  92% {
+    opacity: 0.95;
+    filter: drop-shadow(0 0 12px #ffffff) drop-shadow(0 0 20px #93c5fd);
+  }
+  94% {
+    opacity: 0.1;
+  }
+  96% {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 8px #ffffff) drop-shadow(0 0 14px #3b82f6);
+  }
+  98% {
+    opacity: 0.15;
+  }
+}
+
+.name-anim-lightning {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.name-anim-lightning::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, transparent 60%);
+  opacity: 0.5;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.name-anim-lightning::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(180deg, transparent 0%, #ffffff 25%, #93c5fd 50%, #ffffff 75%, transparent 100%),
+    linear-gradient(176deg, transparent 5%, #60a5fa 30%, #ffffff 45%, #60a5fa 60%, transparent 95%),
+    linear-gradient(184deg, transparent 15%, #ffffff 48%, #3b82f6 65%, transparent 92%);
+  background-size: 3px 100%, 2.5px 100%, 2px 100%;
+  background-position: 22% 0, 54% 0, 82% 0;
+  background-repeat: no-repeat;
+  animation: verticalLightningBoltStrike 2.4s infinite ease-out;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 2;
+}
+
+/* 9. Schneeflocken: Sanft rieselnde Schneeflocken und Kristalle über dem Farb-Hintergrund */
+@keyframes gentleSnowFall {
+  0% {
+    background-position: 0 -22px, 0 -16px, 0 -10px;
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  100% {
+    background-position: 16px 44px, -14px 38px, 10px 32px;
+    opacity: 0.35;
+  }
+}
+
+.name-anim-snow {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.name-anim-snow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, transparent 65%);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.name-anim-snow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, #ffffff 18%, transparent 26%),
+    radial-gradient(circle, rgba(224, 242, 254, 0.92) 15%, transparent 25%),
+    radial-gradient(circle, #ffffff 12%, transparent 22%);
+  background-size: 15px 15px, 22px 22px, 30px 30px;
+  animation: gentleSnowFall 3.4s infinite linear;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 2;
+}
+
+/* 10. Wasser/Wellen: Sanft fließende und pulsierende Wasserwellen-Muster */
+@keyframes oceanWaveFlowPulse {
+  0% {
+    background-position: 0% 50%, 0% 100%;
+  }
+  50% {
+    background-position: 100% 50%, 50% 80%;
+  }
+  100% {
+    background-position: 200% 50%, 100% 100%;
+  }
+}
+
+.name-anim-waves {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.name-anim-waves::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 35%, rgba(6, 182, 212, 0.35) 65%, rgba(14, 116, 144, 0.55) 100%);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.name-anim-waves::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.45) 0%, transparent 55%),
+    repeating-linear-gradient(
+      115deg,
+      transparent,
+      transparent 8px,
+      rgba(255, 255, 255, 0.32) 8px,
+      rgba(255, 255, 255, 0.32) 12px,
+      transparent 12px,
+      transparent 20px,
+      rgba(56, 189, 248, 0.38) 20px,
+      rgba(56, 189, 248, 0.38) 25px
+    );
+  background-size: 150% 100%, 200% 100%;
+  animation: oceanWaveFlowPulse 4.4s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 2;
+}
+
 /* ═══════════════════════════════════════════════════════════
    SPEZIAL-EFFEKTE & PATTERNS FÜR NAMENSHINTERGRÜNDE (LEGACY)
    ═══════════════════════════════════════════════════════════ */

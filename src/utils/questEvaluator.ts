@@ -9,6 +9,7 @@ export interface QuestDefinition {
   xpReward: number;
   titleReward?: string;
   colorReward?: string;
+  animationReward?: string; // Neu: Entkoppelte Animation
   rewardDescription?: string;
   metric: 
     | 'profile_pic' 
@@ -19,7 +20,11 @@ export interface QuestDefinition {
     | 'teamwiegen_count'
     | 'tournament_count'
     | 'achievements_count'
-    | 'wins_count';
+    | 'wins_count'
+    | 'perfect_hits_count'
+    | 'schnapszahl_count'
+    | 'same_weight_count'
+    | 'hundreds_count';
   targetValue: number;
   gameMode?: string;
   threshold?: number;
@@ -67,6 +72,17 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l3_pattern_gold_glitter', level: 3, title: 'Nimm an 8 Teamwiegen teil', xpReward: 25, metric: 'teamwiegen_count', targetValue: 8, targetCount: 8, colorReward: 'pattern_gold_glitter', rewardDescription: 'Hintergrund Goldener Glitter' },
   { id: 'l3_pattern_matrix', level: 3, title: 'Spiele 10 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Speedwiegen', colorReward: 'pattern_matrix', rewardDescription: 'Hintergrund Matrix-Digital' },
   { id: 'l3_pattern_tartan', level: 3, title: 'Sammle 50 Achievements', xpReward: 25, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pattern_tartan', rewardDescription: 'Hintergrund Tartan / Karo' },
+  { 
+    id: 'l3_flag_animation_quest', 
+    level: 3, 
+    title: 'Nimm an 5 Teamwiegen teil', 
+    xpReward: 20, 
+    metric: 'teamwiegen_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'flag', 
+    rewardDescription: 'Animation: Flagge im Wind' 
+  },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -74,6 +90,51 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l4_tournament_5', level: 4, title: 'Nimm an 5 Turnieren teil', xpReward: 25, metric: 'tournament_count', targetValue: 5, targetCount: 5 },
   { id: 'l4_5x_total_sub5', level: 4, title: 'Erreiche 5x ein Total unter 5 Gramm', xpReward: 20, metric: 'total_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
   { id: 'l4_zero_schnaepse_speed', level: 4, title: 'Speedwiegen ohne einzigen Schnaps', xpReward: 25, titleReward: 'Blitzsauber', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 1, gameMode: 'Speedwiegen' },
+  // Neue Level-4 Quests für entkoppelte Namenshintergrund-Animationen:
+  { 
+    id: 'l4_fire_animation_quest', 
+    level: 4, 
+    title: 'Lande 10 Volltreffer', 
+    xpReward: 25, 
+    metric: 'perfect_hits_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'fire', 
+    rewardDescription: 'Animation: Feuer' 
+  },
+  { 
+    id: 'l4_lightning_animation_quest', 
+    level: 4, 
+    title: 'Triff 10 mal eine Schnapszahl', 
+    xpReward: 25, 
+    metric: 'schnapszahl_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'lightning', 
+    rewardDescription: 'Animation: Blitze (vertikal)' 
+  },
+  { 
+    id: 'l4_snow_animation_quest', 
+    level: 4, 
+    title: 'Erziele 10 mal das selbe Gewicht wie ein anderer Spieler', 
+    xpReward: 25, 
+    metric: 'same_weight_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'snow', 
+    rewardDescription: 'Animation: Schneeflocken' 
+  },
+  { 
+    id: 'l4_waves_animation_quest', 
+    level: 4, 
+    title: 'Lande 10 mal auf einer vollen Hunderterzahl', 
+    xpReward: 25, 
+    metric: 'hundreds_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'waves', 
+    rewardDescription: 'Animation: Wasser & Wellen' 
+  },
 
   // --- LEVEL 5 ---
   { id: 'l5_50_games_total', level: 5, title: 'Absolviere 50 Spiele', xpReward: 30, titleReward: 'Stammgast', metric: 'games_count', targetValue: 50, targetCount: 50 },
@@ -192,6 +253,32 @@ export function getQuestTarget(quest: QuestDefinition): number {
   if (quest.metric === 'profile_pic') return 1;
   if (quest.metric === 'games_count') return quest.targetValue;
   return 1;
+}
+
+export function getStoredQuestStats(userId: string): Record<string, number> {
+  if (!userId) return {};
+  try {
+    const raw = localStorage.getItem(`bundeswiega_quest_stats_${userId}`);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {};
+}
+
+export function recordQuestStat(
+  userId: string,
+  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count',
+  amount: number = 1
+): number {
+  if (!userId) return 0;
+  try {
+    const stats = getStoredQuestStats(userId);
+    const current = Number(stats[metric]) || 0;
+    const updated = current + amount;
+    stats[metric] = updated;
+    localStorage.setItem(`bundeswiega_quest_stats_${userId}`, JSON.stringify(stats));
+    return updated;
+  } catch {}
+  return 0;
 }
 
 export async function processQuestsForUser(userId: string, customClient?: any) {
@@ -313,6 +400,19 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
     const completedQuestIds = new Set(questProgress.filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
     const unlockedTitles = new Set(existingTitles.map((t: any) => t.title));
     
+    const userAchievementIds = new Set<string>();
+    try {
+      const { data: achData } = await db
+        .from('achievements')
+        .select('achievement_id')
+        .eq('user_id', userId);
+      if (Array.isArray(achData)) {
+        achData.forEach((a: any) => {
+          if (a.achievement_id) userAchievementIds.add(String(a.achievement_id));
+        });
+      }
+    } catch {}
+
     const questCreatedAtMap = new Map<string, string>();
     questProgress.forEach((qp: any) => {
       if (qp.created_at) {
@@ -484,6 +584,42 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           }).length;
           break;
         }
+
+        case 'perfect_hits_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.perfect_hits_count) || 0;
+          if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
+          if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
+          if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'schnapszahl_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.schnapszahl_count) || 0;
+          if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
+          if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'same_weight_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.same_weight_count) || 0;
+          if (userAchievementIds.has('twins')) count = Math.max(count, 3);
+          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 3);
+          progress = count;
+          break;
+        }
+
+        case 'hundreds_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.hundreds_count) || 0;
+          if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
       }
 
       const isCompleted = progress >= targetCount;
@@ -512,6 +648,23 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             if (!unlockedList.includes(q.colorReward)) {
               unlockedList.push(q.colorReward);
               localStorage.setItem(`bundeswiega_user_unlocked_colors_${userId}`, JSON.stringify(unlockedList));
+            }
+          } catch {}
+        }
+
+        if (q.animationReward) {
+          try {
+            const storedP = localStorage.getItem(`bundeswiega_user_unlocked_patterns_${userId}`);
+            const unlockedPatterns: string[] = storedP ? JSON.parse(storedP) : [];
+            if (!unlockedPatterns.includes(q.animationReward)) {
+              unlockedPatterns.push(q.animationReward);
+              localStorage.setItem(`bundeswiega_user_unlocked_patterns_${userId}`, JSON.stringify(unlockedPatterns));
+            }
+            const storedC = localStorage.getItem(`bundeswiega_user_unlocked_colors_${userId}`);
+            const unlockedColors: string[] = storedC ? JSON.parse(storedC) : [];
+            if (!unlockedColors.includes(q.animationReward)) {
+              unlockedColors.push(q.animationReward);
+              localStorage.setItem(`bundeswiega_user_unlocked_colors_${userId}`, JSON.stringify(unlockedColors));
             }
           } catch {}
         }

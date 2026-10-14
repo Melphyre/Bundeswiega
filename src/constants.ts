@@ -217,16 +217,27 @@ export function calculateUserModeStats(
     .map(r => {
       const isSpeed = String(r.game_mode || r.mode || '').includes('Speedwiegen');
       const anyR = r as any;
+      if (isSpeed) {
+        if (anyR.total !== undefined && anyR.total !== null && !isNaN(Number(anyR.total)) && Number(anyR.total) > 0) {
+          return Number(anyR.total);
+        }
+        const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
+        let t = 0;
+        if (anyR.time_seconds !== undefined && anyR.time_seconds !== null && !isNaN(Number(anyR.time_seconds))) t = Number(anyR.time_seconds);
+        else if (anyR.time !== undefined && anyR.time !== null && !isNaN(Number(anyR.time))) t = Number(anyR.time);
+        else if (anyR.Time !== undefined && anyR.Time !== null && !isNaN(Number(anyR.Time))) t = Number(anyR.Time);
+        else if (isSpeed && r.schnaepse !== undefined && r.schnaepse !== null) t = Number(r.schnaepse) || 0;
+        return a + t;
+      }
+      if (anyR.total !== undefined && anyR.total !== null && !isNaN(Number(anyR.total)) && Number(anyR.total) > 0) {
+        return Number(anyR.total);
+      }
       const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
-      let t = 0;
-      if (anyR.Time !== undefined && anyR.Time !== null && !isNaN(Number(anyR.Time))) t = Number(anyR.Time);
-      else if (anyR.time !== undefined && anyR.time !== null && !isNaN(Number(anyR.time))) t = Number(anyR.time);
-      else if (anyR.time_seconds !== undefined && anyR.time_seconds !== null && !isNaN(Number(anyR.time_seconds))) t = Number(anyR.time_seconds);
-      else if (isSpeed) t = Number(r.schnaepse) || 0;
-      return a + t;
+      const s = Number(r.schnaepse) || 0;
+      return a + s;
     })
     .filter(s => s > 0);
-  const bestScore = validScores.length > 0 ? Number(Math.min(...validScores).toFixed(1)) : null;
+  const bestScore = validScores.length > 0 ? Number(Math.min(...validScores).toFixed(2)) : null;
 
   const userAchs = (achievements || []).filter(a => {
     if (!a) return false;
@@ -252,7 +263,7 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
   if (!data || data.length < 2) return [];
   const list: ParsedRecord[] = [];
   
-  // Skip row 0 which is the header row: Datum;Modus;Name;Avg;Schnaepse
+  // Skip row 0 which is the header row
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
     if (!row) continue;
@@ -262,25 +273,41 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
       const obj = row as any;
       const canonicalMode = normalizeGameMode(obj.game_mode || obj.gameMode);
       const isSpeed = canonicalMode.includes('Speedwiegen');
-      const timeVal = obj.Time !== undefined && obj.Time !== null && !isNaN(Number(obj.Time))
-        ? Number(obj.Time)
+      const timeVal = obj.time_seconds !== undefined && obj.time_seconds !== null && !isNaN(Number(obj.time_seconds))
+        ? Number(obj.time_seconds)
         : (obj.time !== undefined && obj.time !== null && !isNaN(Number(obj.time))
             ? Number(obj.time)
-            : (obj.time_seconds !== undefined && obj.time_seconds !== null && !isNaN(Number(obj.time_seconds))
-                ? Number(obj.time_seconds)
-                : (isSpeed ? (Number(obj.schnaepse) || 0) : undefined)));
+            : (obj.Time !== undefined && obj.Time !== null && !isNaN(Number(obj.Time))
+                ? Number(obj.Time)
+                : (isSpeed && obj.schnaepse !== undefined && obj.schnaepse !== null && !isNaN(Number(obj.schnaepse))
+                    ? Number(obj.schnaepse)
+                    : undefined)));
+
+      const avgVal = Number(obj.avg) || 0;
+      const levelsVal = obj.levels !== undefined && obj.levels !== null && !isNaN(Number(obj.levels))
+        ? Number(obj.levels)
+        : (obj.speed_levels !== undefined && obj.speed_levels !== null && !isNaN(Number(obj.speed_levels))
+            ? Number(obj.speed_levels)
+            : undefined);
+
+      const totalVal = obj.total !== undefined && obj.total !== null && !isNaN(Number(obj.total))
+        ? Number(obj.total)
+        : (isSpeed && timeVal !== undefined
+            ? Math.round((avgVal + timeVal) * 100) / 100
+            : Math.round((avgVal + (Number(obj.schnaepse) || 0)) * 100) / 100);
 
       list.push({
         game_mode: canonicalMode,
         gameMode: canonicalMode,
         playerName: String(obj.playerName || obj.name || obj.player_name || ''),
         date: String(obj.date || ''),
-        avg: Number(obj.avg) || 0,
+        avg: avgVal,
         schnaepse: isSpeed ? 0 : (Number(obj.schnaepse) || 0),
         time: timeVal,
         Time: timeVal,
         time_seconds: timeVal,
-        levels: obj.levels !== undefined ? Number(obj.levels) : undefined,
+        levels: levelsVal,
+        total: totalVal,
         tournament_name: obj.tournament_name || undefined,
         tournament_table: obj.tournament_table || undefined,
         achievements: obj.achievements,
@@ -293,12 +320,49 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
     const dateVal = row[0];
     const rawGameMode = row[1];
     const playerName = row[2];
-    const avgVal = row[3] !== undefined && row[3] !== null ? Number(row[3]) : 0;
-    const schnaepseVal = row[4] !== undefined && row[4] !== null ? Number(row[4]) : 0;
-    const levelsVal = row[5] !== undefined && row[5] !== null && row[5] !== "" && !isNaN(Number(row[5])) ? Number(row[5]) : undefined;
+    const avgVal = row[3] !== undefined && row[3] !== null && row[3] !== "" && !isNaN(Number(row[3])) ? Number(row[3]) : 0;
+    const schnaepseVal = row[4] !== undefined && row[4] !== null && row[4] !== "" && !isNaN(Number(row[4])) ? Number(row[4]) : 0;
+
+    const canonicalMode = normalizeGameMode(rawGameMode);
+    const isSpeed = canonicalMode.includes('Speedwiegen');
+
+    let totalVal: number | undefined = undefined;
+    let levelsVal: number | undefined = undefined;
+    let timeVal: number | undefined = undefined;
+
+    // TimeSeconds in column 9 if available
+    if (row[9] !== undefined && row[9] !== null && row[9] !== "" && !isNaN(Number(row[9]))) {
+      timeVal = Number(row[9]);
+    } else if (isSpeed && schnaepseVal > 0) {
+      timeVal = schnaepseVal;
+    }
+
+    // Levels in column 10 if available
+    if (row[10] !== undefined && row[10] !== null && row[10] !== "" && !isNaN(Number(row[10]))) {
+      levelsVal = Number(row[10]);
+    }
+
+    // Total in column 5 (if numeric and not achievement JSON)
+    if (row[5] !== undefined && row[5] !== null && row[5] !== "" && !isNaN(Number(row[5]))) {
+      if (row.length >= 7) {
+        totalVal = Number(row[5]);
+      } else if (isSpeed && Number(row[5]) <= 20 && Number.isInteger(Number(row[5]))) {
+        levelsVal = Number(row[5]);
+      } else {
+        totalVal = Number(row[5]);
+      }
+    }
+
+    if (totalVal === undefined || isNaN(totalVal)) {
+      if (isSpeed && timeVal !== undefined) {
+        totalVal = Math.round((avgVal + timeVal) * 100) / 100;
+      } else {
+        totalVal = Math.round((avgVal + schnaepseVal) * 100) / 100;
+      }
+    }
 
     let achievementsVal: ParsedRecord['achievements'] = undefined;
-    const rawAch = row[6] || (row[5] && (row[5].startsWith('%5B') || row[5].startsWith('[')) ? row[5] : undefined);
+    const rawAch = (row[6] && (row[6].startsWith('%5B') || row[6].startsWith('[')) ? row[6] : (row[5] && (row[5].startsWith('%5B') || row[5].startsWith('[')) ? row[5] : undefined));
     if (rawAch) {
       try {
         const decoded = rawAch.startsWith('%') ? decodeURIComponent(rawAch) : rawAch;
@@ -332,13 +396,6 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
       : undefined;
 
     if (dateVal && playerName) {
-      const canonicalMode = normalizeGameMode(rawGameMode);
-      const isSpeed = canonicalMode.includes('Speedwiegen');
-      // Wenn row[9] existiert (explizite Time) oder es Speedwiegen ist, timeVal ermitteln
-      const timeVal = (row[9] !== undefined && row[9] !== null && row[9] !== "" && !isNaN(Number(row[9])))
-        ? Number(row[9])
-        : (isSpeed ? schnaepseVal : undefined);
-
       list.push({
         game_mode: canonicalMode,
         gameMode: canonicalMode,
@@ -350,6 +407,7 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
         Time: timeVal,
         time_seconds: timeVal,
         levels: levelsVal,
+        total: totalVal,
         tournament_name: tourneyName || undefined,
         tournament_table: tourneyTable || undefined,
         achievements: achievementsVal,

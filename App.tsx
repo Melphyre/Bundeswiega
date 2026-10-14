@@ -2887,9 +2887,13 @@ const App: React.FC = () => {
         gameMode: string,
         extraFields: Record<string, any> = {}
       ) => {
-        const total = Math.round((avg + schnaepse) * 100) / 100;
+        const isSpeed = String(gameMode || '').toLowerCase().includes('speed') || extraFields.isSpeedMode === true;
+        const timeSec = extraFields.time_seconds ?? extraFields.time ?? extraFields.Time;
+        const total = isSpeed && timeSec !== undefined && timeSec !== null
+          ? Math.round((avg + Number(timeSec)) * 100) / 100
+          : (extraFields.total !== undefined ? Number(extraFields.total) : Math.round((avg + schnaepse) * 100) / 100);
 
-        console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total });
+        console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total, isSpeed, timeSec });
 
         try {
           const res = await fetch('/api/users/save-game-result', {
@@ -3055,7 +3059,7 @@ const App: React.FC = () => {
             avg,
             0,
             speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)',
-            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true }
+            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true, total: Math.round((avg + timeSec) * 100) / 100 }
           );
         }
       }
@@ -5408,16 +5412,38 @@ const App: React.FC = () => {
                   earnedTogether: a.earned_together
                 }));
 
+              const isSpeed = canonicalMode.includes('Speedwiegen');
+              const avgVal = Number(r.avg) || 0;
+              const timeSec = r.time_seconds !== undefined && r.time_seconds !== null && !isNaN(Number(r.time_seconds))
+                ? Number(r.time_seconds)
+                : (r.time !== undefined && r.time !== null && !isNaN(Number(r.time))
+                    ? Number(r.time)
+                    : (r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
+                        ? Number(r.Time)
+                        : (isSpeed && r.schnaepse ? Number(r.schnaepse) : 0)));
+
+              const levelsVal = r.levels !== undefined && r.levels !== null && !isNaN(Number(r.levels))
+                ? Number(r.levels)
+                : (r.speed_levels !== undefined && r.speed_levels !== null && !isNaN(Number(r.speed_levels))
+                    ? Number(r.speed_levels)
+                    : undefined);
+
+              const totalVal = r.total !== undefined && r.total !== null && !isNaN(Number(r.total))
+                ? Number(r.total)
+                : (isSpeed ? Math.round((avgVal + timeSec) * 100) / 100 : Math.round((avgVal + (Number(r.schnaepse) || 0)) * 100) / 100);
+
               return [
                 r.date || '',
                 canonicalMode,
-                profile?.username || '',
-                r.avg?.toString() || '0',
-                r.schnaepse?.toString() || '0',
-                r.total?.toString() || '0',
+                profile?.username || r.player_name || '',
+                avgVal.toString(),
+                (isSpeed ? 0 : (Number(r.schnaepse) || 0)).toString(),
+                totalVal.toString(),
                 entryAchs.length > 0 ? JSON.stringify(entryAchs) : '',
                 r.tournament_name || '',
-                r.tournament_table || ''
+                r.tournament_table || '',
+                timeSec.toString(),
+                levelsVal !== undefined ? levelsVal.toString() : ''
               ];
             });
         } catch (supaErr: any) {
@@ -5433,7 +5459,7 @@ const App: React.FC = () => {
         !supabaseUsernames.has(row[2]?.toLowerCase()?.trim())
       );
 
-      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements", "Turnier", "Tisch"];
+      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements", "Turnier", "Tisch", "TimeSeconds", "Levels"];
       const combinedData = [headerRow, ...filteredCsvRows, ...supabaseRows];
       setRecordsData(combinedData);
 
@@ -9178,13 +9204,15 @@ const App: React.FC = () => {
 
                   // Default view for other modes (Speedwiegen, Teamwiegen)
                   // Let's find personal record of every player (best single-game average)
-                  const personalBests: Record<string, { avg: number; schnaepse: number; date: string; levels?: number; tournament_name?: string; tournament_table?: string }> = {};
+                  const personalBests: Record<string, { avg: number; schnaepse: number; time_seconds?: number; total?: number; date: string; levels?: number; tournament_name?: string; tournament_table?: string }> = {};
                   filtered.forEach(item => {
                     const existing = personalBests[item.playerName];
                     if (!existing || item.avg < existing.avg) {
                       personalBests[item.playerName] = {
                         avg: item.avg,
                         schnaepse: item.schnaepse,
+                        time_seconds: item.time_seconds ?? item.time ?? item.Time,
+                        total: item.total,
                         date: item.date,
                         levels: item.levels,
                         tournament_name: item.tournament_name,
@@ -9202,21 +9230,33 @@ const App: React.FC = () => {
                     .map(([name, data]) => ({ name, ...data }))
                     .sort((a, b) => activeBestsSortDir === 'asc' ? a.avg - b.avg : b.avg - a.avg);
 
+                  const getSpeedTotal = (item: any): number => {
+                    if (item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0) {
+                      return Number(item.total);
+                    }
+                    const avg = Number(item.avg) || 0;
+                    const time = Number(item.time_seconds ?? item.time ?? item.Time ?? 0);
+                    return Math.round((avg + time) * 100) / 100;
+                  };
+
                   // 2. Leaderboard of highest single-game points (schnaepse) (lowest time is better for Speedwiegen)
                   const pointsLeaderboard = [...filtered]
                     .sort((a, b) => {
                       if (isSpeedTab) {
-                        return activePointsSortDir === 'asc' ? a.schnaepse - b.schnaepse : b.schnaepse - a.schnaepse;
+                        const timeA = a.time_seconds ?? a.time ?? a.Time ?? 999;
+                        const timeB = b.time_seconds ?? b.time ?? b.Time ?? 999;
+                        return activePointsSortDir === 'asc' ? timeA - timeB : timeB - timeA;
                       }
                       return activePointsSortDir === 'desc' ? b.schnaepse - a.schnaepse : a.schnaepse - b.schnaepse;
                     })
                     .slice(0, 10);
 
                   const speedmeisterList = [...filtered]
-                    .sort((a, b) => speedmeisterSortDir === 'asc'
-                      ? (a.avg + a.schnaepse) - (b.avg + b.schnaepse)
-                      : (b.avg + b.schnaepse) - (a.avg + a.schnaepse)
-                    );
+                    .sort((a, b) => {
+                      const scoreA = getSpeedTotal(a);
+                      const scoreB = getSpeedTotal(b);
+                      return speedmeisterSortDir === 'asc' ? scoreA - scoreB : scoreB - scoreA;
+                    });
 
                   return (
                     <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
@@ -9255,7 +9295,13 @@ const App: React.FC = () => {
 
                           <div className="space-y-2">
                             {speedmeisterList.slice(0, 10).map((p, idx) => {
-                              const score = (p.avg + p.schnaepse).toFixed(1);
+                              const scoreVal = getSpeedTotal(p);
+                              const score = scoreVal.toFixed(1);
+                              const timeVal = p.time_seconds ?? p.time ?? p.Time ?? 0;
+                              const levelsCount = p.levels !== undefined && p.levels !== null && !isNaN(Number(p.levels))
+                                ? Number(p.levels)
+                                : undefined;
+
                               return (
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
                                   <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
@@ -9295,7 +9341,7 @@ const App: React.FC = () => {
                                   <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-amber-400">Score: {score}</span>
                                     <span className="block text-[10px] opacity-60">
-                                      (Ø {p.avg.toFixed(1)}g + {p.schnaepse.toFixed(1)}s{p.levels !== undefined ? ` • ${p.levels} Stufen` : ''} • {p.date})
+                                      (Ø {p.avg.toFixed(1)}g + {timeVal.toFixed(1)}s{levelsCount !== undefined ? ` • ${levelsCount} Stufen` : ''}{p.date ? ` • ${p.date}` : ''})
                                     </span>
                                     {p.tournament_name && (
                                       <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -9475,7 +9521,7 @@ const App: React.FC = () => {
                                   </div>
                                   <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-indigo-400">
-                                      {effectiveGameTab === 'Speedwiegen' ? `${p.schnaepse.toFixed(1)}s` : `${p.schnaepse} Pkt`}
+                                      {effectiveGameTab === 'Speedwiegen' ? `${(p.time_seconds ?? p.time ?? p.Time ?? 0).toFixed(1)}s` : `${p.schnaepse} Pkt`}
                                     </span>
                                     <span className="block text-[8px] opacity-40">
                                       {p.date}{effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
@@ -9542,10 +9588,11 @@ const App: React.FC = () => {
                               {(() => {
                                 let displayList = [...filtered];
                                 if (effectiveGameTab === 'Speedwiegen') {
-                                  displayList.sort((a, b) => activeHistorySortDir === 'asc'
-                                    ? (a.avg + a.schnaepse) - (b.avg + b.schnaepse)
-                                    : (b.avg + b.schnaepse) - (a.avg + a.schnaepse)
-                                  );
+                                  displayList.sort((a, b) => {
+                                    const scoreA = getSpeedTotal(a);
+                                    const scoreB = getSpeedTotal(b);
+                                    return activeHistorySortDir === 'asc' ? scoreA - scoreB : scoreB - scoreA;
+                                  });
                                 } else {
                                   if (activeHistorySortDir === 'asc') {
                                     displayList.reverse();
@@ -9606,11 +9653,11 @@ const App: React.FC = () => {
                                       </td>
                                     )}
                                     <td className="py-2.5 text-right font-black text-indigo-400 pr-3">
-                                      {effectiveGameTab === 'Speedwiegen' ? `${item.schnaepse.toFixed(1)}s` : item.schnaepse}
+                                      {effectiveGameTab === 'Speedwiegen' ? `${(item.time_seconds ?? item.time ?? item.Time ?? 0).toFixed(1)}s` : item.schnaepse}
                                     </td>
                                     {effectiveGameTab === 'Speedwiegen' && (
                                       <td className="py-2.5 text-right font-black text-purple-400">
-                                        {(item.avg + item.schnaepse).toFixed(1)}
+                                        {getSpeedTotal(item).toFixed(1)}
                                       </td>
                                     )}
                                   </tr>
@@ -9841,7 +9888,16 @@ const App: React.FC = () => {
                 const totalSchnaepse = playerMatches.reduce((sum, g) => sum + g.schnaepse, 0);
                 const avgSchnaepse = totalGames > 0 ? (totalSchnaepse / totalGames) : 0;
                 const bestTotalScore = totalGames > 0
-                  ? Math.min(...playerMatches.map(g => g.avg + g.schnaepse))
+                  ? Math.min(...playerMatches.map(g => {
+                      const isSpeed = matchesGameMode(g.game_mode || g.gameMode, 'Speedwiegen');
+                      if (isSpeed) {
+                        if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) return Number(g.total);
+                        return (g.avg || 0) + (g.time_seconds ?? g.time ?? g.Time ?? 0);
+                      }
+                      return (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0)
+                        ? Number(g.total)
+                        : (g.avg + g.schnaepse);
+                    }))
                   : 0;
 
                 const tournaments = Array.from(new Set(playerMatches.map(m => m.tournament_name).filter(Boolean)));
@@ -9981,11 +10037,13 @@ const App: React.FC = () => {
                             <p className="text-emerald-500 font-bold text-xs">Ø: {item.avg.toFixed(2)}g</p>
                             <p className="text-indigo-400 font-bold text-[11px]">
                               {matchesGameMode(item.game_mode || item.gameMode, 'Speedwiegen')
-                                ? `${item.schnaepse.toFixed(1)}s`
+                                ? `${(item.time_seconds ?? item.time ?? item.Time ?? 0).toFixed(1)}s`
                                 : `${item.schnaepse} Pkt / Schnäpse`}
                             </p>
                             <p className="text-purple-400 font-black text-[10px]">
-                              Total: {(item.avg + item.schnaepse).toFixed(2)}
+                              {matchesGameMode(item.game_mode || item.gameMode, 'Speedwiegen')
+                                ? `Score: ${((item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0) ? Number(item.total) : (item.avg + (item.time_seconds ?? item.time ?? item.Time ?? 0))).toFixed(2)}`
+                                : `Total: ${(item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0 ? Number(item.total) : (item.avg + item.schnaepse)).toFixed(2)}`}
                             </p>
                           </div>
                         </div>

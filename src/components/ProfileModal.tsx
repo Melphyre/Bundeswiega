@@ -1020,6 +1020,36 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     return matchesGameMode(g.game_mode, effectiveGameMode);
   });
 
+  // Hilfsfunktionen für Speedwiegen: Score = Abstand (avg) + Zeit in Sekunden
+  const isSpeedGame = (g: any): boolean => {
+    const mode = String(g.game_mode || g.mode || '').toLowerCase();
+    return mode.includes('speed') || g.is_speed_mode === true || g.time_seconds !== undefined;
+  };
+
+  const getTimeSec = (g: any): number => {
+    if (g.time_seconds !== undefined && g.time_seconds !== null && !isNaN(Number(g.time_seconds))) return Number(g.time_seconds);
+    if (g.time !== undefined && g.time !== null && !isNaN(Number(g.time))) return Number(g.time);
+    if (g.Time !== undefined && g.Time !== null && !isNaN(Number(g.Time))) return Number(g.Time);
+    if (isSpeedGame(g) && g.schnaepse !== undefined && g.schnaepse !== null && !isNaN(Number(g.schnaepse))) return Number(g.schnaepse);
+    return 0;
+  };
+
+  const getGameScore = (g: any): number => {
+    const avgVal = Number(g.avg) || 0;
+    if (isSpeedGame(g)) {
+      const timeVal = getTimeSec(g);
+      if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
+        return Number(g.total);
+      }
+      return Math.round((avgVal + timeVal) * 100) / 100;
+    }
+    if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
+      return Number(g.total);
+    }
+    const schnapsVal = Number(g.schnaepse) || 0;
+    return Math.round((avgVal + schnapsVal) * 100) / 100;
+  };
+
   const sortedGames = [...filteredGames].sort((a, b) => {
     let valA: any, valB: any;
     switch (recordsSortBy) {
@@ -1032,20 +1062,12 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         valB = b.avg ?? 999;
         break;
       case 'schnaepse':
-        valA = a.time_seconds !== undefined && a.time_seconds !== null ? a.time_seconds : (a.schnaepse ?? 0);
-        valB = b.time_seconds !== undefined && b.time_seconds !== null ? b.time_seconds : (b.schnaepse ?? 0);
+        valA = isSpeedGame(a) ? getTimeSec(a) : (a.schnaepse ?? 0);
+        valB = isSpeedGame(b) ? getTimeSec(b) : (b.schnaepse ?? 0);
         break;
       case 'total': {
-        const calcTotal = (g: any) => {
-          if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
-            return Number(g.total);
-          }
-          const avgVal = Number(g.avg) || 0;
-          const schnapsVal = Number(g.schnaepse) || 0;
-          return Math.round((avgVal + schnapsVal) * 100) / 100;
-        };
-        valA = calcTotal(a);
-        valB = calcTotal(b);
+        valA = getGameScore(a);
+        valB = getGameScore(b);
         break;
       }
     }
@@ -1836,8 +1858,14 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Bester Ø (Abweichung)</div>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-purple-500">{myAchievementsData.length}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Errungenschaften</div>
+                    <div className="text-2xl font-black text-purple-500">
+                      {effectiveGameMode.toLowerCase().includes('speed')
+                        ? (dynamicStats.bestScore !== null ? dynamicStats.bestScore.toFixed(2) : '-')
+                        : myAchievementsData.length}
+                    </div>
+                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
+                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Bester Score (Abstand + Zeit)' : 'Errungenschaften'}
+                    </div>
                   </div>
                 </div>
 
@@ -1852,9 +1880,13 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                         className={`p-1.5 rounded-lg border font-bold ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}
                       >
                         <option value="datum">Datum</option>
-                        <option value="avg">Bester Ø</option>
-                        <option value="schnaepse">Schnäpse / Zeit</option>
-                        <option value="total">Bestes Total</option>
+                        <option value="avg">Bester Ø (Abstand)</option>
+                        <option value="schnaepse">
+                          {effectiveGameMode.toLowerCase().includes('speed') ? 'Schnellste Zeit' : 'Schnäpse / Zeit'}
+                        </option>
+                        <option value="total">
+                          {effectiveGameMode.toLowerCase().includes('speed') ? 'Bester Score (Abstand + Zeit)' : 'Bestes Total'}
+                        </option>
                       </select>
                       <button
                         onClick={() => setRecordsSortDir(recordsSortDir === 'asc' ? 'desc' : 'asc')}
@@ -1893,34 +1925,47 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             <div className="text-[10px] opacity-50">{g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}</div>
                           </div>
                           <div className="text-right flex items-center justify-end gap-2.5 sm:gap-3 flex-wrap">
-                            <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung">
+                            <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung (Abstand)">
                               Ø {g.avg !== undefined ? Number(g.avg).toFixed(2) : '-'}
                             </span>
-                            {g.time_seconds ? (
-                              <span className="text-amber-500 font-bold" title="Zeit">
-                                {Number(g.time_seconds).toFixed(1)}s
-                              </span>
-                            ) : (
-                              <span className="text-amber-500 font-bold" title="Schnäpse">
-                                {g.schnaepse ?? 0} Schnäpse
-                              </span>
-                            )}
                             {(() => {
-                              const totalVal = (() => {
-                                if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
-                                  return Number(g.total);
-                                }
-                                const avgVal = Number(g.avg) || 0;
-                                const schnapsVal = Number(g.schnaepse) || 0;
-                                return Math.round((avgVal + schnapsVal) * 100) / 100;
-                              })();
+                              const isSpeed = isSpeedGame(g);
+                              const timeVal = getTimeSec(g);
+                              const scoreVal = getGameScore(g);
+
                               return (
-                                <span
-                                  className="text-purple-400 font-black px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20"
-                                  title="Gesamtwertung (Total: Ø + Schnäpse)"
-                                >
-                                  Total {totalVal.toFixed(2)}
-                                </span>
+                                <>
+                                  {isSpeed ? (
+                                    <>
+                                      <span className="text-amber-500 font-bold" title="Benötigte Zeit">
+                                        {timeVal > 0 ? `${timeVal.toFixed(1)}s` : '-'}
+                                      </span>
+                                      {g.levels !== undefined && g.levels !== null && !isNaN(Number(g.levels)) && (
+                                        <span className="text-indigo-400 font-bold" title="Stufen">
+                                          {g.levels} Stufen
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-amber-500 font-bold" title="Schnäpse">
+                                      {g.schnaepse ?? 0} Schnäpse
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`font-black px-1.5 py-0.5 rounded border ${
+                                      isSpeed
+                                        ? 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30'
+                                        : 'text-purple-400 bg-purple-500/10 border-purple-500/20'
+                                    }`}
+                                    title={
+                                      isSpeed
+                                        ? `Score beim Speedwiegen: Abstand (${(Number(g.avg) || 0).toFixed(2)}) + Zeit (${timeVal.toFixed(1)}s) = ${scoreVal.toFixed(2)}`
+                                        : `Gesamtwertung (Total: Ø + Schnäpse) = ${scoreVal.toFixed(2)}`
+                                    }
+                                  >
+                                    {isSpeed ? `Score ${scoreVal.toFixed(2)}` : `Total ${scoreVal.toFixed(2)}`}
+                                  </span>
+                                </>
                               );
                             })()}
                           </div>

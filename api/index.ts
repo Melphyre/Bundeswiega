@@ -112,7 +112,7 @@ function parseBody(req: VercelRequest): any {
 // ─── 1. RECORDS HANDLER (GET /api/records) ───
 async function handleRecords(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
-  const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch'];
+  const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch', 'TimeSeconds', 'Levels'];
 
   if (!supabaseAdmin) {
     return res.status(200).json({ data: [header] });
@@ -158,20 +158,41 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
       .map((r: any) => {
         const playerName = r.team_name || r.player_name || (r.user_id && profileMap[r.user_id]?.username) || (r.is_guest ? 'Gast' : 'Unbekannt');
         const canonicalMode = r.game_mode || 'Standardspiel';
+        const isSpeed = canonicalMode.toLowerCase().includes('speed') || r.is_speed_mode || r.time_seconds !== undefined;
         const k = r.id || `${r.user_id || r.player_name || ''}_${r.date || ''}`;
         const achievementsList = achByGame[k] || [];
         const achievementsParam = achievementsList.length > 0 ? encodeURIComponent(JSON.stringify(achievementsList)) : '';
+
+        const timeVal = r.time_seconds !== undefined && r.time_seconds !== null && !isNaN(Number(r.time_seconds))
+          ? Number(r.time_seconds)
+          : (r.time !== undefined && r.time !== null && !isNaN(Number(r.time))
+              ? Number(r.time)
+              : (r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
+                  ? Number(r.Time)
+                  : (isSpeed && r.schnaepse ? Number(r.schnaepse) : null)));
+
+        const levelsVal = r.levels !== undefined && r.levels !== null && !isNaN(Number(r.levels))
+          ? Number(r.levels)
+          : null;
+
+        const totalVal = r.total !== undefined && r.total !== null && !isNaN(Number(r.total))
+          ? Number(r.total)
+          : (isSpeed && timeVal !== null
+              ? Math.round((Number(r.avg || 0) + timeVal) * 100) / 100
+              : Math.round((Number(r.avg || 0) + Number(r.schnaepse || 0)) * 100) / 100);
 
         return [
           r.date || '',
           canonicalMode,
           playerName,
           String(r.avg ?? 0),
-          String(r.schnaepse ?? 0),
-          String(r.total ?? 0),
+          String(isSpeed ? 0 : (r.schnaepse ?? 0)),
+          String(totalVal),
           achievementsParam,
           r.tournament_name || '',
-          r.tournament_table || ''
+          r.tournament_table || '',
+          timeVal !== null ? String(timeVal) : '',
+          levelsVal !== null ? String(levelsVal) : ''
         ];
       });
 
@@ -805,15 +826,32 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     const memberUserIds = payload.memberUserIds || gameResultData.memberUserIds;
     const isTeamFlag = payload.isTeamGame || gameResultData.isTeamGame;
     const isTeamGame = isTeamFlag || (gameResultData.game_mode && String(gameResultData.game_mode).includes('Team'));
+    const isSpeedGame = (gameResultData.game_mode && String(gameResultData.game_mode).toLowerCase().includes('speed')) || gameResultData.isSpeedMode || gameResultData.time_seconds !== undefined;
+
+    const avgVal = Number(gameResultData.avg) || 0;
+    const schnapsVal = Number(gameResultData.schnaepse) || 0;
+    const timeVal = gameResultData.time_seconds !== undefined && gameResultData.time_seconds !== null
+      ? Number(gameResultData.time_seconds)
+      : (gameResultData.time !== undefined && gameResultData.time !== null
+          ? Number(gameResultData.time)
+          : (gameResultData.Time !== undefined && gameResultData.Time !== null
+              ? Number(gameResultData.Time)
+              : (isSpeedGame && schnapsVal > 0 ? schnapsVal : null)));
+
+    const totalVal = gameResultData.total !== undefined && gameResultData.total !== null && !isNaN(Number(gameResultData.total))
+      ? Number(gameResultData.total)
+      : (isSpeedGame && timeVal !== null
+          ? Math.round((avgVal + timeVal) * 100) / 100
+          : Math.round((avgVal + schnapsVal) * 100) / 100);
 
     // 1. Nutzdaten für game_results zusammenbauen
     const insertPayload: Record<string, any> = {
       user_id: userId,
       game_mode: gameResultData.game_mode || 'Standardspiel',
       date: gameResultData.date || new Date().toLocaleDateString('de-DE'),
-      avg: Number(gameResultData.avg) || 0,
-      schnaepse: Number(gameResultData.schnaepse) || 0,
-      total: Number(gameResultData.total) || Math.round(((Number(gameResultData.avg) || 0) + (Number(gameResultData.schnaepse) || 0)) * 100) / 100,
+      avg: avgVal,
+      schnaepse: isSpeedGame ? 0 : schnapsVal,
+      total: totalVal,
       is_guest: !userId,
       player_name: gameResultData.player_name || payload.playerName || null
     };
@@ -822,8 +860,10 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     if (gameResultData.levels !== undefined && gameResultData.levels !== null) {
       insertPayload.levels = Number(gameResultData.levels);
     }
-    if (gameResultData.time_seconds !== undefined && gameResultData.time_seconds !== null) {
-      insertPayload.time_seconds = Number(gameResultData.time_seconds);
+    if (timeVal !== null) {
+      insertPayload.time_seconds = timeVal;
+      insertPayload.time = timeVal;
+      insertPayload.Time = timeVal;
     }
     if (gameResultData.team_name) {
       insertPayload.team_name = String(gameResultData.team_name);

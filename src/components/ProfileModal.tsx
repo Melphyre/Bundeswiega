@@ -1034,14 +1034,32 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     return 0;
   };
 
+  const getSpeedGesamtabstand = (g: any): number => {
+    const avgVal = Number(g.avg) || 0;
+    const timeVal = getTimeSec(g);
+    const totalRaw = g.total !== undefined && g.total !== null && !isNaN(Number(g.total))
+      ? Number(g.total)
+      : undefined;
+
+    if (totalRaw !== undefined && totalRaw > 0) {
+      if (timeVal > 0 && Math.abs(totalRaw - (avgVal + timeVal)) < 0.1) {
+        return avgVal > 0 ? avgVal : Math.max(0, totalRaw - timeVal);
+      }
+      return totalRaw;
+    }
+    return avgVal;
+  };
+
   const getGameScore = (g: any): number => {
     const avgVal = Number(g.avg) || 0;
     if (isSpeedGame(g)) {
       const timeVal = getTimeSec(g);
-      if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
-        return Number(g.total);
-      }
-      return Math.round((avgVal + timeVal) * 100) / 100;
+      const levels = (g.levels !== undefined && g.levels !== null && !isNaN(Number(g.levels)) && Number(g.levels) > 0)
+        ? Number(g.levels)
+        : 1;
+
+      const gesamtabstand = getSpeedGesamtabstand(g);
+      return Math.round(((gesamtabstand / levels) + (timeVal / levels)) * 100) / 100;
     }
     if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
       return Number(g.total);
@@ -1925,16 +1943,20 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             <div className="text-[10px] opacity-50">{g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}</div>
                           </div>
                           <div className="text-right flex items-center justify-end gap-2.5 sm:gap-3 flex-wrap">
-                            <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung (Abstand)">
-                              Ø {g.avg !== undefined ? Number(g.avg).toFixed(2) : '-'}
-                            </span>
                             {(() => {
                               const isSpeed = isSpeedGame(g);
                               const timeVal = getTimeSec(g);
                               const scoreVal = getGameScore(g);
+                              const levels = (g.levels !== undefined && g.levels !== null && !isNaN(Number(g.levels)) && Number(g.levels) > 0)
+                                ? Number(g.levels)
+                                : 1;
+                              const avgDist = isSpeed ? (getSpeedGesamtabstand(g) / levels) : (Number(g.avg) || 0);
 
                               return (
                                 <>
+                                  <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung (Abstand pro Stufe)">
+                                    Ø {avgDist.toFixed(2)}g
+                                  </span>
                                   {isSpeed ? (
                                     <>
                                       <span className="text-amber-500 font-bold" title="Benötigte Zeit">
@@ -1959,7 +1981,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                                     }`}
                                     title={
                                       isSpeed
-                                        ? `Score beim Speedwiegen: Abstand (${(Number(g.avg) || 0).toFixed(2)}) + Zeit (${timeVal.toFixed(1)}s) = ${scoreVal.toFixed(2)}`
+                                        ? `Score beim Speedwiegen (normiert): Ø Abstand (${avgDist.toFixed(1)}g) + Ø Zeit (${(timeVal / levels).toFixed(1)}s) = ${scoreVal.toFixed(2)}`
                                         : `Gesamtwertung (Total: Ø + Schnäpse) = ${scoreVal.toFixed(2)}`
                                     }
                                   >

@@ -2,55 +2,198 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { calculateGuildLevelAndXP, getGuildCosmetics } from '../src/utils/guildLevel.js';
 
-// ─── UTILS: LEVEL SYSTEM (Direkt in API integriert) ───
+// ─── UTILS: LEVEL SYSTEM (1:1 Angleichung an Frontend levelSystem.ts) ───
+export function calculateLevelFromXp(totalXp: number = 0): { level: number; title: string } {
+    const safeXp = Math.max(0, Math.floor(totalXp));
+
+    // Formel zur Errechnung des Levels aus den kumulierten XP
+    let level = Math.floor((1 + Math.sqrt(1 + 4 * (safeXp / 50))) / 2);
+    level = Math.max(1, Math.min(20, level)); // Mindestens 1, maximal 20
+
+    // Titelzuordnung
+    const titles: { [key: number]: string } = {
+        1: 'Neuling',
+        2: 'Basis-Wieger',
+        3: 'geübter Wieger',
+        4: 'App-Meister',
+        5: 'Eichen-Eichmeister',
+        6: 'Prozent-Gott',
+        7: 'Präzisions-Junkie',
+        8: 'Schwankungsfrei',
+        9: "Auge wie 'n Luchs",
+        10: 'Tares-Experte',
+        11: 'Gramm-Chirurg',
+        12: 'Blind-Wieger',
+        13: 'Schwergewicht',
+        14: 'Meister der Toleranz',
+        15: 'Bundeswiega-Legende',
+        16: 'Nicht von dieser Welt',
+        17: 'Null-Komma-Null',
+        18: 'Unanfechtbar',
+        19: 'Eichamt-Schreck',
+        20: 'Gott der Gravitation'
+    };
+
+    return {
+        level,
+        title: titles[level] || 'Neuling'
+    };
+}
+
 export function getTitleForLevel(level: number): string {
-  if (level >= 50) return 'Legende';
-  if (level >= 30) return 'Großmeister';
-  if (level >= 20) return 'Meister';
-  if (level >= 10) return 'Fortgeschrittener';
-  if (level >= 5) return 'Anfänger';
-  return 'Neuling';
+    const titles: { [key: number]: string } = {
+        1: 'Neuling',
+        2: 'Basis-Wieger',
+        3: 'geübter Wieger',
+        4: 'App-Meister',
+        5: 'Eichen-Eichmeister',
+        6: 'Prozent-Gott',
+        7: 'Präzisions-Junkie',
+        8: 'Schwankungsfrei',
+        9: "Auge wie 'n Luchs",
+        10: 'Tares-Experte',
+        11: 'Gramm-Chirurg',
+        12: 'Blind-Wieger',
+        13: 'Schwergewicht',
+        14: 'Meister der Toleranz',
+        15: 'Bundeswiega-Legende',
+        16: 'Nicht von dieser Welt',
+        17: 'Null-Komma-Null',
+        18: 'Unanfechtbar',
+        19: 'Eichamt-Schreck',
+        20: 'Gott der Gravitation'
+    };
+    return titles[level] || 'Neuling';
 }
 
-export function calculateLevelFromXp(xp: number): { level: number; title: string } {
-  const safeXp = Math.max(0, Number(xp) || 0);
-  const level = Math.floor(Math.sqrt(safeXp / 50)) + 1;
-  const title = getTitleForLevel(level);
-  return { level, title };
+export interface GameXpParams {
+    avg?: number;
+    schnaepse?: number;
+    isWinner?: boolean;
+    rank?: number;
+    tournamentRank?: number;
+    isSpeedMode?: boolean;
+    isTeamMode?: boolean;
+    isTeamWinner?: boolean;
+    disqualified?: boolean;
 }
 
-export function calculateGameXp(params: {
-  avg?: number;
-  schnaepse?: number;
-  isWinner?: boolean;
-  rank?: number;
-  tournamentRank?: number;
-  isSpeedMode?: boolean;
-  speedLevels?: number;
-  timeSeconds?: number;
-  achievementsCount?: number;
-  disqualified?: boolean;
-}) {
-  if (params.disqualified) {
-    return { totalXp: 0, items: [] };
-  }
+export function calculateGameXp(params: GameXpParams): number {
+    // 1. Disqualifikation: 0 XP
+    if (params.disqualified) {
+        return 0;
+    }
 
-  let totalXp = 20; // Base XP
-  const items: any[] = [{ label: 'Spiel absolviert', xp: 20 }];
+    let xp = 0;
 
-  if (params.isWinner) {
-    totalXp += 30;
-    items.push({ label: 'Sieg bonus', xp: 30 });
-  }
+    // 2. Special-Mode: Speedwiegen
+    if (params.isSpeedMode) {
+        xp += 3; // Basis-XP Speedwiegen
+        if (params.avg !== undefined && params.avg !== null) {
+            const avg = Number(params.avg);
+            if (avg <= 1.0) xp += 4;
+            else if (avg <= 2.5) xp += 2;
+        }
+        return xp;
+    }
 
-  const schnaepse = Number(params.schnaepse) || 0;
-  if (schnaepse > 0) {
-    const schnapsXp = schnaepse * 5;
-    totalXp += schnapsXp;
-    items.push({ label: `Schnäpse (${schnaepse})`, xp: schnapsXp });
-  }
+    // 3. Special-Mode: Teamwiegen
+    if (params.isTeamMode) {
+        xp += 5; // Basis-XP Teamwiegen
+        if (params.isTeamWinner) {
+            xp += 2;
+        }
+        return xp;
+    }
 
-  return { totalXp, items };
+    // 4. Standardspiel Basis-XP
+    xp += 5;
+
+    // 5. Präzisions-Bonus (Durchschnitt in Gramm)
+    if (params.avg !== undefined && params.avg !== null) {
+        const avg = Number(params.avg);
+        if (avg <= 0.5) xp += 10;
+        else if (avg <= 1.0) xp += 8;
+        else if (avg <= 2.0) xp += 5;
+        else if (avg <= 3.5) xp += 3;
+        else if (avg <= 5.0) xp += 1;
+    }
+
+    // 6. Fehlerfreie Runde / Schnäpse
+    if (params.schnaepse !== undefined && params.schnaepse !== null) {
+        const schnaepse = Number(params.schnaepse);
+        if (schnaepse === 0) xp += 5;
+        else if (schnaepse <= 2) xp += 3;
+    }
+
+    // 7. Platzierung im normalen Spiel
+    if (params.rank === 1 || params.isWinner) {
+        xp += 2;
+    } else if (params.rank === 2) {
+        xp += 1;
+    }
+
+    // 8. Turnier-Ergebnisse (Finaltable)
+    if (params.tournamentRank === 1) xp += 10;
+    else if (params.tournamentRank === 2) xp += 5;
+    else if (params.tournamentRank === 3) xp += 3;
+
+    return xp;
+}
+
+export function generateXpBreakdown(params: GameXpParams): { label: string; xp: number }[] {
+    if (params.disqualified) {
+        return [{ label: 'Disqualifiziert', xp: 0 }];
+    }
+
+    const items: { label: string; xp: number }[] = [];
+
+    if (params.isSpeedMode) {
+        items.push({ label: 'Basis-XP (Speedwiegen)', xp: 3 });
+        if (params.avg !== undefined && params.avg !== null) {
+            const avg = Number(params.avg);
+            if (avg <= 1.0) items.push({ label: 'Speed-Präzision (≤ 1.0g)', xp: 4 });
+            else if (avg <= 2.5) items.push({ label: 'Speed-Präzision (≤ 2.5g)', xp: 2 });
+        }
+        return items;
+    }
+
+    if (params.isTeamMode) {
+        items.push({ label: 'Basis-XP (Teamwiegen)', xp: 5 });
+        if (params.isTeamWinner) {
+            items.push({ label: 'Team-Sieg Bonus', xp: 2 });
+        }
+        return items;
+    }
+
+    items.push({ label: 'Basis-XP (Standardspiel)', xp: 5 });
+
+    if (params.avg !== undefined && params.avg !== null) {
+        const avg = Number(params.avg);
+        if (avg <= 0.5) items.push({ label: 'Überragende Präzision (≤ 0.5g)', xp: 10 });
+        else if (avg <= 1.0) items.push({ label: 'Top Präzision (≤ 1.0g)', xp: 8 });
+        else if (avg <= 2.0) items.push({ label: 'Hohe Präzision (≤ 2.0g)', xp: 5 });
+        else if (avg <= 3.5) items.push({ label: 'Gute Präzision (≤ 3.5g)', xp: 3 });
+        else if (avg <= 5.0) items.push({ label: 'Solide Präzision (≤ 5.0g)', xp: 1 });
+    }
+
+    if (params.schnaepse !== undefined && params.schnaepse !== null) {
+        const schnaepse = Number(params.schnaepse);
+        if (schnaepse === 0) items.push({ label: 'Fehlerfreie Runde (0 Schnäpse)', xp: 5 });
+        else if (schnaepse <= 2) items.push({ label: 'Wenig Schnäpse (≤ 2)', xp: 3 });
+    }
+
+    if (params.rank === 1 || params.isWinner) {
+        items.push({ label: '1. Platz / Spielsieg', xp: 2 });
+    } else if (params.rank === 2) {
+        items.push({ label: '2. Platz', xp: 1 });
+    }
+
+    if (params.tournamentRank === 1) items.push({ label: 'Finaltable Champion (1. Platz)', xp: 10 });
+    else if (params.tournamentRank === 2) items.push({ label: 'Finaltable Vize (2. Platz)', xp: 5 });
+    else if (params.tournamentRank === 3) items.push({ label: 'Finaltable 3. Platz', xp: 3 });
+
+    return items;
 }
 
 // ─── SUPABASE CLIENT SETUP ───
@@ -177,8 +320,8 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
 
         const totalVal = r.total !== undefined && r.total !== null && !isNaN(Number(r.total))
           ? Number(r.total)
-          : (isSpeed && timeVal !== null
-              ? Math.round((Number(r.avg || 0) + timeVal) * 100) / 100
+          : (isSpeed
+              ? Math.round(Number(r.avg || 0) * (levelsVal || 1) * 100) / 100
               : Math.round((Number(r.avg || 0) + Number(r.schnaepse || 0)) * 100) / 100);
 
         return [
@@ -230,8 +373,8 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
 
         const total = r.total !== undefined
           ? Number(r.total)
-          : (isSpeed && timeVal !== null
-              ? Math.round((avg + timeVal) * 100) / 100
+          : (isSpeed
+              ? Math.round(avg * (Number(r.levels) || 1) * 100) / 100
               : Math.round((avg + schnaepse) * 100) / 100);
 
         return {
@@ -840,8 +983,8 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
 
     const totalVal = gameResultData.total !== undefined && gameResultData.total !== null && !isNaN(Number(gameResultData.total))
       ? Number(gameResultData.total)
-      : (isSpeedGame && timeVal !== null
-          ? Math.round((avgVal + timeVal) * 100) / 100
+      : (isSpeedGame
+          ? Math.round(avgVal * (Number(gameResultData.levels) || 1) * 100) / 100
           : Math.round((avgVal + schnapsVal) * 100) / 100);
 
     // 1. Nutzdaten für game_results zusammenbauen
@@ -976,27 +1119,32 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
           (insertPayload.game_mode && String(insertPayload.game_mode).toLowerCase().includes('speed'))
         );
 
-        const rank = gameResultData.rank !== undefined ? Number(gameResultData.rank) : payload.rank;
-        const isWinner = gameResultData.isWinner !== undefined ? Boolean(gameResultData.isWinner) : (rank === 1);
-        const tournamentRank = gameResultData.tournamentRank !== undefined ? Number(gameResultData.tournamentRank) : payload.tournamentRank;
-        const isDisqualified = Boolean(gameResultData.disqualified || gameResultData.isDisqualified || payload.disqualified);
-        const achCount = Array.isArray(payload.achievements) ? payload.achievements.length : 0;
+        const isTeam = !!(
+          payload.isTeamMode ||
+          gameResultData.isTeamMode ||
+          (insertPayload.game_mode && String(insertPayload.game_mode).toLowerCase().includes('team'))
+        );
 
-        const xpCalc = calculateGameXp({
-          avg: insertPayload.avg,
-          schnaepse: insertPayload.schnaepse,
-          isWinner,
+        const rank = gameResultData.rank !== undefined ? Number(gameResultData.rank) : (payload.rank !== undefined ? Number(payload.rank) : undefined);
+        const isWinner = gameResultData.isWinner !== undefined ? Boolean(gameResultData.isWinner) : (payload.isWinner !== undefined ? Boolean(payload.isWinner) : (rank === 1));
+        const isTeamWinner = Boolean(payload.isTeamWinner || gameResultData.isTeamWinner || (isTeam && isWinner));
+        const tournamentRank = gameResultData.tournamentRank !== undefined ? Number(gameResultData.tournamentRank) : (payload.tournamentRank !== undefined ? Number(payload.tournamentRank) : undefined);
+        const isDisqualified = Boolean(gameResultData.disqualified || gameResultData.isDisqualified || payload.disqualified);
+
+        const xpParams: GameXpParams = {
+          avg: insertPayload.avg !== undefined && insertPayload.avg !== null ? Number(insertPayload.avg) : (payload.avg !== undefined ? Number(payload.avg) : undefined),
+          schnaepse: insertPayload.schnaepse !== undefined && insertPayload.schnaepse !== null ? Number(insertPayload.schnaepse) : (payload.schnaepse !== undefined ? Number(payload.schnaepse) : undefined),
           rank,
+          isWinner,
           tournamentRank,
           isSpeedMode: isSpeed,
-          speedLevels: insertPayload.levels,
-          timeSeconds: insertPayload.time_seconds,
-          achievementsCount: achCount,
+          isTeamMode: isTeam,
+          isTeamWinner,
           disqualified: isDisqualified
-        });
+        };
 
-        xpEarned = xpCalc.totalXp;
-        xpBreakdown = xpCalc.items;
+        xpEarned = calculateGameXp(xpParams);
+        xpBreakdown = generateXpBreakdown(xpParams);
 
         const { data: profile, error: profErr } = await supabaseAdmin
           .from('profiles')
@@ -2683,16 +2831,81 @@ async function handleActiveGamesCleanup(req: VercelRequest, res: VercelResponse)
   }
   try {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const { data, error, count } = await supabaseAdmin
+
+    // 1. Spiele löschen, die status = 'finished' haben und vor mehr als 30 Minuten beendet wurden
+    const { count: finishedCount, error: fErr } = await supabaseAdmin
       .from('active_games')
       .delete({ count: 'exact' })
       .eq('status', 'finished')
       .lt('updated_at', thirtyMinutesAgo);
 
+    if (fErr) {
+      console.warn("Active games finished cleanup warning:", fErr.message);
+    }
+
+    // 2. Abgebrochene Spiele löschen, die seit mehr als 30 Minuten kein Update erhalten haben
+    const { count: staleCount, error: sErr } = await supabaseAdmin
+      .from('active_games')
+      .delete({ count: 'exact' })
+      .lt('updated_at', thirtyMinutesAgo);
+
+    if (sErr) {
+      console.warn("Active games stale cleanup warning:", sErr.message);
+    }
+
+    const total = (finishedCount || 0) + (staleCount || 0);
+    return res.status(200).json({ success: true, deleted: total });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+}
+
+async function handleActiveGamesClearAll(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  if (!supabaseAdmin) {
+    return res.status(200).json({ success: false, message: 'Database not initialized', deleted: 0 });
+  }
+  try {
+    const { count, error } = await supabaseAdmin
+      .from('active_games')
+      .delete({ count: 'exact' })
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+
     if (error) {
       return res.status(500).json({ success: false, error: error.message });
     }
     return res.status(200).json({ success: true, deleted: count || 0 });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+}
+
+async function handleActiveGamesFinish(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  if (!supabaseAdmin) {
+    return res.status(200).json({ success: false, message: 'Database not initialized' });
+  }
+  try {
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch {}
+    }
+    const gameId = body?.gameId || req.query?.gameId;
+    if (!gameId) {
+      return res.status(400).json({ success: false, error: 'gameId required' });
+    }
+    const { error } = await supabaseAdmin
+      .from('active_games')
+      .update({
+        status: 'finished',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', gameId);
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    return res.status(200).json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || String(err) });
   }
@@ -2799,6 +3012,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 5. Datenbankwartung & Active Games
     if (pathname === '/active-games/cleanup') {
       return await handleActiveGamesCleanup(req, res);
+    }
+    if (pathname === '/active-games/clear-all') {
+      return await handleActiveGamesClearAll(req, res);
+    }
+    if (pathname === '/active-games/finish') {
+      return await handleActiveGamesFinish(req, res);
     }
     if (pathname === '/repair-database') {
       return await handleRepairDatabase(req, res);

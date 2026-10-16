@@ -44,6 +44,7 @@ import GameTable from './src/components/GameTable';
 
 import AdminAchievementsModal from './src/components/AdminAchievementsModal';
 import ProfileModal from './src/components/ProfileModal';
+import PlayerDetailsModal from './src/components/PlayerDetailsModal';
 import FriendsModal from './src/components/FriendsModal';
 import AuthModal from './src/components/AuthModal';
 import PlayerTitleBadge from './src/components/PlayerTitleBadge';
@@ -2095,6 +2096,8 @@ const App: React.FC = () => {
   const [showEmptyWeightModal, setShowEmptyWeightModal] = useState(false);
   const [emptyWeightGuess, setEmptyWeightGuess] = useState('');
   const [emptyWeightActual, setEmptyWeightActual] = useState('');
+  const [speedEmptyGuess, setSpeedEmptyGuess] = useState<number | null>(null);
+  const [speedEmptyActual, setSpeedEmptyActual] = useState<number | null>(null);
 
   // Second Chance Selection Modal States
   const [showSecondChancePlayerSelect, setShowSecondChancePlayerSelect] = useState(false);
@@ -2858,13 +2861,45 @@ const App: React.FC = () => {
 
   const calculatePlayerAvg = (playerId: string, roundsData: Round[]) => calculateAverageDistance(playerId, roundsData);
 
+  const getSpeedGameMetrics = () => {
+    const totalLevels = parseInt(speedLevels) || 1;
+    let totalDiff = 0;
+    const stepDiffs: Record<number, number> = {};
+
+    for (let i = 1; i <= totalLevels; i++) {
+      if (i === totalLevels) {
+        // Letzte Stufe: Leergewicht (nur bei Speedwiegen)
+        const guess = speedEmptyGuess !== null ? speedEmptyGuess : (parseInt(emptyWeightGuess) || 0);
+        const actual = speedEmptyActual !== null ? speedEmptyActual : (parseInt(speedResults[i]) || parseInt(emptyWeightActual) || 0);
+        const diff = Math.abs(guess - actual);
+        stepDiffs[i] = diff;
+        totalDiff += diff;
+      } else {
+        const target = parseInt(speedTargets[i]) || 0;
+        const result = parseInt(speedResults[i]) || 0;
+        const diff = Math.abs(result - target);
+        stepDiffs[i] = diff;
+        totalDiff += diff;
+      }
+    }
+
+    const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+    const avgDistance = totalLevels > 0 ? Number((totalDiff / totalLevels).toFixed(2)) : 0;
+    const normalizedScore = totalLevels > 0 ? Number(((totalDiff / totalLevels) + (timeSec / totalLevels)).toFixed(2)) : 0;
+
+    return {
+      totalLevels,
+      totalDiff,
+      timeSec,
+      avgDistance,
+      normalizedScore,
+      stepDiffs
+    };
+  };
+
   const calculateSpeedAvg = () => {
-    const keys = Object.keys(speedResults);
-    const totalDiff = keys.reduce((acc, key) => {
-      const k = parseInt(key);
-      return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
-    }, 0);
-    return keys.length > 0 ? totalDiff / keys.length : 0;
+    const { avgDistance } = getSpeedGameMetrics();
+    return avgDistance;
   };
 
   // Automatismus: Nach Spielende alle registrierten Spieler-Accounts in Supabase speichern
@@ -2889,9 +2924,11 @@ const App: React.FC = () => {
       ) => {
         const isSpeed = String(gameMode || '').toLowerCase().includes('speed') || extraFields.isSpeedMode === true;
         const timeSec = extraFields.time_seconds ?? extraFields.time ?? extraFields.Time;
-        const total = isSpeed && timeSec !== undefined && timeSec !== null
-          ? Math.round((avg + Number(timeSec)) * 100) / 100
-          : (extraFields.total !== undefined ? Number(extraFields.total) : Math.round((avg + schnaepse) * 100) / 100);
+        const total = extraFields.total !== undefined
+          ? Number(extraFields.total)
+          : (isSpeed
+              ? Math.round(avg * (Number(extraFields.levels) || 1) * 100) / 100
+              : Math.round((avg + schnaepse) * 100) / 100);
 
         console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total, isSpeed, timeSec });
 
@@ -3043,23 +3080,15 @@ const App: React.FC = () => {
       else if (gameState === GameState.SPEED_RESULT) {
         const targetSpeedUserId = speedUserId || (isSignedIn && supabaseUser ? supabaseUser.id : null);
         if (targetSpeedUserId && !accountResultsSaved.includes(targetSpeedUserId)) {
-          const totalLevels = parseInt(speedLevels) || 1;
-          let totalDiff = 0;
-          Array.from({ length: totalLevels }).forEach((_, i) => {
-            const target = parseInt(speedTargets[i + 1]) || 0;
-            const result = parseInt(speedResults[i + 1]) || 0;
-            totalDiff += Math.abs(result - target);
-          });
-          const avg = Number((totalDiff / totalLevels).toFixed(2));
-          const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+          const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
 
           await saveForPlayer(
             targetSpeedUserId,
             speedPlayerName || 'Gast',
-            avg,
+            avgDistance,
             0,
             speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)',
-            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true, total: Math.round((avg + timeSec) * 100) / 100 }
+            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true, total: totalDiff }
           );
         }
       }
@@ -4512,7 +4541,11 @@ const App: React.FC = () => {
   const handleSpeedSetupConfirm = () => {
     if (!speedPlayerName.trim()) { alert("Bitte Namen eingeben."); return; }
     const lastLevel = parseInt(speedLevels);
-    setSpeedTargets(prev => ({ ...prev, [lastLevel]: '0' }));
+    setSpeedTargets(prev => ({ ...prev, [lastLevel]: 'leer' }));
+    setSpeedEmptyGuess(null);
+    setSpeedEmptyActual(null);
+    setEmptyWeightGuess('');
+    setEmptyWeightActual('');
     setGameState(GameState.SPEED_CONFIG);
   };
 
@@ -4565,10 +4598,8 @@ const App: React.FC = () => {
 
   const handleSpeedConfigConfirm = () => {
     const lastLevel = parseInt(speedLevels);
-    if (speedTargets[lastLevel] !== '0') {
-      speedTargets[lastLevel] = '0'; // automatisch korrigieren
-    }
-    for (let i = 1; i <= lastLevel; i++) {
+    speedTargets[lastLevel] = 'leer'; // Die letzte Stufe ist immer "leer"
+    for (let i = 1; i < lastLevel; i++) {
       if (!speedTargets[i] && speedTargets[i] !== '0') { alert("Bitte alle Zielgewichte ausfüllen."); return; }
     }
     startSpeedCountdown();
@@ -4596,12 +4627,17 @@ const App: React.FC = () => {
     }
 
     const lastLevel = parseInt(speedLevels);
-    const updatedResults = { ...speedResults, [lastLevel]: emptyWeightActual };
+    const guessVal = parseInt(emptyWeightGuess) || 0;
+    const actualVal = parseInt(emptyWeightActual) || 0;
+    const leerDiff = Math.abs(guessVal - actualVal);
+
+    setSpeedEmptyGuess(guessVal);
+    setSpeedEmptyActual(actualVal);
+
+    const updatedResults = { ...speedResults, [lastLevel]: String(actualVal) };
     setSpeedResults(updatedResults);
 
     setShowEmptyWeightModal(false);
-    setEmptyWeightGuess('');
-    setEmptyWeightActual('');
 
     setGameState(GameState.SPEED_RESULT);
     if (activeGameIdRef.current) {
@@ -4622,7 +4658,9 @@ const App: React.FC = () => {
           speedResults: updatedResults,
           speedIsShortMode,
           speedPlayerName,
-          speedPlayerAvatar: speedAvatar
+          speedPlayerAvatar: speedAvatar,
+          speedEmptyGuess: guessVal,
+          speedEmptyActual: actualVal
         }
       });
       finishActiveGame(activeGameIdRef.current);
@@ -4635,7 +4673,8 @@ const App: React.FC = () => {
       updatedResults,
       speedStartTime,
       speedEndTime || Date.now(),
-      earnedAchievements
+      earnedAchievements,
+      leerDiff
     );
 
     if (speedAch && speedAch.length > 0) {
@@ -4867,20 +4906,22 @@ const App: React.FC = () => {
   const downloadCSV = () => {
     let csv = "";
     if (gameState === GameState.SPEED_RESULT) {
+      const { totalLevels, totalDiff, timeSec, avgDistance, normalizedScore, stepDiffs } = getSpeedGameMetrics();
       csv = "Stufe;Ziel;Ergebnis;Abstand\n";
-      Array.from({ length: parseInt(speedLevels) }).forEach((_, i) => {
-        const target = speedTargets[i+1];
-        const result = speedResults[i+1];
-        const diff = Math.abs((parseInt(result) || 0) - (parseInt(target) || 0));
-        csv += `${i+1};${target}g;${result}g;${diff}g\n`;
-      });
-      const timeSec = (speedEndTime! - speedStartTime!) / 1000;
+      for (let i = 1; i <= totalLevels; i++) {
+        const isLast = i === totalLevels;
+        const targetStr = isLast ? 'leer' : `${speedTargets[i]}g`;
+        const guess = speedEmptyGuess !== null ? speedEmptyGuess : (parseInt(emptyWeightGuess) || 0);
+        const actual = speedEmptyActual !== null ? speedEmptyActual : (parseInt(speedResults[i]) || 0);
+        const resultStr = isLast ? `${actual}g (geschätzt: ${guess}g)` : `${speedResults[i]}g`;
+        const diff = stepDiffs[i] ?? 0;
+        csv += `${i};${targetStr};${resultStr};${diff}g\n`;
+      }
       csv += `\nZeit;${timeSec.toFixed(2)}s\n`;
-      const totalDiff = Object.keys(speedResults).reduce((acc, key) => {
-        const k = parseInt(key);
-        return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
-      }, 0);
-      csv += `Gesamt-Score;${(timeSec + totalDiff).toFixed(2)}\n`;
+      csv += `Gesamtabstand;${totalDiff}g\n`;
+      csv += `Stufen;${totalLevels}\n`;
+      csv += `Abstand pro Stufe (Ø);${avgDistance.toFixed(2)}g\n`;
+      csv += `Score (normiert);${normalizedScore.toFixed(2)}\n`;
     } else {
       csv = "Runde;Ziel;";
       players.forEach(p => csv += `${p.name};`);
@@ -4906,20 +4947,12 @@ const App: React.FC = () => {
     try {
       const today = new Date().toLocaleDateString('de-DE');
       let gameMode = 'Standardspiel';
-      let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number; levels?: number }> = [];
+      let resultsToUpload: Array<{ name: string; avg: number; schnaepse: number; levels?: number; total?: number }> = [];
 
       if (gameState === GameState.SPEED_RESULT) {
         gameMode = speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)';
-        const totalLevels = parseInt(speedLevels) || 1;
-        let totalDiff = 0;
-        Array.from({ length: totalLevels }).forEach((_, i) => {
-          const target = parseInt(speedTargets[i+1]) || 0;
-          const result = parseInt(speedResults[i+1]) || 0;
-          totalDiff += Math.abs(result - target);
-        });
-        const avg = Number((totalDiff / totalLevels).toFixed(2));
-        const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
-        resultsToUpload = [{ name: speedPlayerName || "Gast", avg, schnaepse: timeSec, levels: totalLevels }];
+        const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
+        resultsToUpload = [{ name: speedPlayerName || "Gast", avg: avgDistance, schnaepse: timeSec, levels: totalLevels, total: totalDiff }];
       } else if (gameState === GameState.RESULT_SCREEN) {
         if (teams.length > 0) {
           gameMode = 'Teamwiegen';
@@ -4998,23 +5031,16 @@ const App: React.FC = () => {
   };
 
   const getParticipatingItems = () => {
-    let items: Array<{ id: string; name: string; avg: number; schnaepse: number; levels?: number }> = [];
+    let items: Array<{ id: string; name: string; avg: number; schnaepse: number; levels?: number; total?: number }> = [];
     if (gameState === GameState.SPEED_RESULT) {
-      const totalLevels = parseInt(speedLevels) || 1;
-      let totalDiff = 0;
-      Array.from({ length: totalLevels }).forEach((_, i) => {
-        const target = parseInt(speedTargets[i+1]) || 0;
-        const result = parseInt(speedResults[i+1]) || 0;
-        totalDiff += Math.abs(result - target);
-      });
-      const avg = Number((totalDiff / totalLevels).toFixed(2));
-      const timeSec = speedStartTime && speedEndTime ? Number(((speedEndTime - speedStartTime) / 1000).toFixed(2)) : 0;
+      const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
       items = [{
         id: 'speed_player',
         name: speedPlayerName || 'Gast',
-        avg,
+        avg: avgDistance,
         schnaepse: timeSec,
-        levels: totalLevels
+        levels: totalLevels,
+        total: totalDiff
       }];
     } else if (gameState === GameState.RESULT_SCREEN) {
       if (teams.length > 0) {
@@ -5182,7 +5208,8 @@ const App: React.FC = () => {
           name: finalName,
           avg: it.avg,
           schnaepse: it.schnaepse,
-          ...(it.levels !== undefined ? { levels: it.levels } : {})
+          ...(it.levels !== undefined ? { levels: it.levels } : {}),
+          ...(it.total !== undefined ? { total: it.total } : {})
         };
       });
 
@@ -6532,29 +6559,29 @@ const App: React.FC = () => {
                   <div key={levelNum}>
                     <label className="text-xs font-bold opacity-50 uppercase block mb-1">Stufe {levelNum}</label>
                     <input 
-                      type="number" 
+                      type={isLastLevel ? "text" : "number"} 
                       min="0" 
                       max="999" 
                       disabled={isLastLevel}
-                      value={isLastLevel ? '0' : (speedTargets[levelNum] || '')} 
+                      value={isLastLevel ? 'leer' : (speedTargets[levelNum] || '')} 
                       onChange={e => {
                         if (isLastLevel) return;
                         setSpeedTargets({
                           ...speedTargets, 
                           [levelNum]: e.target.value.slice(0, 3),
-                          [parseInt(speedLevels)]: '0'
+                          [parseInt(speedLevels)]: 'leer'
                         });
                       }} 
                       className={`w-full p-3 rounded-xl border-2 text-center font-bold transition-all ${
                         isLastLevel 
-                          ? (darkMode ? 'bg-slate-800/40 border-slate-700/40 text-gray-400 cursor-not-allowed opacity-60' : 'bg-gray-200/60 border-gray-300 text-gray-500 cursor-not-allowed opacity-60')
+                          ? (darkMode ? 'bg-slate-800/40 border-slate-700/40 text-emerald-400 font-black cursor-not-allowed' : 'bg-gray-200/60 border-gray-300 text-emerald-600 font-black cursor-not-allowed')
                           : 'bg-transparent border-gray-500/30'
                       }`} 
                       placeholder="g" 
                     />
                     {isLastLevel && (
                       <span className="text-[10px] text-emerald-500 font-bold block mt-1">
-                        Die letzte Stufe ist immer 0g
+                        Die letzte Stufe ist immer leer
                       </span>
                     )}
                   </div>
@@ -6584,7 +6611,7 @@ const App: React.FC = () => {
                 <thead>
                   <tr className="border-b border-white/20">
                     <th className="py-2 px-4">Stufe</th>
-                    <th className="py-2 px-4">Ziel (g)</th>
+                    <th className="py-2 px-4">Ziel</th>
                     <th className="py-2 px-4">Ergebnis (g)</th>
                     <th className="py-2 px-4 text-right">Abstand zum nächsten Ziel</th>
                   </tr>
@@ -6609,7 +6636,13 @@ const App: React.FC = () => {
                     return (
                       <tr key={idxLevel} className="border-b border-white/10">
                         <td className="py-3 px-4 font-bold">{idxLevel}</td>
-                        <td className="py-3 px-4 font-black">{speedTargets[idxLevel]}g</td>
+                        <td className="py-3 px-4 font-black">
+                          {idxLevel === parseInt(speedLevels) ? (
+                            <span className="text-emerald-500 uppercase tracking-wide">leer</span>
+                          ) : (
+                            `${speedTargets[idxLevel]}g`
+                          )}
+                        </td>
                         <td className="py-3 px-4">
                           {idxLevel === parseInt(speedLevels) ? (
                             <span className="text-xs font-bold opacity-50 italic">Leertrinken</span>
@@ -6639,63 +6672,88 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {gameState === GameState.SPEED_RESULT && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
-            <h2 className="text-3xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Ergebnis</h2>
-            
-            {showScreenshotNotice && (
-              <div className="p-3 mb-4 rounded-xl bg-[#238183]/20 border border-[#238183]/40 text-[#238183] text-xs font-bold text-center animate-in fade-in">
-                📸 Screenshots werden automatisch gespeichert...
-              </div>
-            )}
-            
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Zeit</p>
-                <p className="text-3xl font-mono font-black text-emerald-500">{((speedEndTime! - speedStartTime!) / 1000).toFixed(2)}s</p>
-              </div>
-              <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Gesamt-Score</p>
-                <p className="text-3xl font-mono font-black" style={{ color: BRAND_COLOR }}>
-                  {(() => {
-                    const timeSec = (speedEndTime! - speedStartTime!) / 1000;
-                    const totalDiff = Object.keys(speedResults).reduce((acc, key) => {
-                      const k = parseInt(key);
-                      return acc + Math.abs((parseInt(speedResults[k]) || 0) - (parseInt(speedTargets[k]) || 0));
-                    }, 0);
-                    return (timeSec + totalDiff).toFixed(2);
-                  })()}
-                </p>
-              </div>
-            </div>
+        {gameState === GameState.SPEED_RESULT && (() => {
+          const { totalLevels, totalDiff, timeSec, avgDistance, normalizedScore, stepDiffs } = getSpeedGameMetrics();
 
-            <div ref={rankingAreaRef} className="overflow-x-auto mb-8 p-4 rounded-2xl bg-black/10">
-              <table className={`w-full text-sm text-left border-collapse ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                <thead>
-                  <tr className="border-b border-white/20">
-                    <th className="py-2 px-4">Stufe</th>
-                    <th className="py-2 px-4">Ziel</th>
-                    <th className="py-2 px-4">Ergebnis</th>
-                    <th className="py-2 px-4">Abstand</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
-                    const target = parseInt(speedTargets[i+1]) || 0;
-                    const result = parseInt(speedResults[i+1]) || 0;
-                    const diff = Math.abs(result - target);
-                    return (
-                      <tr key={i+1} className="border-b border-white/10">
-                        <td className="py-3 px-4 font-bold">{i+1}</td>
-                        <td className="py-3 px-4">{target}g</td>
-                        <td className="py-3 px-4 font-black">{result}g</td>
-                        <td className="py-3 px-4 text-red-500 font-bold">+{diff}g</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+          return (
+            <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
+              <h2 className="text-3xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Ergebnis</h2>
+              <p className="text-xs font-bold opacity-60 mb-6 uppercase tracking-wider">
+                Speedwiegen ({totalLevels} Stufen)
+              </p>
+              
+              {showScreenshotNotice && (
+                <div className="p-3 mb-4 rounded-xl bg-[#238183]/20 border border-[#238183]/40 text-[#238183] text-xs font-bold text-center animate-in fade-in">
+                  📸 Screenshots werden automatisch gespeichert...
+                </div>
+              )}
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                  <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Zeit</p>
+                  <p className="text-3xl font-mono font-black text-emerald-500">{timeSec.toFixed(2)}s</p>
+                  <p className="text-[10px] font-bold opacity-60 mt-1">Ø {(timeSec / totalLevels).toFixed(2)}s pro Stufe</p>
+                </div>
+                <div className={`p-4 rounded-2xl ${darkMode ? 'bg-white/5' : 'bg-black/5'}`}>
+                  <p className="text-[10px] font-bold opacity-50 uppercase mb-1">Neuer Score (normiert)</p>
+                  <p className="text-3xl font-mono font-black" style={{ color: BRAND_COLOR }}>
+                    {normalizedScore.toFixed(2)}
+                  </p>
+                  <p className="text-[10px] font-bold opacity-60 mt-1">Ø {avgDistance.toFixed(2)}g pro Stufe</p>
+                </div>
+              </div>
+
+              {/* Formel-Erklärung */}
+              <div className={`mb-6 p-3 rounded-2xl border text-xs font-bold flex flex-col sm:flex-row items-center justify-between gap-2 ${
+                darkMode ? 'bg-slate-800/60 border-slate-700/60 text-gray-300' : 'bg-white border-gray-200 text-gray-700 shadow-xs'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-black">Score-Formel:</span>
+                  <span>(Gesamtabstand {totalDiff}g / {totalLevels}) + ({timeSec.toFixed(1)}s / {totalLevels})</span>
+                </div>
+                <div className="text-emerald-500 font-mono font-black text-sm">
+                  = {normalizedScore.toFixed(2)}
+                </div>
+              </div>
+
+              <div ref={rankingAreaRef} className="overflow-x-auto mb-8 p-4 rounded-2xl bg-black/10">
+                <table className={`w-full text-sm text-left border-collapse ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <thead>
+                    <tr className="border-b border-white/20">
+                      <th className="py-2 px-4">Stufe</th>
+                      <th className="py-2 px-4">Ziel</th>
+                      <th className="py-2 px-4">Ergebnis</th>
+                      <th className="py-2 px-4">Abstand</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: totalLevels }).map((_, i) => {
+                      const levelNum = i + 1;
+                      const isLast = levelNum === totalLevels;
+                      const targetStr = isLast ? 'leer' : `${speedTargets[levelNum]}g`;
+                      const guess = speedEmptyGuess !== null ? speedEmptyGuess : (parseInt(emptyWeightGuess) || 0);
+                      const actual = speedEmptyActual !== null ? speedEmptyActual : (parseInt(speedResults[levelNum]) || 0);
+                      const resultStr = isLast ? `${actual}g (geschätzt: ${guess}g)` : `${speedResults[levelNum]}g`;
+                      const diff = stepDiffs[levelNum] ?? 0;
+
+                      return (
+                        <tr key={levelNum} className="border-b border-white/10">
+                          <td className="py-3 px-4 font-bold">{levelNum}</td>
+                          <td className="py-3 px-4 font-black">
+                            {isLast ? (
+                              <span className="text-emerald-400 uppercase tracking-wide">leer</span>
+                            ) : (
+                              targetStr
+                            )}
+                          </td>
+                          <td className="py-3 px-4 font-black">{resultStr}</td>
+                          <td className="py-3 px-4 text-red-500 font-bold">+{diff}g</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
               <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
@@ -6731,7 +6789,8 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-        )}
+        );
+      })()}
 
         {gameState === GameState.FINAL_ROUND_TARGETS && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
@@ -9230,13 +9289,44 @@ const App: React.FC = () => {
                     .map(([name, data]) => ({ name, ...data }))
                     .sort((a, b) => activeBestsSortDir === 'asc' ? a.avg - b.avg : b.avg - a.avg);
 
-                  const getSpeedTotal = (item: any): number => {
-                    if (item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0) {
-                      return Number(item.total);
+                  const getSpeedGesamtabstand = (item: any): number => {
+                    const avgVal = Number(item.avg) || 0;
+                    const timeVal = Number(item.time_seconds ?? item.time ?? item.Time ?? 0);
+                    const totalRaw = item.total !== undefined && item.total !== null && !isNaN(Number(item.total))
+                      ? Number(item.total)
+                      : undefined;
+
+                    if (totalRaw !== undefined && totalRaw > 0) {
+                      // Altes Legacy-Format: totalRaw war (Gesamtabstand + Zeit), z.B. 24 + 94 = 118
+                      if (timeVal > 0 && Math.abs(totalRaw - (avgVal + timeVal)) < 0.1) {
+                        return avgVal > 0 ? avgVal : Math.max(0, totalRaw - timeVal);
+                      }
+                      // Neues Format: totalRaw ist bereits der ungeteilte Gesamtabstand
+                      return totalRaw;
                     }
-                    const avg = Number(item.avg) || 0;
+
+                    // Fallback: avgVal ist der ungeteilte Gesamtabstand
+                    return avgVal;
+                  };
+
+                  const getSpeedAvgDistance = (item: any): number => {
+                    const levels = (item.levels !== undefined && item.levels !== null && !isNaN(Number(item.levels)) && Number(item.levels) > 0)
+                      ? Number(item.levels)
+                      : 1;
+                    const totalDist = getSpeedGesamtabstand(item);
+                    return totalDist / levels;
+                  };
+
+                  const getSpeedTotal = (item: any): number => {
+                    const levels = (item.levels !== undefined && item.levels !== null && !isNaN(Number(item.levels)) && Number(item.levels) > 0)
+                      ? Number(item.levels)
+                      : 1;
                     const time = Number(item.time_seconds ?? item.time ?? item.Time ?? 0);
-                    return Math.round((avg + time) * 100) / 100;
+                    const avgDist = getSpeedAvgDistance(item); // (Gesamtabstand / Stufen)
+                    const avgTime = time / levels;             // (Zeit / Stufen)
+
+                    // Normierter Score: (Gesamtabstand / Stufen) + (Zeit / Stufen)
+                    return Math.round((avgDist + avgTime) * 100) / 100;
                   };
 
                   // 2. Leaderboard of highest single-game points (schnaepse) (lowest time is better for Speedwiegen)
@@ -9268,7 +9358,7 @@ const App: React.FC = () => {
                                 <i className="fas fa-trophy mr-2 text-amber-400"></i>Speedmeister-Rangliste
                               </h4>
                               <p className="text-[10px] opacity-50 font-bold">
-                                (Ø Abstand + Zeit in Sekunden – je niedriger desto besser)
+                                (Score: (Gesamtabstand / Stufen) + (Zeit / Stufen) – je niedriger desto besser)
                               </p>
                             </div>
 
@@ -9297,10 +9387,12 @@ const App: React.FC = () => {
                             {speedmeisterList.slice(0, 10).map((p, idx) => {
                               const scoreVal = getSpeedTotal(p);
                               const score = scoreVal.toFixed(1);
-                              const timeVal = p.time_seconds ?? p.time ?? p.Time ?? 0;
-                              const levelsCount = p.levels !== undefined && p.levels !== null && !isNaN(Number(p.levels))
+                              const timeVal = Number(p.time_seconds ?? p.time ?? p.Time ?? 0);
+                              const levelsCount = (p.levels !== undefined && p.levels !== null && !isNaN(Number(p.levels)) && Number(p.levels) > 0)
                                 ? Number(p.levels)
-                                : undefined;
+                                : 1;
+                              const avgDist = getSpeedAvgDistance(p);
+                              const avgTime = timeVal / levelsCount;
 
                               return (
                                 <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
@@ -9322,7 +9414,7 @@ const App: React.FC = () => {
                                         className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
                                       />
                                     </button>
-                                    <button
+                                    <button 
                                       type="button"
                                       onClick={() => {
                                         playGlobalClickSound();
@@ -9340,8 +9432,8 @@ const App: React.FC = () => {
                                   </div>
                                   <div className="text-right shrink-0">
                                     <span className="font-black text-sm text-amber-400">Score: {score}</span>
-                                    <span className="block text-[10px] opacity-60">
-                                      (Ø {p.avg.toFixed(1)}g + {timeVal.toFixed(1)}s{levelsCount !== undefined ? ` • ${levelsCount} Stufen` : ''}{p.date ? ` • ${p.date}` : ''})
+                                    <span className="block text-[10px] opacity-60" title={`Normierter Score: (Ø Abstand ${avgDist.toFixed(1)}g) + (Ø Zeit ${avgTime.toFixed(1)}s) = ${score}`}>
+                                      (Ø {avgDist.toFixed(1)}g + {avgTime.toFixed(1)}s • {levelsCount} Stufen{p.date ? ` • ${p.date}` : ''})
                                     </span>
                                     {p.tournament_name && (
                                       <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -9646,7 +9738,9 @@ const App: React.FC = () => {
                                         </button>
                                       </div>
                                     </td>
-                                    <td className="py-2.5 text-emerald-500 font-bold pr-3">{item.avg.toFixed(2)}g</td>
+                                    <td className="py-2.5 text-emerald-500 font-bold pr-3">
+                                      {effectiveGameTab === 'Speedwiegen' ? `${getSpeedAvgDistance(item).toFixed(2)}g` : `${item.avg.toFixed(2)}g`}
+                                    </td>
                                     {effectiveGameTab === 'Speedwiegen' && (
                                       <td className="py-2.5 text-indigo-400 font-bold pr-3">
                                         {item.levels !== undefined ? `${item.levels} Stufen` : '-'}
@@ -9728,343 +9822,33 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {selectedPlayerForDetails && (
-        <div className="fixed inset-0 z-[850] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className={`rounded-3xl p-5 sm:p-7 max-w-xl w-full border shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto flex flex-col ${
-            darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
-          }`}>
-            {/* Header mit Titel & Close Button */}
-            <div className="flex items-center justify-between border-b border-gray-500/15 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center text-base font-black">
-                  👤
-                </div>
-                <div>
-                  <h3 className="font-black text-sm uppercase tracking-wider flex items-center space-x-2">
-                    <span>Spieler-Profil & Details</span>
-                  </h3>
-                  <p className="text-[11px] opacity-60">Großansicht des Profilbilds und Leistungsdaten</p>
-                </div>
-              </div>
-              <button 
-                type="button"
-                onClick={() => setSelectedPlayerForDetails(null)} 
-                className="w-8 h-8 rounded-full border border-gray-500/20 flex items-center justify-center text-sm opacity-60 hover:opacity-100 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Hero Card: Großes Profilbild & Spieler-Infos (Wiegschaften-Stil) */}
-            {(() => {
-              const playerXp = getPlayerXp(selectedPlayerForDetails);
-              const lvlInfo = calculateLevelFromXp(playerXp);
-              const isGuest = isPlayerGuest(selectedPlayerForDetails);
-              const avatarUrl = getPlayerAvatarUrl(selectedPlayerForDetails);
-              const isFriend = friends.some(
-                f => f.name?.trim().toLowerCase() === selectedPlayerForDetails.trim().toLowerCase() || f.id === selectedPlayerForDetails
-              );
-
-              return (
-                <div className={`p-4 sm:p-5 rounded-2xl border ${darkMode ? 'bg-black/30 border-white/5' : 'bg-gray-50 border-black/5'} flex flex-col sm:flex-row items-center sm:items-start gap-4`}>
-                  {/* Großes Profilbild - Klickbar für Fullscreen Lightbox */}
-                  <div className="relative group shrink-0 flex flex-col items-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        playGlobalClickSound();
-                        setIsPlayerAvatarFullscreen(true);
-                      }}
-                      className="relative p-1 rounded-2xl cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none ring-2 ring-amber-500/40 hover:ring-amber-500"
-                      title="Klicken für vergrößerte Ansicht"
-                    >
-                      <PlayerAvatar
-                        url={avatarUrl}
-                        avatar_frame={getPlayerAvatarFrame(selectedPlayerForDetails)}
-                        name={selectedPlayerForDetails}
-                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl shadow-lg object-cover"
-                      />
-                      <div className="absolute inset-1 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                        <i className="fas fa-search-plus text-xl"></i>
-                      </div>
-                    </button>
-                    <span className="mt-1.5 text-[9px] font-bold text-amber-500 tracking-wider flex items-center space-x-1">
-                      <i className="fas fa-expand text-[8px]"></i>
-                      <span>Großansicht</span>
-                    </span>
-                  </div>
-
-                  {/* Spieler-Details & XP */}
-                  <div className="flex-1 w-full text-center sm:text-left space-y-2">
-                    <div className="flex items-center justify-center sm:justify-start space-x-2 flex-wrap gap-y-1">
-                      <PlayerNameTag name={selectedPlayerForDetails} colorKey={getPlayerNameBgColor(selectedPlayerForDetails)} className="text-sm px-2.5 py-0.5" />
-                      <PlayerLevelBadge level={lvlInfo.level} isGuest={isGuest} size="md" />
-                      {getPlayerTitle(selectedPlayerForDetails) && (
-                        <PlayerTitleBadge title={getPlayerTitle(selectedPlayerForDetails)} size="md" />
-                      )}
-                      {isFriend && (
-                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          <span>Befreundet</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Wiegschaft / Gilde Badge falls vorhanden */}
-                    {playerGuildInfo ? (
-                      <div className="inline-flex items-center space-x-2 px-2.5 py-1 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-600 dark:text-teal-400 text-xs font-bold">
-                        <span>🏰 Wiegschaft:</span>
-                        <span className="font-black">[{playerGuildInfo.tag}] {playerGuildInfo.name}</span>
-                        {playerGuildInfo.role && (
-                          <span className="text-[10px] opacity-75">({playerGuildInfo.role === 'leader' ? '👑 Anführer' : playerGuildInfo.role === 'officer' ? '⚔️ Offizier' : 'Mitglied'})</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-[11px] opacity-60">
-                        {isGuest ? '👤 Gastspieler (ohne Account)' : '🛡️ Freier Spieler (keine Wiegschaft)'}
-                      </div>
-                    )}
-
-                    {/* XP Progress Bar */}
-                    <div className="space-y-1 pt-1 max-w-md">
-                      <div className="flex justify-between text-[10px] font-bold opacity-75">
-                        <span>Level {lvlInfo.level} • {lvlInfo.title}</span>
-                        <span>{lvlInfo.currentLevelXp} / {lvlInfo.neededForNextLevel} XP ({Math.round(lvlInfo.progressPercent)}%)</span>
-                      </div>
-                      <div className="h-2 w-full bg-black/20 dark:bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300 rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(5, lvlInfo.progressPercent))}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Modal Tabs */}
-            <div className="flex items-center space-x-2 p-1 rounded-xl bg-black/10 dark:bg-white/5">
-              <button
-                type="button"
-                onClick={() => setPlayerDetailsTab('overview')}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
-                  playerDetailsTab === 'overview'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'opacity-65 hover:opacity-100'
-                }`}
-              >
-                <span>🌟</span>
-                <span>Übersicht & Rekorde</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlayerDetailsTab('history')}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
-                  playerDetailsTab === 'history'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'opacity-65 hover:opacity-100'
-                }`}
-              >
-                <span>📜</span>
-                <span>Spiel-Historie</span>
-              </button>
-            </div>
-
-            {/* Tab-Inhalte */}
-            {(() => {
-              const allParsed = parseRecords(recordsData || []);
-              const targetLower = selectedPlayerForDetails.trim().toLowerCase();
-              const playerMatches = allParsed.filter(r => r.playerName?.trim().toLowerCase() === targetLower);
-              
-              if (playerDetailsTab === 'overview') {
-                const totalGames = playerMatches.length;
-                const careerAvg = totalGames > 0
-                  ? (playerMatches.reduce((sum, g) => sum + g.avg, 0) / totalGames)
-                  : 0;
-                const bestSingle = totalGames > 0
-                  ? Math.min(...playerMatches.map(g => g.avg))
-                  : 0;
-                const totalSchnaepse = playerMatches.reduce((sum, g) => sum + g.schnaepse, 0);
-                const avgSchnaepse = totalGames > 0 ? (totalSchnaepse / totalGames) : 0;
-                const bestTotalScore = totalGames > 0
-                  ? Math.min(...playerMatches.map(g => {
-                      const isSpeed = matchesGameMode(g.game_mode || g.gameMode, 'Speedwiegen');
-                      if (isSpeed) {
-                        if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) return Number(g.total);
-                        return (g.avg || 0) + (g.time_seconds ?? g.time ?? g.Time ?? 0);
-                      }
-                      return (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0)
-                        ? Number(g.total)
-                        : (g.avg + g.schnaepse);
-                    }))
-                  : 0;
-
-                const tournaments = Array.from(new Set(playerMatches.map(m => m.tournament_name).filter(Boolean)));
-
-                return (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">🎮 Spiele Gesamt</span>
-                        <span className="text-lg font-black text-amber-500">{totalGames}</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">🎯 Karriere-Ø</span>
-                        <span className="text-lg font-black text-emerald-500">{careerAvg.toFixed(2)}g</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">⚡ Bester Einzel-Ø</span>
-                        <span className="text-lg font-black text-emerald-400">{bestSingle.toFixed(2)}g</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">🍻 Schnäpse Gesamt</span>
-                        <span className="text-lg font-black text-indigo-400">{totalSchnaepse}</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">👑 Schnäpse-Ø</span>
-                        <span className="text-lg font-black text-yellow-500">{avgSchnaepse.toFixed(2)} / Spiel</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'} text-center`}>
-                        <span className="text-[10px] uppercase font-bold opacity-50 block">🏆 Bestes Total</span>
-                        <span className="text-lg font-black text-purple-400">{bestTotalScore.toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    {tournaments.length > 0 && (
-                      <div className={`p-3.5 rounded-xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'}`}>
-                        <span className="text-[10px] uppercase font-bold opacity-60 block mb-1.5">
-                          🏅 Gespielte Turniere ({tournaments.length})
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {tournaments.map((t, idx) => (
-                            <span key={idx} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              // History Tab
-              let filteredList = [...playerMatches];
-              if (playerHistoryFilter === '500ml') {
-                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Standardspiel (500ml)'));
-              } else if (playerHistoryFilter === '0,33L') {
-                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Standardspiel (0,33L)'));
-              } else if (playerHistoryFilter === 'Speedwiegen') {
-                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Speedwiegen'));
-              } else if (playerHistoryFilter === 'Teamwiegen') {
-                filteredList = filteredList.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Teamwiegen'));
-              }
-
-              if (playerHistorySortDir === 'asc') {
-                filteredList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-              } else {
-                filteredList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              }
-
-              return (
-                <div className="space-y-3">
-                  {/* Filter Pills & Sort Button */}
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div className="flex flex-wrap gap-1 text-[10px] font-bold">
-                      {(['all', '500ml', '0,33L', 'Speedwiegen', 'Teamwiegen'] as const).map(mode => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => {
-                            playGlobalClickSound();
-                            setPlayerHistoryFilter(mode);
-                          }}
-                          className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
-                            playerHistoryFilter === mode
-                              ? 'bg-amber-500 text-white border-amber-500'
-                              : (darkMode ? 'bg-black/20 border-white/10 hover:bg-black/30' : 'bg-gray-100 border-gray-300 hover:bg-gray-200')
-                          }`}
-                        >
-                          {mode === 'all' ? 'Alle Modi' : mode === '500ml' ? '500 ml' : mode === '0,33L' ? '0,33 L' : mode}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        playGlobalClickSound();
-                        setPlayerHistorySortDir(prev => prev === 'desc' ? 'asc' : 'desc');
-                      }}
-                      className={`p-1 px-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer border shadow-xs self-start sm:self-auto ${
-                        playerHistorySortDir === 'asc'
-                          ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
-                          : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
-                      }`}
-                      title={playerHistorySortDir === 'desc' ? 'Sortierung: Neueste zuerst' : 'Sortierung: Älteste zuerst'}
-                    >
-                      <i className="fas fa-arrows-alt-v text-xs"></i>
-                      <span className="text-[10px] font-black uppercase tracking-wider">
-                        {playerHistorySortDir === 'desc' ? '↓ Neu → Alt' : '↑ Alt → Neu'}
-                      </span>
-                    </button>
-                  </div>
-
-                  {/* Spiele-Liste */}
-                  <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
-                    {filteredList.length === 0 ? (
-                      <p className="text-center opacity-60 py-8 text-xs">Keine Spiele für den gewählten Filter gefunden.</p>
-                    ) : (
-                      filteredList.map((item, idx) => (
-                        <div key={idx} className={`p-3 rounded-xl border flex justify-between items-center ${darkMode ? 'bg-black/20 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-bold text-xs">{item.date}</span>
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-black/10 dark:bg-white/10 opacity-75">
-                                {normalizeGameMode(item.game_mode || item.gameMode)}
-                              </span>
-                            </div>
-                            {item.tournament_name && (
-                              <div className="mt-1">
-                                <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                  [{item.tournament_name}{item.tournament_table ? ` - ${item.tournament_table}` : ''}]
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <p className="text-emerald-500 font-bold text-xs">Ø: {item.avg.toFixed(2)}g</p>
-                            <p className="text-indigo-400 font-bold text-[11px]">
-                              {matchesGameMode(item.game_mode || item.gameMode, 'Speedwiegen')
-                                ? `${(item.time_seconds ?? item.time ?? item.Time ?? 0).toFixed(1)}s`
-                                : `${item.schnaepse} Pkt / Schnäpse`}
-                            </p>
-                            <p className="text-purple-400 font-black text-[10px]">
-                              {matchesGameMode(item.game_mode || item.gameMode, 'Speedwiegen')
-                                ? `Score: ${((item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0) ? Number(item.total) : (item.avg + (item.time_seconds ?? item.time ?? item.Time ?? 0))).toFixed(2)}`
-                                : `Total: ${(item.total !== undefined && item.total !== null && !isNaN(Number(item.total)) && Number(item.total) > 0 ? Number(item.total) : (item.avg + item.schnaepse)).toFixed(2)}`}
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-            
-            <button 
-              type="button"
-              onClick={() => setSelectedPlayerForDetails(null)} 
-              className="mt-2 w-full py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider text-white shadow-lg active:scale-95 transition-transform cursor-pointer" 
-              style={{ backgroundColor: BRAND_COLOR }}
-            >
-              Schließen
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Kontextsensitives Spieler-Profil-Modal (Standardspiel, Speedwiegen, Teamwiegen) */}
+      <PlayerDetailsModal
+        isOpen={!!selectedPlayerForDetails}
+        onClose={() => setSelectedPlayerForDetails(null)}
+        playerName={selectedPlayerForDetails}
+        activeTab={
+          recordsGamesSubTab === 'Speedwiegen'
+            ? 'Speedwiegen'
+            : recordsGamesSubTab === 'Teamwiegen'
+            ? 'Teamwiegen'
+            : 'Standard'
+        }
+        darkMode={darkMode}
+        recordsData={recordsData}
+        supabaseUser={supabaseUser}
+        friends={friends}
+        clerkUsers={clerkUsers}
+        playerGuildInfo={playerGuildInfo}
+        getPlayerAvatarUrl={getPlayerAvatarUrl}
+        getPlayerAvatarFrame={getPlayerAvatarFrame}
+        getPlayerTitle={getPlayerTitle}
+        getPlayerNameBgColor={getPlayerNameBgColor}
+        getPlayerLevel={getPlayerLevel}
+        isPlayerGuest={isPlayerGuest}
+        getPlayerXp={getPlayerXp}
+        onSelectPlayer={(name) => setSelectedPlayerForDetails(name)}
+      />
 
       {showModeInfo && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -10117,7 +9901,9 @@ const App: React.FC = () => {
                 <span className="text-[10px] uppercase font-black opacity-50 block mb-2">Die {Object.keys(KLASSISCH_TARGETS).length} klassischen Zielgewichte:</span>
                 <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold">
                   {Object.entries(KLASSISCH_TARGETS).map(([lvl, target]) => (
-                    <div key={lvl}>Stufe {lvl}: {target}g</div>
+                    <div key={lvl}>
+                      Stufe {lvl}: {target === '0' || target === 'leer' ? 'leer' : `${target}g`}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -11332,10 +11118,18 @@ const App: React.FC = () => {
                   {(() => {
                     const levels = parseInt(speedLevels);
                     const pts = Array.from({ length: levels }).map((_, i) => {
-                      const x = (i / (levels - 1)) * 1000;
-                      const target = parseInt(speedTargets[i+1]) || 0;
-                      const result = parseInt(speedResults[i+1]) || 0;
-                      const diff = Math.abs(result - target);
+                      const levelNum = i + 1;
+                      const x = levels > 1 ? (i / (levels - 1)) * 1000 : 500;
+                      let diff = 0;
+                      if (levelNum === levels) {
+                        const guess = speedEmptyGuess !== null ? speedEmptyGuess : (parseInt(emptyWeightGuess) || 0);
+                        const actual = speedEmptyActual !== null ? speedEmptyActual : (parseInt(speedResults[levelNum]) || 0);
+                        diff = Math.abs(guess - actual);
+                      } else {
+                        const target = parseInt(speedTargets[levelNum]) || 0;
+                        const result = parseInt(speedResults[levelNum]) || 0;
+                        diff = Math.abs(result - target);
+                      }
                       return `${x},${400 - Math.min(100, diff) * 4}`;
                     }).join(' ');
                     return <polyline points={pts} fill="none" stroke={BRAND_COLOR} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />;

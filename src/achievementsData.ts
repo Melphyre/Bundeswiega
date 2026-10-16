@@ -603,7 +603,8 @@ export const checkSpeedAchievements = (
   speedResults: Record<number, string>,
   startTime: number | null,
   endTime: number | null,
-  previouslyEarned: Achievement[] = []
+  previouslyEarned: Achievement[] = [],
+  emptyWeightDiff?: number
 ): Achievement[] => {
   if (!startTime || !endTime || levels <= 0) return [];
   const totalSeconds = (endTime - startTime) / 1000;
@@ -613,11 +614,16 @@ export const checkSpeedAchievements = (
   let totalDiff = 0;
 
   for (const k of levelKeys) {
-    const target = parseInt(speedTargets[k]) || 0;
-    const result = parseInt(speedResults[k]) || 0;
-    const diff = Math.abs(result - target);
-    diffs.push(diff);
-    totalDiff += diff;
+    if (k === levels && emptyWeightDiff !== undefined) {
+      diffs.push(emptyWeightDiff);
+      totalDiff += emptyWeightDiff;
+    } else {
+      const target = parseInt(speedTargets[k]) || 0;
+      const result = parseInt(speedResults[k]) || 0;
+      const diff = Math.abs(result - target);
+      diffs.push(diff);
+      totalDiff += diff;
+    }
   }
 
   const avgDiff = totalDiff / levels;

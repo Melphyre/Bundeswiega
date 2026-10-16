@@ -230,30 +230,102 @@ export async function deleteActiveGame(gameId: string): Promise<boolean> {
 }
 
 /**
- * Bereinigt Spiele mit status: 'finished', die älter als 30 Minuten sind
+ * Beendet oder bricht ein aktives Spiel ab (setzt status = 'finished' und startet den 30-Minuten-Löschtimer)
+ */
+export async function abortActiveGame(gameId: string): Promise<boolean> {
+  if (!gameId) return false;
+  try {
+    fetch('/api/active-games/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId }),
+      keepalive: true
+    }).catch(() => {});
+  } catch {}
+
+  return await finishActiveGame(gameId);
+}
+
+/**
+ * Bereinigt Spiele mit status: 'finished', die älter als 30 Minuten sind,
+ * sowie abgebrochene Spiele, die seit mehr als 30 Minuten inaktiv sind.
  */
 export async function cleanupFinishedActiveGames(): Promise<number> {
+  // 1. Serverseitige Bereinigung über Admin-Rechte (löscht zuverlässig ohne RLS-Blockaden)
+  try {
+    const res = await fetch('/api/active-games/cleanup', { method: 'POST' });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && typeof json.deleted === 'number') {
+        return json.deleted;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('cleanupFinishedActiveGames API call failed, using client fallback:', apiErr);
+  }
+
+  // 2. Clientseitiger Fallback über Supabase
   if (!isSupabaseConfigured()) return 0;
 
   try {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
+    
+    // Finished games älter als 30 Minuten
+    const { data: d1 } = await supabase
       .from('active_games')
       .delete()
       .eq('status', 'finished')
       .lt('updated_at', thirtyMinutesAgo)
       .select('id');
 
-    if (error) {
-      console.warn('cleanupFinishedActiveGames error:', error.message);
-      return 0;
-    }
+    // Inaktive/abgebrochene Spiele älter als 30 Minuten
+    const { data: d2 } = await supabase
+      .from('active_games')
+      .delete()
+      .lt('updated_at', thirtyMinutesAgo)
+      .select('id');
 
-    return data?.length || 0;
+    return (d1?.length || 0) + (d2?.length || 0);
   } catch (err) {
     console.error('cleanupFinishedActiveGames exception:', err);
     return 0;
   }
+}
+
+/**
+ * Löscht ALLE Live-Spiele (Admin-Funktion für hängengebliebene Spiele)
+ */
+export async function adminClearAllActiveGames(): Promise<{ success: boolean; count?: number; error?: string }> {
+  // 1. Serverseitig mit Admin Service Role
+  try {
+    const res = await fetch('/api/active-games/clear-all', { method: 'POST' });
+    if (res.ok) {
+      const json = await res.json();
+      return { success: true, count: json.deleted || 0 };
+    }
+  } catch (e) {
+    console.warn('API clear-all failed, trying client fallback:', e);
+  }
+
+  // 2. Clientseitiger Fallback
+  if (isSupabaseConfigured()) {
+    try {
+      const { data, error } = await supabase
+        .from('active_games')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000')
+        .select('id');
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true, count: data?.length || 0 };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  }
+
+  return { success: false, error: 'Datenbank nicht erreichbar' };
 }
 
 /**

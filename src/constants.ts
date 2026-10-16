@@ -42,7 +42,7 @@ export const KLASSISCH_TARGETS: Record<number, string> = {
   7: '169',
   8: '123',
   9: '69',
-  10: '0'
+  10: 'leer'
 };
 
 export function formatTableName(tableIndex: number, customName: string): string {
@@ -218,16 +218,30 @@ export function calculateUserModeStats(
       const isSpeed = String(r.game_mode || r.mode || '').includes('Speedwiegen');
       const anyR = r as any;
       if (isSpeed) {
-        if (anyR.total !== undefined && anyR.total !== null && !isNaN(Number(anyR.total)) && Number(anyR.total) > 0) {
-          return Number(anyR.total);
-        }
-        const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
+        const levels = (anyR.levels && Number(anyR.levels) > 0) ? Number(anyR.levels) : 1;
         let t = 0;
         if (anyR.time_seconds !== undefined && anyR.time_seconds !== null && !isNaN(Number(anyR.time_seconds))) t = Number(anyR.time_seconds);
         else if (anyR.time !== undefined && anyR.time !== null && !isNaN(Number(anyR.time))) t = Number(anyR.time);
         else if (anyR.Time !== undefined && anyR.Time !== null && !isNaN(Number(anyR.Time))) t = Number(anyR.Time);
         else if (isSpeed && r.schnaepse !== undefined && r.schnaepse !== null) t = Number(r.schnaepse) || 0;
-        return a + t;
+
+        const a = typeof r.avg === 'number' && !isNaN(r.avg) ? r.avg : 0;
+        const totalVal = anyR.total !== undefined && anyR.total !== null && !isNaN(Number(anyR.total))
+          ? Number(anyR.total)
+          : undefined;
+
+        let gesamtabstand: number;
+        if (totalVal !== undefined && totalVal > 0) {
+          if (t > 0 && Math.abs(totalVal - (a + t)) < 0.1) {
+            gesamtabstand = a > 0 ? a : Math.max(0, totalVal - t);
+          } else {
+            gesamtabstand = totalVal;
+          }
+        } else {
+          gesamtabstand = a;
+        }
+
+        return Number(((gesamtabstand / levels) + (t / levels)).toFixed(2));
       }
       if (anyR.total !== undefined && anyR.total !== null && !isNaN(Number(anyR.total)) && Number(anyR.total) > 0) {
         return Number(anyR.total);

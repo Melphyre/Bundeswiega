@@ -235,7 +235,8 @@ export async function deleteActiveGame(gameId: string): Promise<boolean> {
 export async function abortActiveGame(gameId: string): Promise<boolean> {
   if (!gameId) return false;
   try {
-    fetch('/api/active-games/finish', {
+    const url = typeof window !== 'undefined' ? '/api/active-games/finish' : 'http://localhost:3000/api/active-games/finish';
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ gameId }),
@@ -253,7 +254,8 @@ export async function abortActiveGame(gameId: string): Promise<boolean> {
 export async function cleanupFinishedActiveGames(): Promise<number> {
   // 1. Serverseitige Bereinigung über Admin-Rechte (löscht zuverlässig ohne RLS-Blockaden)
   try {
-    const res = await fetch('/api/active-games/cleanup', { method: 'POST' });
+    const url = typeof window !== 'undefined' ? '/api/active-games/cleanup' : 'http://localhost:3000/api/active-games/cleanup';
+    const res = await fetch(url, { method: 'POST' });
     if (res.ok) {
       const json = await res.json();
       if (json && typeof json.deleted === 'number') {
@@ -298,7 +300,8 @@ export async function cleanupFinishedActiveGames(): Promise<number> {
 export async function adminClearAllActiveGames(): Promise<{ success: boolean; count?: number; error?: string }> {
   // 1. Serverseitig mit Admin Service Role
   try {
-    const res = await fetch('/api/active-games/clear-all', { method: 'POST' });
+    const url = typeof window !== 'undefined' ? '/api/active-games/clear-all' : 'http://localhost:3000/api/active-games/clear-all';
+    const res = await fetch(url, { method: 'POST' });
     if (res.ok) {
       const json = await res.json();
       return { success: true, count: json.deleted || 0 };

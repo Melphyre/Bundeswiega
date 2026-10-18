@@ -76,6 +76,9 @@ import {
   createActiveGame,
   updateActiveGame,
   finishActiveGame,
+  abortActiveGame,
+  cleanupFinishedActiveGames,
+  adminClearAllActiveGames,
   fetchFriendsActiveGames,
   ActiveGame
 } from './src/services/activeGamesService';
@@ -1772,14 +1775,45 @@ const App: React.FC = () => {
   const [spectatingGame, setSpectatingGame] = useState<ActiveGame | null>(null);
   const [activeFriendsGamesCount, setActiveFriendsGamesCount] = useState<number>(0);
 
-  // Zähler der aktiven Spiele von Freunden aktualisieren
+  // Zähler der aktiven Spiele von Freunden aktualisieren & 30-Minuten-Löschung ausführen
   useEffect(() => {
+    cleanupFinishedActiveGames();
     if (isSignedIn && supabaseUser?.id && gameState === GameState.START) {
       fetchFriendsActiveGames(supabaseUser.id)
         .then(games => setActiveFriendsGamesCount(games.length))
         .catch(() => {});
     }
   }, [isSignedIn, supabaseUser?.id, gameState]);
+
+  // Spielabbruch beim Verlassen/Schließen der App (aktiviert den 30-Minuten Löschtimer für das Spiel)
+  useEffect(() => {
+    const handleAppExit = () => {
+      const gId = activeGameIdRef.current;
+      if (gId) {
+        try {
+          const payload = JSON.stringify({ gameId: gId });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/active-games/finish', payload);
+          } else {
+            fetch('/api/active-games/finish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: payload,
+              keepalive: true
+            }).catch(() => {});
+          }
+        } catch {}
+        abortActiveGame(gId);
+      }
+    };
+
+    window.addEventListener('pagehide', handleAppExit);
+    window.addEventListener('beforeunload', handleAppExit);
+    return () => {
+      window.removeEventListener('pagehide', handleAppExit);
+      window.removeEventListener('beforeunload', handleAppExit);
+    };
+  }, []);
 
   // Floating Banner nach 3 Sekunden zeigen wenn auf Handy und noch nicht installiert
   useEffect(() => {
@@ -1957,6 +1991,7 @@ const App: React.FC = () => {
   const [standardspielSizeTab, setStandardspielSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [speedwiegenSizeTab, setSpeedwiegenSizeTab] = useState<'500ml' | '0,33L'>('500ml');
   const [selectedPlayerForDetails, setSelectedPlayerForDetails] = useState<string | null>(null);
+  const [playerDetailsInitialSubTab, setPlayerDetailsInitialSubTab] = useState<'overview' | 'history' | 'achievements'>('overview');
   const [activePlayerNameTab, setActivePlayerNameTab] = useState<string | null>(null);
   const [schnaepseSortMode, setSchnaepseSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
   const [avgSortMode, setAvgSortMode] = useState<'gesamt' | 'einzelspiel'>('gesamt');
@@ -1971,6 +2006,9 @@ const App: React.FC = () => {
   const [teamBestsSortDir, setTeamBestsSortDir] = useState<'asc' | 'desc'>('asc');
   const [teamPointsSortDir, setTeamPointsSortDir] = useState<'asc' | 'desc'>('desc');
   const [teamHistorySortDir, setTeamHistorySortDir] = useState<'asc' | 'desc'>('desc');
+  const [gameHistorySortKey, setGameHistorySortKey] = useState<'date' | 'player' | 'avg' | 'levels' | 'points' | 'score'>('date');
+  const [gameHistorySortDir, setGameHistorySortDir] = useState<'asc' | 'desc'>('desc');
+  const [playerGamesSortKey, setPlayerGamesSortKey] = useState<'date' | 'avg' | 'schnaepse' | 'total'>('date');
   const [playerMatchesSortDir, setPlayerMatchesSortDir] = useState<'asc' | 'desc'>('desc');
   const [isPlayerAvatarFullscreen, setIsPlayerAvatarFullscreen] = useState(false);
   const [playerDetailsTab, setPlayerDetailsTab] = useState<'overview' | 'history'>('overview');
@@ -3485,14 +3523,14 @@ const App: React.FC = () => {
     setPlayerAccountLinks({});
     setAccountResultsSaved([]);
     if (activeGameIdRef.current) {
-      finishActiveGame(activeGameIdRef.current);
+      abortActiveGame(activeGameIdRef.current);
       setActiveGameId(null);
     }
   };
 
   const handleExitToMainMenu = () => {
     if (activeGameIdRef.current) {
-      finishActiveGame(activeGameIdRef.current);
+      abortActiveGame(activeGameIdRef.current);
       setActiveGameId(null);
     }
     if (resultsSaved) {
@@ -7206,7 +7244,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   if (activeGameIdRef.current) {
-                    finishActiveGame(activeGameIdRef.current);
+                    abortActiveGame(activeGameIdRef.current);
                   }
                   setShowExitWithoutSaveConfirm(false);
                   window.location.reload();
@@ -7827,7 +7865,7 @@ const App: React.FC = () => {
                         title: def.title,
                         description: def.description,
                         icon: def.icon,
-                        rarity: def.rarity,
+                        rarity: def.id === 'strategist' ? 'epic' : def.rarity,
                         earnedTogether: !!def.earnedTogether,
                         awards: []
                       };
@@ -7840,15 +7878,18 @@ const App: React.FC = () => {
                       if (!achId) return;
 
                       if (!achGroupMap[achId]) {
+                        const mDef = MASTER_ACHIEVEMENTS_DEFINITIONS.find(d => d.id === achId);
                         achGroupMap[achId] = {
                           id: achId,
-                          title: ach.title || achId,
-                          description: ach.description || '',
-                          icon: ach.icon || '🏆',
-                          rarity: ach.rarity || 'common',
+                          title: mDef?.title || ach.title || achId,
+                          description: mDef?.description || ach.description || '',
+                          icon: mDef?.icon || ach.icon || '🏆',
+                          rarity: achId === 'strategist' ? 'epic' : (mDef?.rarity || ach.rarity || 'common'),
                           earnedTogether: typeof ach.earnedTogether === 'boolean' ? ach.earnedTogether : TOGETHER_ACHIEVEMENT_IDS.includes(achId),
                           awards: []
                         };
+                      } else if (achId === 'strategist') {
+                        achGroupMap[achId].rarity = 'epic';
                       }
 
                       if (!seenKeys[achId]) {
@@ -8172,33 +8213,104 @@ const App: React.FC = () => {
                                                       : 'bg-black/5 border-black/5'
                                                   }`}
                                                 >
-                                                  <div className="flex items-center justify-between text-xs font-bold">
-                                                    <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
+                                                  <div className="flex items-center justify-between text-xs font-bold gap-2">
+                                                    <div className="flex items-center space-x-2 min-w-0 flex-1 mr-1">
                                                       <span className="w-5 text-center font-black text-xs shrink-0">
                                                         {medal || `#${rIdx + 1}`}
                                                       </span>
-                                                      <div className="truncate flex items-center space-x-1.5 min-w-0">
-                                                        <span className="text-xs shrink-0">
-                                                          {entry.isTeam ? '🏆' : '👤'}
-                                                        </span>
-                                                        <span 
-                                                          className="truncate font-black"
-                                                          style={{
-                                                            color: !entry.isTeam && entry.players.length === 1
-                                                              ? getPlayerColor(entry.players[0], players)
-                                                              : undefined
-                                                          }}
-                                                        >
-                                                          {entry.name}
-                                                        </span>
-                                                      </div>
+
+                                                      {entry.isTeam ? (
+                                                        <div className="flex items-center space-x-1.5 flex-wrap min-w-0 flex-1">
+                                                          <span className="text-xs shrink-0" title="Team">🏆</span>
+                                                          <span className="font-bold text-xs opacity-75 mr-1">{entry.name}:</span>
+                                                          <div className="flex items-center space-x-1.5 flex-wrap">
+                                                            {entry.players.map(mName => (
+                                                              <div key={mName} className="inline-flex items-center space-x-1 bg-black/10 dark:bg-white/10 rounded-lg px-1.5 py-0.5">
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    playGlobalClickSound();
+                                                                    setPlayerDetailsInitialSubTab('achievements');
+                                                                    setSelectedPlayerForDetails(mName);
+                                                                  }}
+                                                                  className="cursor-pointer hover:scale-110 active:scale-95 transition-transform focus:outline-none shrink-0"
+                                                                  title={`Achievement-Details von ${mName} anzeigen`}
+                                                                >
+                                                                  <PlayerAvatar
+                                                                    url={getPlayerAvatarUrl(mName)}
+                                                                    avatar_frame={getPlayerAvatarFrame(mName)}
+                                                                    name={mName}
+                                                                    className="w-5 h-5 rounded-full border border-white/10 object-cover"
+                                                                  />
+                                                                </button>
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    playGlobalClickSound();
+                                                                    setPlayerDetailsInitialSubTab('achievements');
+                                                                    setSelectedPlayerForDetails(mName);
+                                                                  }}
+                                                                  className="text-left cursor-pointer hover:underline inline-flex items-center space-x-1"
+                                                                  title={`Achievement-Details von ${mName} anzeigen`}
+                                                                >
+                                                                  <PlayerNameTag name={mName} colorKey={getPlayerNameBgColor(mName)} className="text-[11px]" />
+                                                                  <PlayerLevelBadge level={getPlayerLevel(mName)} isGuest={isPlayerGuest(mName)} size="xs" />
+                                                                </button>
+                                                              </div>
+                                                            ))}
+                                                          </div>
+                                                        </div>
+                                                      ) : (() => {
+                                                        const pName = entry.players[0] || entry.name;
+                                                        return (
+                                                          <div className="flex items-center space-x-2 min-w-0 flex-1">
+                                                            <button
+                                                              type="button"
+                                                              onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                playGlobalClickSound();
+                                                                setPlayerDetailsInitialSubTab('achievements');
+                                                                setSelectedPlayerForDetails(pName);
+                                                              }}
+                                                              className="relative group shrink-0 cursor-pointer transition-transform hover:scale-110 active:scale-95 focus:outline-none"
+                                                              title={`Achievement-Details von ${pName} anzeigen`}
+                                                            >
+                                                              <PlayerAvatar
+                                                                url={getPlayerAvatarUrl(pName)}
+                                                                avatar_frame={getPlayerAvatarFrame(pName)}
+                                                                name={pName}
+                                                                className="w-7 h-7 rounded-full border border-white/10 shadow-xs object-cover"
+                                                              />
+                                                            </button>
+                                                            <button
+                                                              type="button"
+                                                              onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                playGlobalClickSound();
+                                                                setPlayerDetailsInitialSubTab('achievements');
+                                                                setSelectedPlayerForDetails(pName);
+                                                              }}
+                                                              className="hover:underline text-left cursor-pointer inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
+                                                              title={`Achievement-Details von ${pName} anzeigen`}
+                                                            >
+                                                              <PlayerNameTag name={pName} colorKey={getPlayerNameBgColor(pName)} className="text-xs font-black" />
+                                                              <PlayerLevelBadge level={getPlayerLevel(pName)} isGuest={isPlayerGuest(pName)} size="xs" />
+                                                              {getPlayerTitle(pName) && (
+                                                                <PlayerTitleBadge title={getPlayerTitle(pName)} size="xs" />
+                                                              )}
+                                                            </button>
+                                                          </div>
+                                                        );
+                                                      })()}
                                                     </div>
                                                     <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#238183]/15 text-[#238183] dark:text-teal-400 border border-[#238183]/30 whitespace-nowrap shrink-0">
                                                       {entry.count}×
                                                     </span>
                                                   </div>
                                                   {entry.dates && entry.dates.length > 0 && (
-                                                    <div className="pl-7">
+                                                    <div className="pl-8">
                                                       <ExpandableDates dates={entry.dates} />
                                                     </div>
                                                   )}
@@ -8440,7 +8552,49 @@ const App: React.FC = () => {
 
                                   {currentActivePlayer ? (() => {
                                     const rawGames = filtered.filter(f => f.playerName === currentActivePlayer);
-                                    const playerGames = playerMatchesSortDir === 'asc' ? [...rawGames].reverse() : rawGames;
+                                    const parseGermanDate = (dStr?: string): number => {
+                                      if (!dStr) return 0;
+                                      const str = String(dStr).trim();
+                                      const parts = str.split('.');
+                                      if (parts.length === 3) {
+                                        const day = parseInt(parts[0], 10) || 1;
+                                        const month = (parseInt(parts[1], 10) || 1) - 1;
+                                        let year = parseInt(parts[2], 10) || 2026;
+                                        if (year < 100) year += 2000;
+                                        return new Date(year, month, day).getTime();
+                                      }
+                                      const t = new Date(str).getTime();
+                                      return isNaN(t) ? 0 : t;
+                                    };
+
+                                    const playerGames = [...rawGames].sort((a, b) => {
+                                      let cmp = 0;
+                                      if (playerGamesSortKey === 'date') {
+                                        cmp = parseGermanDate(a.date) - parseGermanDate(b.date);
+                                      } else if (playerGamesSortKey === 'avg') {
+                                        cmp = Number(a.avg || 0) - Number(b.avg || 0);
+                                      } else if (playerGamesSortKey === 'schnaepse') {
+                                        cmp = Number(a.schnaepse || 0) - Number(b.schnaepse || 0);
+                                      } else if (playerGamesSortKey === 'total') {
+                                        const totA = Number(a.avg || 0) + Number(a.schnaepse || 0);
+                                        const totB = Number(b.avg || 0) + Number(b.schnaepse || 0);
+                                        cmp = totA - totB;
+                                      }
+                                      if (cmp === 0) {
+                                        cmp = parseGermanDate(b.date) - parseGermanDate(a.date);
+                                      }
+                                      return playerMatchesSortDir === 'asc' ? cmp : -cmp;
+                                    });
+
+                                    const handlePlayerSort = (key: 'date' | 'avg' | 'schnaepse' | 'total') => {
+                                      playGlobalClickSound();
+                                      if (playerGamesSortKey === key) {
+                                        setPlayerMatchesSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                      } else {
+                                        setPlayerGamesSortKey(key);
+                                        setPlayerMatchesSortDir(key === 'avg' || key === 'total' ? 'asc' : 'desc');
+                                      }
+                                    };
                                     return (
                                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-gray-500/10">
@@ -8478,34 +8632,169 @@ const App: React.FC = () => {
                                             </div>
                                           </div>
 
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setPlayerMatchesSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
-                                            }}
-                                            className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs self-start sm:self-auto ${
-                                              playerMatchesSortDir === 'asc'
-                                                ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
-                                                : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
-                                            }`}
-                                            title={playerMatchesSortDir === 'desc' ? 'Sortierung: Neueste zuerst (Klicken für Älteste zuerst)' : 'Sortierung: Älteste zuerst (Klicken für Neueste zuerst)'}
-                                            aria-label="Sortierreihenfolge umkehren"
-                                          >
-                                            <i className="fas fa-arrows-alt-v text-xs"></i>
-                                            <span className="text-[10px] font-black uppercase tracking-wider">
-                                              {playerMatchesSortDir === 'desc' ? '↓ Neu → Alt' : '↑ Alt → Neu'}
+                                          <div className="flex items-center space-x-2 self-start sm:self-auto flex-wrap gap-y-1">
+                                            <span className="text-[11px] opacity-70 font-bold hidden sm:inline">
+                                              Kriterium: <span className="text-amber-400">{
+                                                playerGamesSortKey === 'date' ? 'Datum' :
+                                                playerGamesSortKey === 'avg' ? 'Abweichung' :
+                                                playerGamesSortKey === 'schnaepse' ? 'Schnäpse' : 'Total'
+                                              }</span>
                                             </span>
-                                          </button>
+
+                                            <div className="inline-flex rounded-xl p-0.5 border border-gray-500/20 bg-black/20 shadow-xs">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  playGlobalClickSound();
+                                                  setPlayerMatchesSortDir('asc');
+                                                }}
+                                                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                                                  playerMatchesSortDir === 'asc'
+                                                    ? 'bg-amber-500 text-black shadow-sm font-black'
+                                                    : (darkMode ? 'text-gray-300 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-black hover:bg-gray-100')
+                                                }`}
+                                                title="Pfeil hoch: Sortierung aufsteigend umdrehen"
+                                                aria-label="Pfeil hoch: Sortierung aufsteigend"
+                                              >
+                                                <i className="fas fa-arrow-up text-xs"></i>
+                                                <span className="text-[10px] uppercase font-black tracking-wider">Pfeil hoch</span>
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  playGlobalClickSound();
+                                                  setPlayerMatchesSortDir('desc');
+                                                }}
+                                                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                                                  playerMatchesSortDir === 'desc'
+                                                    ? 'bg-amber-500 text-black shadow-sm font-black'
+                                                    : (darkMode ? 'text-gray-300 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-black hover:bg-gray-100')
+                                                }`}
+                                                title="Pfeil runter: Sortierung absteigend umdrehen"
+                                                aria-label="Pfeil runter: Sortierung absteigend"
+                                              >
+                                                <i className="fas fa-arrow-down text-xs"></i>
+                                                <span className="text-[10px] uppercase font-black tracking-wider">Pfeil runter</span>
+                                              </button>
+                                            </div>
+                                          </div>
                                         </div>
                                         <div className="overflow-x-auto">
                                           <table className="w-full text-left text-xs whitespace-nowrap">
                                             <thead>
-                                              <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold">
-                                                <th className="pb-2 pr-4">{`Datum`}</th>
-                                                <th className="pb-2 text-center pr-4">{`Durchschnittliche Abweichung`}</th>
-                                                <th className="pb-2 text-center pr-4">{`Schnäpse`}</th>
-                                                <th className="pb-2 text-right">{`Total`}</th>
+                                              <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold select-none">
+                                                <th
+                                                  onClick={() => handlePlayerSort('date')}
+                                                  className={`pb-2 pr-4 cursor-pointer transition-colors group ${playerGamesSortKey === 'date' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                                  title="Nach Datum sortieren"
+                                                >
+                                                  <div className="inline-flex items-center space-x-1.5">
+                                                    <span>Datum</span>
+                                                    <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('date'); setPlayerMatchesSortDir('asc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'date' && playerMatchesSortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Datum aufsteigend (Pfeil hoch)"
+                                                      >
+                                                        <i className="fas fa-caret-up text-[10px]"></i>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('date'); setPlayerMatchesSortDir('desc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'date' && playerMatchesSortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Datum absteigend (Pfeil runter)"
+                                                      >
+                                                        <i className="fas fa-caret-down text-[10px]"></i>
+                                                      </button>
+                                                    </span>
+                                                  </div>
+                                                </th>
+
+                                                <th
+                                                  onClick={() => handlePlayerSort('avg')}
+                                                  className={`pb-2 text-center pr-4 cursor-pointer transition-colors group ${playerGamesSortKey === 'avg' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                                  title="Nach durchschnittlicher Abweichung sortieren"
+                                                >
+                                                  <div className="inline-flex items-center justify-center space-x-1.5">
+                                                    <span>Durchschnittliche Abweichung</span>
+                                                    <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('avg'); setPlayerMatchesSortDir('asc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'avg' && playerMatchesSortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Abweichung aufsteigend (Pfeil hoch)"
+                                                      >
+                                                        <i className="fas fa-caret-up text-[10px]"></i>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('avg'); setPlayerMatchesSortDir('desc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'avg' && playerMatchesSortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Abweichung absteigend (Pfeil runter)"
+                                                      >
+                                                        <i className="fas fa-caret-down text-[10px]"></i>
+                                                      </button>
+                                                    </span>
+                                                  </div>
+                                                </th>
+
+                                                <th
+                                                  onClick={() => handlePlayerSort('schnaepse')}
+                                                  className={`pb-2 text-center pr-4 cursor-pointer transition-colors group ${playerGamesSortKey === 'schnaepse' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                                  title="Nach Schnäpsen sortieren"
+                                                >
+                                                  <div className="inline-flex items-center justify-center space-x-1.5">
+                                                    <span>Schnäpse</span>
+                                                    <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('schnaepse'); setPlayerMatchesSortDir('asc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'schnaepse' && playerMatchesSortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Schnäpse aufsteigend (Pfeil hoch)"
+                                                      >
+                                                        <i className="fas fa-caret-up text-[10px]"></i>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('schnaepse'); setPlayerMatchesSortDir('desc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'schnaepse' && playerMatchesSortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Schnäpse absteigend (Pfeil runter)"
+                                                      >
+                                                         <i className="fas fa-caret-down text-[10px]"></i>
+                                                      </button>
+                                                    </span>
+                                                  </div>
+                                                </th>
+
+                                                <th
+                                                  onClick={() => handlePlayerSort('total')}
+                                                  className={`pb-2 text-right cursor-pointer transition-colors group ${playerGamesSortKey === 'total' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                                  title="Nach Total sortieren"
+                                                >
+                                                  <div className="inline-flex items-center justify-end space-x-1.5">
+                                                    <span>Total</span>
+                                                    <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('total'); setPlayerMatchesSortDir('asc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'total' && playerMatchesSortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Total aufsteigend (Pfeil hoch)"
+                                                      >
+                                                        <i className="fas fa-caret-up text-[10px]"></i>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setPlayerGamesSortKey('total'); setPlayerMatchesSortDir('desc'); }}
+                                                        className={`cursor-pointer p-0.5 ${playerGamesSortKey === 'total' && playerMatchesSortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                        title="Total absteigend (Pfeil runter)"
+                                                      >
+                                                        <i className="fas fa-caret-down text-[10px]"></i>
+                                                      </button>
+                                                    </span>
+                                                  </div>
+                                                </th>
                                               </tr>
                                             </thead>
                                             <tbody>
@@ -9633,63 +9922,314 @@ const App: React.FC = () => {
 
                       {/* Complete Game History Log / Ranking im Speedwiegen */}
                       <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-2 border-b border-gray-500/10">
-                          <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
-                            <i className="fas fa-history mr-2 opacity-50"></i>
-                            {effectiveGameTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
-                          </h4>
+                        {(() => {
+                          const parseGermanDateHelper = (dStr?: string): number => {
+                            if (!dStr) return 0;
+                            const str = String(dStr).trim();
+                            const parts = str.split('.');
+                            if (parts.length === 3) {
+                              const day = parseInt(parts[0], 10) || 1;
+                              const month = (parseInt(parts[1], 10) || 1) - 1;
+                              let year = parseInt(parts[2], 10) || 2026;
+                              if (year < 100) year += 2000;
+                              return new Date(year, month, day).getTime();
+                            }
+                            const t = new Date(str).getTime();
+                            return isNaN(t) ? 0 : t;
+                          };
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              playGlobalClickSound();
-                              if (isSpeedTab) {
-                                setSpeedHistorySortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                          const handleGameHistorySort = (key: 'date' | 'player' | 'avg' | 'levels' | 'points' | 'score') => {
+                            playGlobalClickSound();
+                            if (gameHistorySortKey === key) {
+                              setGameHistorySortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setGameHistorySortKey(key);
+                              if (key === 'avg' || key === 'score' || (key === 'points' && effectiveGameTab === 'Speedwiegen')) {
+                                setGameHistorySortDir('asc');
+                              } else if (key === 'player') {
+                                setGameHistorySortDir('asc');
                               } else {
-                                setTeamHistorySortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+                                setGameHistorySortDir('desc');
                               }
-                            }}
-                            className={`p-1.5 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-xs self-start sm:self-auto ${
-                              activeHistorySortDir === 'desc'
-                                ? 'bg-amber-500/20 text-amber-500 border-amber-500/40'
-                                : (darkMode ? 'bg-black/20 text-gray-300 border-white/10 hover:bg-black/30' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100')
-                            }`}
-                            title="Sortierreihenfolge umkehren"
-                            aria-label="Sortierreihenfolge umkehren"
-                          >
-                            <i className="fas fa-arrows-alt-v text-xs"></i>
-                            <span className="text-[10px] font-black uppercase tracking-wider">
-                              {activeHistorySortDir === 'asc' ? '↑ Klein → Groß' : '↓ Groß → Klein'}
-                            </span>
-                          </button>
-                        </div>
+                            }
+                          };
 
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs whitespace-nowrap">
-                            <thead>
-                              <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold">
-                                <th className="pb-2 pr-3">Datum</th>
-                                <th className="pb-2 pr-3">Spieler/Team</th>
-                                <th className="pb-2 pr-3">Ø-Abstand</th>
-                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2 pr-3">Stufen</th>}
-                                <th className="pb-2 text-right pr-3">{effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte/Schnäpse'}</th>
-                                {effectiveGameTab === 'Speedwiegen' && <th className="pb-2 text-right">Score</th>}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(() => {
-                                let displayList = [...filtered];
-                                if (effectiveGameTab === 'Speedwiegen') {
-                                  displayList.sort((a, b) => {
-                                    const scoreA = getSpeedTotal(a);
-                                    const scoreB = getSpeedTotal(b);
-                                    return activeHistorySortDir === 'asc' ? scoreA - scoreB : scoreB - scoreA;
-                                  });
-                                } else {
-                                  if (activeHistorySortDir === 'asc') {
-                                    displayList.reverse();
-                                  }
-                                }
+                          return (
+                            <>
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-2 border-b border-gray-500/10">
+                                <h4 className="text-sm font-black uppercase tracking-wider text-yellow-500 flex items-center">
+                                  <i className="fas fa-history mr-2 opacity-50"></i>
+                                  {effectiveGameTab === 'Speedwiegen' ? 'Ranking im Speedwiegen' : 'Historie der Einträge (Letzte Spiele)'}
+                                </h4>
+
+                                <div className="flex items-center space-x-2 self-start sm:self-auto flex-wrap gap-y-1">
+                                  <span className="text-[11px] opacity-70 font-bold hidden sm:inline">
+                                    Kriterium: <span className="text-amber-400">{
+                                      gameHistorySortKey === 'date' ? 'Datum' :
+                                      gameHistorySortKey === 'player' ? (effectiveGameTab === 'Teamwiegen' ? 'Team' : 'Spieler') :
+                                      gameHistorySortKey === 'avg' ? 'Ø-Abstand' :
+                                      gameHistorySortKey === 'levels' ? 'Stufen' :
+                                      gameHistorySortKey === 'points' ? (effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte') :
+                                      'Score'
+                                    }</span>
+                                  </span>
+
+                                  <div className="inline-flex rounded-xl p-0.5 border border-gray-500/20 bg-black/20 shadow-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setGameHistorySortDir('asc');
+                                      }}
+                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                                        gameHistorySortDir === 'asc'
+                                          ? 'bg-amber-500 text-black shadow-sm font-black'
+                                          : (darkMode ? 'text-gray-300 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-black hover:bg-gray-100')
+                                      }`}
+                                      title="Pfeil hoch: Sortierung aufsteigend umdrehen"
+                                      aria-label="Pfeil hoch: Sortierung aufsteigend"
+                                    >
+                                      <i className="fas fa-arrow-up text-xs"></i>
+                                      <span className="text-[10px] uppercase font-black tracking-wider">Pfeil hoch</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playGlobalClickSound();
+                                        setGameHistorySortDir('desc');
+                                      }}
+                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer ${
+                                        gameHistorySortDir === 'desc'
+                                          ? 'bg-amber-500 text-black shadow-sm font-black'
+                                          : (darkMode ? 'text-gray-300 hover:text-white hover:bg-white/10' : 'text-gray-700 hover:text-black hover:bg-gray-100')
+                                      }`}
+                                      title="Pfeil runter: Sortierung absteigend umdrehen"
+                                      aria-label="Pfeil runter: Sortierung absteigend"
+                                    >
+                                      <i className="fas fa-arrow-down text-xs"></i>
+                                      <span className="text-[10px] uppercase font-black tracking-wider">Pfeil runter</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs whitespace-nowrap">
+                                  <thead>
+                                    <tr className="border-b border-gray-500/10 pb-2 uppercase opacity-60 font-bold select-none">
+                                      <th
+                                        onClick={() => handleGameHistorySort('date')}
+                                        className={`pb-2 pr-3 cursor-pointer transition-colors group ${gameHistorySortKey === 'date' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                        title="Nach Datum sortieren"
+                                      >
+                                        <div className="inline-flex items-center space-x-1.5">
+                                          <span>Datum</span>
+                                          <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('date'); setGameHistorySortDir('asc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'date' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Datum aufsteigend (Pfeil hoch)"
+                                            >
+                                              <i className="fas fa-caret-up text-[10px]"></i>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('date'); setGameHistorySortDir('desc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'date' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Datum absteigend (Pfeil runter)"
+                                            >
+                                              <i className="fas fa-caret-down text-[10px]"></i>
+                                            </button>
+                                          </span>
+                                        </div>
+                                      </th>
+
+                                      <th
+                                        onClick={() => handleGameHistorySort('player')}
+                                        className={`pb-2 pr-3 cursor-pointer transition-colors group ${gameHistorySortKey === 'player' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                        title={effectiveGameTab === 'Teamwiegen' ? "Nach Team sortieren" : "Nach Spieler sortieren"}
+                                      >
+                                        <div className="inline-flex items-center space-x-1.5">
+                                          <span>{effectiveGameTab === 'Teamwiegen' ? 'Spieler / Team' : 'Spieler'}</span>
+                                          <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('player'); setGameHistorySortDir('asc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'player' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Name A-Z (Pfeil hoch)"
+                                            >
+                                              <i className="fas fa-caret-up text-[10px]"></i>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('player'); setGameHistorySortDir('desc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'player' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Name Z-A (Pfeil runter)"
+                                            >
+                                              <i className="fas fa-caret-down text-[10px]"></i>
+                                            </button>
+                                          </span>
+                                        </div>
+                                      </th>
+
+                                      <th
+                                        onClick={() => handleGameHistorySort('avg')}
+                                        className={`pb-2 pr-3 cursor-pointer transition-colors group ${gameHistorySortKey === 'avg' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                        title="Nach durchschnittlichem Abstand sortieren"
+                                      >
+                                        <div className="inline-flex items-center space-x-1.5">
+                                          <span>Ø-Abstand</span>
+                                          <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('avg'); setGameHistorySortDir('asc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'avg' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Ø-Abstand aufsteigend (Pfeil hoch)"
+                                            >
+                                              <i className="fas fa-caret-up text-[10px]"></i>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('avg'); setGameHistorySortDir('desc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'avg' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Ø-Abstand absteigend (Pfeil runter)"
+                                            >
+                                              <i className="fas fa-caret-down text-[10px]"></i>
+                                            </button>
+                                          </span>
+                                        </div>
+                                      </th>
+
+                                      {effectiveGameTab === 'Speedwiegen' && (
+                                        <th
+                                          onClick={() => handleGameHistorySort('levels')}
+                                          className={`pb-2 pr-3 cursor-pointer transition-colors group ${gameHistorySortKey === 'levels' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                          title="Nach Stufen sortieren"
+                                        >
+                                          <div className="inline-flex items-center space-x-1.5">
+                                            <span>Stufen</span>
+                                            <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('levels'); setGameHistorySortDir('asc'); }}
+                                                className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'levels' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                title="Stufen aufsteigend (Pfeil hoch)"
+                                              >
+                                                <i className="fas fa-caret-up text-[10px]"></i>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('levels'); setGameHistorySortDir('desc'); }}
+                                                className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'levels' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                title="Stufen absteigend (Pfeil runter)"
+                                              >
+                                                <i className="fas fa-caret-down text-[10px]"></i>
+                                              </button>
+                                            </span>
+                                          </div>
+                                        </th>
+                                      )}
+
+                                      <th
+                                        onClick={() => handleGameHistorySort('points')}
+                                        className={`pb-2 text-right pr-3 cursor-pointer transition-colors group ${gameHistorySortKey === 'points' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                        title={effectiveGameTab === 'Speedwiegen' ? "Nach Zeit sortieren" : "Nach Punkten sortieren"}
+                                      >
+                                        <div className="inline-flex items-center justify-end space-x-1.5">
+                                          <span>{effectiveGameTab === 'Speedwiegen' ? 'Zeit' : 'Punkte / Schnäpse'}</span>
+                                          <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('points'); setGameHistorySortDir('asc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'points' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Aufsteigend (Pfeil hoch)"
+                                            >
+                                              <i className="fas fa-caret-up text-[10px]"></i>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('points'); setGameHistorySortDir('desc'); }}
+                                              className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'points' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                              title="Absteigend (Pfeil runter)"
+                                            >
+                                              <i className="fas fa-caret-down text-[10px]"></i>
+                                            </button>
+                                          </span>
+                                        </div>
+                                      </th>
+
+                                      {effectiveGameTab === 'Speedwiegen' && (
+                                        <th
+                                          onClick={() => handleGameHistorySort('score')}
+                                          className={`pb-2 text-right cursor-pointer transition-colors group ${gameHistorySortKey === 'score' ? 'text-amber-400 font-black' : 'hover:text-white'}`}
+                                          title="Nach Gesamt-Score sortieren"
+                                        >
+                                          <div className="inline-flex items-center justify-end space-x-1.5">
+                                            <span>Score</span>
+                                            <span className="inline-flex flex-col -space-y-1.5 ml-1 text-[9px] leading-none shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('score'); setGameHistorySortDir('asc'); }}
+                                                className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'score' && gameHistorySortDir === 'asc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                title="Score aufsteigend (Pfeil hoch)"
+                                              >
+                                                <i className="fas fa-caret-up text-[10px]"></i>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); playGlobalClickSound(); setGameHistorySortKey('score'); setGameHistorySortDir('desc'); }}
+                                                className={`cursor-pointer p-0.5 ${gameHistorySortKey === 'score' && gameHistorySortDir === 'desc' ? 'text-amber-400 font-black scale-110' : 'text-gray-400/40 hover:text-gray-200'}`}
+                                                title="Score absteigend (Pfeil runter)"
+                                              >
+                                                <i className="fas fa-caret-down text-[10px]"></i>
+                                              </button>
+                                            </span>
+                                          </div>
+                                        </th>
+                                      )}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(() => {
+                                      let displayList = [...filtered];
+                                      displayList.sort((a, b) => {
+                                        let cmp = 0;
+                                        if (gameHistorySortKey === 'date') {
+                                          cmp = parseGermanDateHelper(a.date) - parseGermanDateHelper(b.date);
+                                        } else if (gameHistorySortKey === 'player') {
+                                          cmp = String(a.playerName || '').localeCompare(String(b.playerName || ''), 'de', { sensitivity: 'base' });
+                                        } else if (gameHistorySortKey === 'avg') {
+                                          const avgA = effectiveGameTab === 'Speedwiegen' ? getSpeedAvgDistance(a) : Number(a.avg || 0);
+                                          const avgB = effectiveGameTab === 'Speedwiegen' ? getSpeedAvgDistance(b) : Number(b.avg || 0);
+                                          cmp = avgA - avgB;
+                                        } else if (gameHistorySortKey === 'levels') {
+                                          const levA = Number(a.levels ?? 0);
+                                          const levB = Number(b.levels ?? 0);
+                                          cmp = levA - levB;
+                                        } else if (gameHistorySortKey === 'points') {
+                                          if (effectiveGameTab === 'Speedwiegen') {
+                                            const timeA = Number(a.time_seconds ?? a.time ?? a.Time ?? 0);
+                                            const timeB = Number(b.time_seconds ?? b.time ?? b.Time ?? 0);
+                                            cmp = timeA - timeB;
+                                          } else {
+                                            const ptsA = Number(a.schnaepse || 0);
+                                            const ptsB = Number(b.schnaepse || 0);
+                                            cmp = ptsA - ptsB;
+                                          }
+                                        } else if (gameHistorySortKey === 'score') {
+                                          const scoreA = getSpeedTotal(a);
+                                          const scoreB = getSpeedTotal(b);
+                                          cmp = scoreA - scoreB;
+                                        }
+
+                                        if (cmp === 0) {
+                                          cmp = parseGermanDateHelper(b.date) - parseGermanDateHelper(a.date);
+                                        }
+
+                                        return gameHistorySortDir === 'asc' ? cmp : -cmp;
+                                      });
                                 return displayList.slice(0, 50).map((item, idx) => (
                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
                                     <td className="py-2.5 opacity-75 font-semibold pr-3">
@@ -9760,12 +10300,15 @@ const App: React.FC = () => {
                             </tbody>
                           </table>
                         </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
-            )}
+            );
+          })()}
+        </div>
+      )}
 
             <button 
               onClick={() => setShowRecords(false)}
@@ -9822,11 +10365,15 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Kontextsensitives Spieler-Profil-Modal (Standardspiel, Speedwiegen, Teamwiegen) */}
+      {/* Kontextsensitives Spieler-Profil-Modal (Standardspiel, Speedwiegen, Teamwiegen, Achievements) */}
       <PlayerDetailsModal
         isOpen={!!selectedPlayerForDetails}
-        onClose={() => setSelectedPlayerForDetails(null)}
+        onClose={() => {
+          setSelectedPlayerForDetails(null);
+          setPlayerDetailsInitialSubTab('overview');
+        }}
         playerName={selectedPlayerForDetails}
+        initialSubTab={playerDetailsInitialSubTab}
         activeTab={
           recordsGamesSubTab === 'Speedwiegen'
             ? 'Speedwiegen'
@@ -11672,6 +12219,23 @@ const App: React.FC = () => {
                 <i className="fas fa-chevron-right opacity-60"></i>
               </button>
 
+              {/* ⚡ Livespiele verwalten / bereinigen */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminPanel(false);
+                  setShowLiveGamesModal(true);
+                }}
+                className="w-full p-4 rounded-2xl text-white font-bold text-sm flex items-center justify-between shadow-md transition-all cursor-pointer hover:opacity-95"
+                style={{ backgroundColor: '#DC2626' }}
+              >
+                <div className="flex items-center space-x-3">
+                  <i className="fas fa-satellite-dish text-lg"></i>
+                  <span>⚡ Livespiele verwalten &amp; bereinigen</span>
+                </div>
+                <i className="fas fa-chevron-right opacity-60"></i>
+              </button>
+
               {/* 3. 👥 Alle Nutzer anzeigen */}
               <button
                 type="button"
@@ -11955,6 +12519,7 @@ const App: React.FC = () => {
         isOpen={showLiveGamesModal}
         onClose={() => setShowLiveGamesModal(false)}
         currentUserId={supabaseUser?.id || ''}
+        isAdmin={isAdmin}
         onSelectGame={(selectedGame) => {
           setShowLiveGamesModal(false);
           setSpectatingGame(selectedGame);

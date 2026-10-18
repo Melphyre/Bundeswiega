@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { ActiveGame, fetchFriendsActiveGames } from '../services/activeGamesService';
+import {
+  ActiveGame,
+  fetchFriendsActiveGames,
+  cleanupFinishedActiveGames,
+  adminClearAllActiveGames
+} from '../services/activeGamesService';
 import PlayerAvatar from './PlayerAvatar';
 import PlayerTitleBadge from './PlayerTitleBadge';
 import PlayerLevelBadge from './PlayerLevelBadge';
@@ -13,6 +18,7 @@ interface LiveGamesModalProps {
   darkMode?: boolean;
   onOpenFriendsModal?: () => void;
   onSelectPlayer?: (name: string) => void;
+  isAdmin?: boolean;
 }
 
 export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
@@ -22,11 +28,15 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
   onSelectGame,
   darkMode = true,
   onOpenFriendsModal,
-  onSelectPlayer
+  onSelectPlayer,
+  isAdmin = false
 }) => {
   const [games, setGames] = useState<ActiveGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [clearing, setClearing] = useState(false);
+  const [showAdminConfirm, setShowAdminConfirm] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
 
   // Timer zur Aktualisierung der verstrichenen Zeit
   useEffect(() => {
@@ -35,17 +45,40 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
     return () => clearInterval(interval);
   }, [isOpen]);
 
-  // Spiele laden
+  // Spiele laden (inkl. automatischer Bereinigung von Spielen > 30 Min.)
   const loadGames = async () => {
     if (!currentUserId) return;
     setLoading(true);
     try {
+      // 30-Minuten-Löschung für beendete / inaktive Spiele ausführen
+      await cleanupFinishedActiveGames();
       const active = await fetchFriendsActiveGames(currentUserId);
       setGames(active);
     } catch (e) {
       console.error('Error loading friends active games:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Admin-Funktion: Alle Livespiele entfernen
+  const handleClearAllGames = async () => {
+    setClearing(true);
+    setAdminMessage(null);
+    try {
+      const res = await adminClearAllActiveGames();
+      if (res.success) {
+        setAdminMessage(`${res.count || 0} Livespiel(e) erfolgreich entfernt.`);
+        setShowAdminConfirm(false);
+        await loadGames();
+      } else {
+        setAdminMessage(res.error || 'Fehler beim Entfernen der Livespiele.');
+      }
+    } catch (err: any) {
+      setAdminMessage(err?.message || 'Fehler beim Entfernen.');
+    } finally {
+      setClearing(false);
+      setTimeout(() => setAdminMessage(null), 5000);
     }
   };
 
@@ -135,6 +168,19 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowAdminConfirm(prev => !prev)}
+                disabled={clearing}
+                className="px-2.5 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 hover:text-red-300 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
+                title="👑 Admin: Alle fehlerhaft hängengebliebenen Livespiele entfernen"
+              >
+                <i className={`fas fa-trash-alt text-xs ${clearing ? 'animate-spin' : ''}`}></i>
+                <span className="hidden sm:inline">Livespiele bereinigen</span>
+                <span className="sm:hidden">Bereinigen</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={loadGames}
@@ -152,6 +198,58 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* 👑 Admin Bestätigungs-Banner */}
+        {showAdminConfirm && (
+          <div className="p-4 mb-4 rounded-2xl bg-red-950/40 border border-red-500/40 animate-in fade-in space-y-3 shrink-0">
+            <div className="flex items-start space-x-3">
+              <div className="w-8 h-8 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                <i className="fas fa-exclamation-triangle"></i>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-black text-red-400">Alle Livespiele entfernen?</h4>
+                <p className="text-xs opacity-75 mt-0.5 leading-relaxed">
+                  Möchtest du wirklich alle aktiven und fehlerhaft hängengebliebenen Livespiele aus der Datenbank löschen? Laufende Sessions werden dabei sofort beendet.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 pt-1 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAdminConfirm(false)}
+                disabled={clearing}
+                className="px-3 py-1.5 rounded-xl border border-gray-500/30 hover:bg-white/5 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllGames}
+                disabled={clearing}
+                className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center space-x-1.5 active:scale-95"
+              >
+                {clearing ? (
+                  <>
+                    <i className="fas fa-circle-notch fa-spin text-xs"></i>
+                    <span>Löschen...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-trash-alt text-xs"></i>
+                    <span>Ja, alle Livespiele löschen</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {adminMessage && (
+          <div className="p-3 mb-4 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center space-x-2 animate-in fade-in shrink-0">
+            <i className="fas fa-check-circle"></i>
+            <span>{adminMessage}</span>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto pr-1 space-y-3">

@@ -9,7 +9,8 @@ import {
   saveAdminAchievement,
   resetAdminAchievement,
   resetAllAdminAchievements,
-  getRarityBadgeProps
+  getRarityBadgeProps,
+  syncAchievementsWithDatabase
 } from '../services/achievementAdminService';
 import { BRAND_COLOR } from '../constants';
 
@@ -45,6 +46,7 @@ export const AdminAchievementsModal: React.FC<AdminAchievementsModalProps> = ({
     condition: ''
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncingSql, setIsSyncingSql] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Load achievements on open
@@ -156,6 +158,38 @@ export const AdminAchievementsModal: React.FC<AdminAchievementsModalProps> = ({
     }
   };
 
+  const handleSyncSqlAchievements = async () => {
+    setIsSyncingSql(true);
+    setFeedbackMsg(null);
+
+    const res = await syncAchievementsWithDatabase(achievements);
+    setIsSyncingSql(false);
+
+    if (res.success) {
+      const refreshed = loadAdminAchievements();
+      setAchievements(refreshed);
+      if (res.totalUpdated && res.totalUpdated > 0) {
+        const sampleNames = res.updatedAchievements?.map(a => `${a.title} (${a.changes.join(', ')})`).slice(0, 3).join('; ') || '';
+        const moreSuffix = (res.updatedAchievements?.length || 0) > 3 ? ` und ${(res.updatedAchievements?.length || 0) - 3} weitere` : '';
+        setFeedbackMsg({
+          text: `Erfolgreich ${res.totalUpdated} SQL-Einträge für ${res.updatedCount} Achievements aktualisiert: ${sampleNames}${moreSuffix}`,
+          type: 'success'
+        });
+      } else {
+        setFeedbackMsg({
+          text: 'Alle Achievements in der SQL-Datenbank stimmen bereits exakt mit dem Code überein (z.B. Stratege = epic).',
+          type: 'success'
+        });
+      }
+      setTimeout(() => setFeedbackMsg(null), 8000);
+    } else {
+      setFeedbackMsg({
+        text: `Fehler beim SQL-Abgleich: ${res.error || 'Unbekannter Fehler'}`,
+        type: 'error'
+      });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[800] flex items-end md:items-center justify-center bg-black/80 backdrop-blur-md p-0 md:p-4 animate-in fade-in">
       <div className={`w-full max-w-6xl rounded-t-3xl md:rounded-3xl flex flex-col max-h-[94dvh] shadow-2xl border ${
@@ -248,6 +282,22 @@ export const AdminAchievementsModal: React.FC<AdminAchievementsModalProps> = ({
                   );
                 })}
               </select>
+
+              {/* SQL Update Button */}
+              <button
+                type="button"
+                onClick={handleSyncSqlAchievements}
+                disabled={isSyncingSql}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer shadow-xs ${
+                  isSyncingSql
+                    ? 'opacity-70 cursor-not-allowed bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    : 'border-amber-500/40 text-amber-500 dark:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 active:scale-95'
+                }`}
+                title="Gleicht Achievements in der SQL-Datenbank (Name, Seltenheit, Beschreibung) mit dem Code ab"
+              >
+                <i className={`fas fa-sync-alt ${isSyncingSql ? 'fa-spin text-amber-400' : ''}`}></i>
+                <span>{isSyncingSql ? 'Prüfe SQL...' : 'SQL-Achievements aktualisieren'}</span>
+              </button>
 
               {/* Reset All Button */}
               <button

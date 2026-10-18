@@ -2911,6 +2911,125 @@ async function handleActiveGamesFinish(req: VercelRequest, res: VercelResponse) 
   }
 }
 
+// ─── ADMIN: ACHIEVEMENTS SQL SYNC ───
+async function handleSyncAchievements(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+  if (req.method !== 'POST') {
+    return res.status(405).json({ success: false, error: 'Method not allowed' });
+  }
+
+  if (!supabaseAdmin) {
+    return res.status(500).json({ success: false, error: 'Supabase Admin nicht initialisiert' });
+  }
+
+  try {
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch {}
+    }
+
+    const { achievements: customAchs } = body || {};
+    const codeAchs: any[] = Array.isArray(customAchs) && customAchs.length > 0 ? customAchs : [];
+
+    // 1. Alle bestehenden Achievements aus der SQL-Tabelle 'achievements' laden
+    const { data: dbAchs, error: selectErr } = await supabaseAdmin
+      .from('achievements')
+      .select('id, achievement_id, title, description, rarity, icon')
+      .range(0, 49999);
+
+    if (selectErr) {
+      console.error('handleSyncAchievements select error:', selectErr);
+      return res.status(500).json({ success: false, error: selectErr.message });
+    }
+
+    const safeDbAchs = dbAchs || [];
+    const updatedItems: Array<{ id: string; title: string; changes: string[] }> = [];
+    let totalRowsUpdated = 0;
+
+    // 2. Für jede Code-Definition prüfen, ob SQL-Einträge abweichen
+    for (const codeAch of codeAchs) {
+      if (!codeAch.id) continue;
+
+      const matchingRows = safeDbAchs.filter(
+        (r: any) => r.achievement_id === codeAch.id || (r.id === codeAch.id && !r.achievement_id) || (r.title && codeAch.title && r.title.toLowerCase() === codeAch.title.toLowerCase())
+      );
+
+      const rowsNeedingUpdate = matchingRows.filter((r: any) => {
+        const titleDiff = codeAch.title && r.title !== codeAch.title;
+        const descDiff = codeAch.description && r.description !== codeAch.description;
+        const rarityDiff = codeAch.rarity && r.rarity !== codeAch.rarity;
+        return titleDiff || descDiff || rarityDiff;
+      });
+
+      if (rowsNeedingUpdate.length > 0) {
+        const changes: string[] = [];
+        const sample = rowsNeedingUpdate[0];
+        if (codeAch.title && sample.title !== codeAch.title) changes.push(`Name: "${sample.title}" -> "${codeAch.title}"`);
+        if (codeAch.rarity && sample.rarity !== codeAch.rarity) changes.push(`Seltenheit: "${sample.rarity}" -> "${codeAch.rarity}"`);
+        if (codeAch.description && sample.description !== codeAch.description) changes.push('Beschreibung aktualisiert');
+
+        const updatePayload: Record<string, any> = {};
+        if (codeAch.title) updatePayload.title = codeAch.title;
+        if (codeAch.description) updatePayload.description = codeAch.description;
+        if (codeAch.rarity) updatePayload.rarity = codeAch.rarity;
+        if (codeAch.icon) updatePayload.icon = codeAch.icon;
+
+        const { error: updateErr } = await supabaseAdmin
+          .from('achievements')
+          .update(updatePayload)
+          .eq('achievement_id', codeAch.id);
+
+        if (codeAch.title) {
+          await supabaseAdmin
+            .from('achievements')
+            .update(updatePayload)
+            .eq('title', codeAch.title);
+        }
+
+        if (updateErr) {
+          console.error(`Fehler beim Aktualisieren von Achievement ${codeAch.id}:`, updateErr);
+        } else {
+          totalRowsUpdated += rowsNeedingUpdate.length;
+          updatedItems.push({
+            id: codeAch.id,
+            title: codeAch.title || codeAch.id,
+            changes
+          });
+        }
+      }
+    }
+
+    // Optional: Auch Tabelle 'achievement_definitions' synchronisieren, falls vorhanden
+    try {
+      for (const codeAch of codeAchs) {
+        if (codeAch.id && codeAch.title) {
+          await supabaseAdmin.from('achievement_definitions').upsert({
+            id: codeAch.id,
+            title: codeAch.title,
+            description: codeAch.description || '',
+            icon: codeAch.icon || '🏆',
+            rarity: codeAch.rarity || 'common',
+            condition: codeAch.condition || '',
+            category: codeAch.category || 'misc',
+            updated_at: new Date().toISOString()
+          });
+        }
+      }
+    } catch {}
+
+    return res.status(200).json({
+      success: true,
+      totalChecked: safeDbAchs.length,
+      totalUpdated: totalRowsUpdated,
+      updatedCount: updatedItems.length,
+      updatedAchievements: updatedItems
+    });
+  } catch (err: any) {
+    console.error('handleSyncAchievements exception:', err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+}
+
 // ─── MAIN ROUTER ───
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
@@ -2925,6 +3044,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const rawUrl = req.url || '';
     const pathname = rawUrl.split('?')[0].replace(/^\/api/, '').replace(/\/$/, '') || '/';
+
+    // 0. Achievements Admin Sync
+    if (pathname === '/admin/sync-achievements' || pathname === '/sync-achievements') {
+      return await handleSyncAchievements(req, res);
+    }
 
     // 1. Records & Upload
     if (pathname === '/records') {

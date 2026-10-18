@@ -7,6 +7,7 @@ import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerLevelBadge } from './PlayerLevelBadge';
 import PlayerTitleBadge from './PlayerTitleBadge';
 import { Friend, ParsedRecord } from '../../types';
+import { MASTER_ACHIEVEMENTS_DEFINITIONS } from '../achievementsData';
 
 export type GameModeContextTab = 'Standard' | 'Standardspiel' | 'Speedwiegen' | 'Teamwiegen';
 
@@ -15,6 +16,7 @@ export interface PlayerDetailsModalProps {
   onClose: () => void;
   playerName: string | null;
   activeTab?: GameModeContextTab;
+  initialSubTab?: 'overview' | 'history' | 'achievements';
   darkMode: boolean;
   recordsData: any[][] | null;
   supabaseUser?: any;
@@ -51,6 +53,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
   onClose,
   playerName,
   activeTab = 'Standard',
+  initialSubTab = 'overview',
   darkMode,
   recordsData,
   supabaseUser,
@@ -74,7 +77,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
   }, [activeTab]);
 
   const [currentModeTab, setCurrentModeTab] = useState<'Standard' | 'Speedwiegen' | 'Teamwiegen'>(normalizedInitialMode);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'history'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'history' | 'achievements'>(initialSubTab || 'overview');
   const [isFullscreenAvatar, setIsFullscreenAvatar] = useState(false);
 
   // Teamwiegen team members state
@@ -82,11 +85,39 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
   const [teamMembersLoading, setTeamMembersLoading] = useState(false);
   const [teamGamesCount, setTeamGamesCount] = useState(0);
 
-  // Sync mode whenever activeTab or playerName changes
+  // Sync mode and subtab whenever activeTab, playerName, or initialSubTab changes
   useEffect(() => {
     setCurrentModeTab(normalizedInitialMode);
-    setActiveSubTab('overview');
-  }, [normalizedInitialMode, playerName]);
+    setActiveSubTab(initialSubTab || 'overview');
+  }, [normalizedInitialMode, playerName, initialSubTab]);
+
+  // DB Achievements state & filters
+  const [dbAchievements, setDbAchievements] = useState<any[]>([]);
+  const [selectedAchRarity, setSelectedAchRarity] = useState<string>('all');
+  const [achSearchQuery, setAchSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    if (!isOpen || !playerName) {
+      setDbAchievements([]);
+      return;
+    }
+    let isMounted = true;
+    async function loadDbAchievements() {
+      try {
+        const { data, error } = await supabase
+          .from('achievements')
+          .select('id, achievement_id, title, description, icon, rarity, game_mode, date, created_at, player_name')
+          .ilike('player_name', playerName?.trim() || '');
+        if (!error && data && isMounted) {
+          setDbAchievements(data);
+        }
+      } catch (err) {
+        console.warn('Could not load player db achievements:', err);
+      }
+    }
+    loadDbAchievements();
+    return () => { isMounted = false; };
+  }, [isOpen, playerName]);
 
   // All parsed records from cache
   const allParsed = useMemo(() => {
@@ -99,6 +130,84 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
     const target = playerName.trim().toLowerCase();
     return allParsed.filter(r => r.playerName?.trim().toLowerCase() === target);
   }, [allParsed, playerName]);
+
+  // Aggregierte Achievements für diesen Spieler
+  const playerAchievementsList = useMemo(() => {
+    if (!playerName) return [];
+    const target = playerName.trim().toLowerCase();
+    const map: Record<string, {
+      id: string;
+      title: string;
+      description: string;
+      icon: string;
+      rarity: string;
+      count: number;
+      dates: string[];
+      modes: Set<string>;
+    }> = {};
+
+    const registerAch = (rawId: string, rawTitle: string, rawDesc: string, rawIcon: string, rawRarity: string, dateStr: string, modeStr?: string) => {
+      const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(d => d.id === rawId || d.title.toLowerCase() === (rawTitle || '').toLowerCase());
+      const achId = def?.id || rawId || rawTitle;
+      const title = def?.title || rawTitle || achId;
+      const description = def?.description || rawDesc || '';
+      const icon = def?.icon || rawIcon || '🏆';
+      const rarity = achId === 'strategist' ? 'epic' : (def?.rarity || rawRarity || 'common');
+
+      if (!map[achId]) {
+        map[achId] = {
+          id: achId,
+          title,
+          description,
+          icon,
+          rarity,
+          count: 0,
+          dates: [],
+          modes: new Set<string>()
+        };
+      }
+      map[achId].count++;
+      if (dateStr && !map[achId].dates.includes(dateStr)) {
+        map[achId].dates.push(dateStr);
+      }
+      if (modeStr) {
+        map[achId].modes.add(modeStr);
+      }
+    };
+
+    // 1. Aus den archivierten Spielaufzeichnungen (allParsed)
+    allParsed.forEach(rec => {
+      const isPlayerRecord = rec.playerName?.trim().toLowerCase() === target ||
+        (rec.game_mode?.includes('Teamwiegen') && rec.playerName?.toLowerCase().includes(target));
+
+      if (rec.achievements && Array.isArray(rec.achievements)) {
+        rec.achievements.forEach((ach: any) => {
+          const isEarnedByPlayer = !ach.earnedBy || !Array.isArray(ach.earnedBy) || ach.earnedBy.length === 0 ||
+            ach.earnedBy.some((p: string) => p.trim().toLowerCase() === target) ||
+            (isPlayerRecord && ach.earnedBy.includes(rec.playerName));
+
+          if (isPlayerRecord && isEarnedByPlayer) {
+            registerAch(ach.id, ach.title, ach.description, ach.icon, ach.rarity, rec.date, rec.game_mode);
+          }
+        });
+      }
+    });
+
+    // 2. Aus der SQL-Datenbank (dbAchievements)
+    dbAchievements.forEach(dba => {
+      registerAch(
+        dba.achievement_id || dba.id,
+        dba.title,
+        dba.description,
+        dba.icon,
+        dba.rarity,
+        dba.date || (dba.created_at ? new Date(dba.created_at).toLocaleDateString('de-DE') : ''),
+        dba.game_mode
+      );
+    });
+
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }, [allParsed, playerName, dbAchievements]);
 
   // Speed-Helper für Stufennormierung
   const getSpeedNormalized = (item: any) => {
@@ -629,12 +738,12 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
             </div>
           </div>
 
-          {/* Sub-Tabs: Übersicht vs. Verlauf */}
-          <div className="flex items-center space-x-2 border-b border-gray-500/15 pb-2 text-xs font-bold">
+          {/* Sub-Tabs: Übersicht vs. Verlauf vs. Achievements */}
+          <div className="flex items-center space-x-2 border-b border-gray-500/15 pb-2 text-xs font-bold overflow-x-auto scrollbar-thin">
             <button
               type="button"
               onClick={() => setActiveSubTab('overview')}
-              className={`pb-1.5 px-3 border-b-2 font-black transition-all cursor-pointer flex items-center space-x-1.5 ${
+              className={`pb-1.5 px-3 border-b-2 font-black transition-all cursor-pointer flex items-center space-x-1.5 whitespace-nowrap ${
                 activeSubTab === 'overview'
                   ? 'border-amber-500 text-amber-500'
                   : 'border-transparent opacity-60 hover:opacity-100'
@@ -646,7 +755,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubTab('history')}
-              className={`pb-1.5 px-3 border-b-2 font-black transition-all cursor-pointer flex items-center space-x-1.5 ${
+              className={`pb-1.5 px-3 border-b-2 font-black transition-all cursor-pointer flex items-center space-x-1.5 whitespace-nowrap ${
                 activeSubTab === 'history'
                   ? 'border-amber-500 text-amber-500'
                   : 'border-transparent opacity-60 hover:opacity-100'
@@ -654,6 +763,18 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
             >
               <span>📜</span>
               <span>Spiel-Historie ({historyList.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('achievements')}
+              className={`pb-1.5 px-3 border-b-2 font-black transition-all cursor-pointer flex items-center space-x-1.5 whitespace-nowrap ${
+                activeSubTab === 'achievements'
+                  ? 'border-amber-500 text-amber-500'
+                  : 'border-transparent opacity-60 hover:opacity-100'
+              }`}
+            >
+              <span>🏆</span>
+              <span>Achievements ({playerAchievementsList.length})</span>
             </button>
           </div>
 
@@ -946,6 +1067,154 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
               )}
             </div>
           )}
+
+          {/* 5. ACHIEVEMENTS TAB */}
+          {activeSubTab === 'achievements' && (() => {
+            const totalAwardsCount = playerAchievementsList.reduce((acc, a) => acc + a.count, 0);
+
+            const filteredAchs = playerAchievementsList.filter(ach => {
+              if (selectedAchRarity !== 'all' && ach.rarity !== selectedAchRarity) {
+                return false;
+              }
+              if (achSearchQuery.trim()) {
+                const q = achSearchQuery.trim().toLowerCase();
+                const matchTitle = ach.title.toLowerCase().includes(q);
+                const matchDesc = ach.description.toLowerCase().includes(q);
+                if (!matchTitle && !matchDesc) return false;
+              }
+              return true;
+            });
+
+            return (
+              <div className="space-y-3">
+                {/* Header Stats & Filter */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-500 flex items-center space-x-1">
+                      <i className="fas fa-trophy"></i>
+                      <span>Freigeschaltete Badges ({playerAchievementsList.length})</span>
+                    </span>
+                    <span className="text-[11px] opacity-60 font-bold">
+                      • {totalAwardsCount}× insgesamt
+                    </span>
+                  </div>
+
+                  {/* Search input */}
+                  <div className="relative flex-1 max-w-xs">
+                    <i className="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] opacity-40"></i>
+                    <input
+                      type="text"
+                      value={achSearchQuery}
+                      onChange={e => setAchSearchQuery(e.target.value)}
+                      placeholder="Achievement suchen..."
+                      className={`w-full pl-7 pr-6 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
+                      }`}
+                    />
+                    {achSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setAchSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] opacity-50 hover:opacity-100 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rarity filter chips */}
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-thin">
+                  {(['all', 'legendary', 'epic', 'rare', 'common'] as const).map(rKey => {
+                    const count = rKey === 'all'
+                      ? playerAchievementsList.length
+                      : playerAchievementsList.filter(a => a.rarity === rKey).length;
+                    const label = {
+                      all: 'Alle',
+                      legendary: 'Legendary',
+                      epic: 'Epic',
+                      rare: 'Rare',
+                      common: 'Common'
+                    }[rKey];
+
+                    return (
+                      <button
+                        key={rKey}
+                        type="button"
+                        onClick={() => setSelectedAchRarity(rKey)}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer whitespace-nowrap ${
+                          selectedAchRarity === rKey
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-xs'
+                            : 'opacity-60 hover:opacity-100 border-transparent bg-black/5 dark:bg-white/5'
+                        }`}
+                      >
+                        {label} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Achievements List */}
+                {filteredAchs.length === 0 ? (
+                  <div className="text-center py-10 opacity-60 text-xs space-y-2">
+                    <div className="text-3xl">🏆</div>
+                    <p className="font-bold">Keine Errungenschaften gefunden.</p>
+                    {playerAchievementsList.length === 0 ? (
+                      <p className="text-[11px] opacity-75">Dieser Spieler hat bisher noch keine Errungenschaften freigeschaltet.</p>
+                    ) : (
+                      <p className="text-[11px] opacity-75">Keine Treffer für den aktuellen Such- oder Raritätsfilter.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[44vh] overflow-y-auto pr-1">
+                    {filteredAchs.map((ach) => {
+                      const rarityBadge = {
+                        common: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+                        rare: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+                        epic: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+                        legendary: 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                      }[ach.rarity] || 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+
+                      return (
+                        <div
+                          key={ach.id}
+                          className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
+                            darkMode ? 'bg-slate-800/80 border-slate-700/80' : 'bg-gray-50/90 border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-start space-x-2.5">
+                            <div className="text-2xl p-2 rounded-xl bg-black/10 dark:bg-white/10 flex items-center justify-center min-w-[40px] h-[40px] shrink-0">
+                              {ach.icon.startsWith('fa-') || ach.icon.startsWith('fas ') ? <i className={ach.icon}></i> : ach.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1 flex-wrap">
+                                <h5 className="font-black text-xs truncate">{ach.title}</h5>
+                                <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full border ${rarityBadge}`}>
+                                  {ach.rarity}
+                                </span>
+                              </div>
+                              <p className="text-[11px] opacity-70 mt-0.5 leading-snug line-clamp-2">{ach.description}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-2.5 pt-2 border-t border-gray-500/10 flex items-center justify-between text-[10px]">
+                            <span className="font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                              {ach.count}× freigeschaltet
+                            </span>
+                            {ach.dates && ach.dates.length > 0 && (
+                              <span className="opacity-60 truncate max-w-[150px]" title={ach.dates.join(', ')}>
+                                {ach.dates[ach.dates.length - 1]}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Footer mit Schließen-Button */}
           <div className="pt-2 border-t border-gray-500/15">

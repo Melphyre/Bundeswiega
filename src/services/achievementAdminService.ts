@@ -401,7 +401,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Stratege',
     description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer',
     icon: '🧠',
-    rarity: 'common',
+    rarity: 'epic',
     condition: 'is_announcer && !isFinal && other_player(dist == 0g)',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -961,6 +961,12 @@ export function loadAdminAchievements(): AdminAchievement[] {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (stored) {
         customizedMap = JSON.parse(stored);
+        if (customizedMap['strategist'] && customizedMap['strategist'].rarity === 'common') {
+          delete customizedMap['strategist'];
+          try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(customizedMap));
+          } catch {}
+        }
       }
     } catch (e) {
       console.warn('Fehler beim Laden angepasster Achievements aus localStorage:', e);
@@ -1160,3 +1166,122 @@ export function getRarityBadgeProps(rarity: AchievementRarity): {
       };
   }
 }
+
+/**
+ * Überprüft die bereits in SQL (Supabase) eingetragenen Achievements und aktualisiert
+ * Name, Seltenheit oder Beschreibung in der Datenbank, falls es im Code Änderungen gibt.
+ */
+export async function syncAchievementsWithDatabase(
+  achievementsToSync?: AdminAchievement[]
+): Promise<{
+  success: boolean;
+  totalChecked?: number;
+  totalUpdated?: number;
+  updatedCount?: number;
+  updatedAchievements?: Array<{ id: string; title: string; changes: string[] }>;
+  error?: string;
+}> {
+  const list = achievementsToSync || loadAdminAchievements();
+
+  // Versuch 1: Backend-API-Route (nutzt supabaseAdmin mit Service-Role-Rechten)
+  try {
+    const res = await fetch('/api/sync-achievements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ achievements: list })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) {
+        return data;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('API sync-achievements failed, falling back to direct Supabase client:', apiErr);
+  }
+
+  // Versuch 2: Direkter Supabase-Client Fallback
+  if (!isSupabaseConfigured()) {
+    return { success: false, error: 'Keine Verbindung zu Supabase konfiguriert.' };
+  }
+
+  try {
+    const { data: dbAchs, error: selectErr } = await supabase
+      .from('achievements')
+      .select('id, achievement_id, title, description, rarity, icon')
+      .range(0, 49999);
+
+    if (selectErr) {
+      return { success: false, error: selectErr.message };
+    }
+
+    const safeDbAchs = dbAchs || [];
+    const updatedItems: Array<{ id: string; title: string; changes: string[] }> = [];
+    let totalUpdated = 0;
+
+    for (const codeAch of list) {
+      if (!codeAch.id) continue;
+
+      const matchingRows = safeDbAchs.filter(
+        r => r.achievement_id === codeAch.id || (r.id === codeAch.id && !r.achievement_id) || (r.title && codeAch.title && r.title.toLowerCase() === codeAch.title.toLowerCase())
+      );
+
+      const rowsNeedingUpdate = matchingRows.filter(r => {
+        const titleDiff = codeAch.title && r.title !== codeAch.title;
+        const descDiff = codeAch.description && r.description !== codeAch.description;
+        const rarityDiff = codeAch.rarity && r.rarity !== codeAch.rarity;
+        return titleDiff || descDiff || rarityDiff;
+      });
+
+      if (rowsNeedingUpdate.length > 0) {
+        const changes: string[] = [];
+        const sample = rowsNeedingUpdate[0];
+        if (codeAch.title && sample.title !== codeAch.title) changes.push(`Name: "${sample.title}" -> "${codeAch.title}"`);
+        if (codeAch.rarity && sample.rarity !== codeAch.rarity) changes.push(`Seltenheit: "${sample.rarity}" -> "${codeAch.rarity}"`);
+        if (codeAch.description && sample.description !== codeAch.description) changes.push('Beschreibung aktualisiert');
+
+        const { error: updateErr } = await supabase
+          .from('achievements')
+          .update({
+            title: codeAch.title,
+            description: codeAch.description,
+            rarity: codeAch.rarity,
+            icon: codeAch.icon
+          })
+          .eq('achievement_id', codeAch.id);
+
+        if (codeAch.title) {
+          await supabase
+            .from('achievements')
+            .update({
+              title: codeAch.title,
+              description: codeAch.description,
+              rarity: codeAch.rarity,
+              icon: codeAch.icon
+            })
+            .eq('title', codeAch.title);
+        }
+
+        if (!updateErr) {
+          totalUpdated += rowsNeedingUpdate.length;
+          updatedItems.push({
+            id: codeAch.id,
+            title: codeAch.title,
+            changes
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      totalChecked: safeDbAchs.length,
+      totalUpdated,
+      updatedCount: updatedItems.length,
+      updatedAchievements: updatedItems
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+

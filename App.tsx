@@ -25,6 +25,9 @@ import {
   SHOW_OPTIONS_BUTTON,
   PLAYER_COLORS,
   KLASSISCH_TARGETS,
+  KLASSISCH_CAN_START_WEIGHT,
+  KLASSISCH_OFFSETS,
+  getKlassischTargetsForStartWeight,
   formatTableName,
   extractCustomName,
   shuffleArray,
@@ -2149,6 +2152,7 @@ const App: React.FC = () => {
   const [speedLevels, setSpeedLevels] = useState<string>('3');
   const [speedIsShortMode, setSpeedIsShortMode] = useState<boolean>(false);
   const [showSpeedKlassischModal, setShowSpeedKlassischModal] = useState<boolean>(false);
+  const [speedKlassischStartWeight, setSpeedKlassischStartWeight] = useState<string>('520');
   const [speedTargets, setSpeedTargets] = useState<Record<number, string>>({});
   const [speedResults, setSpeedResults] = useState<Record<number, string>>({});
   const [speedCountdown, setSpeedCountdown] = useState<string | number>(3);
@@ -6588,7 +6592,20 @@ const App: React.FC = () => {
 
         {gameState === GameState.SPEED_CONFIG && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl overflow-y-auto max-h-[80vh]">
-            <h2 className="text-2xl font-black mb-8 text-center">Zielgewichte festlegen</h2>
+            <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-3">
+              <h2 className="text-2xl font-black">Zielgewichte festlegen</h2>
+              {parseInt(speedLevels) === 10 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSpeedKlassischModal(true)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-black bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/25 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  title="Vorgefertigte Stufen für Standard-Dose (520g) oder alternatives Gefäß aufrufen"
+                >
+                  <i className="fas fa-crown text-[11px]"></i>
+                  <span>Vorgefertigte Stufen (Dose / alternatives Gefäß)</span>
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4 mb-8">
               {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
                 const levelNum = i + 1;
@@ -7865,7 +7882,7 @@ const App: React.FC = () => {
                         title: def.title,
                         description: def.description,
                         icon: def.icon,
-                        rarity: def.id === 'strategist' ? 'epic' : def.rarity,
+                        rarity: def.rarity,
                         earnedTogether: !!def.earnedTogether,
                         awards: []
                       };
@@ -7884,12 +7901,10 @@ const App: React.FC = () => {
                           title: mDef?.title || ach.title || achId,
                           description: mDef?.description || ach.description || '',
                           icon: mDef?.icon || ach.icon || '🏆',
-                          rarity: achId === 'strategist' ? 'epic' : (mDef?.rarity || ach.rarity || 'common'),
+                          rarity: mDef?.rarity || ach.rarity || 'common',
                           earnedTogether: typeof ach.earnedTogether === 'boolean' ? ach.earnedTogether : TOGETHER_ACHIEVEMENT_IDS.includes(achId),
                           awards: []
                         };
-                      } else if (achId === 'strategist') {
-                        achGroupMap[achId].rarity = 'epic';
                       }
 
                       if (!seenKeys[achId]) {
@@ -10439,35 +10454,128 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-4">
-              <p className="text-xs font-semibold opacity-80 leading-relaxed">
-                Das klassische Speedwiegen mit {Object.keys(KLASSISCH_TARGETS).length} vordefinierten Stufen:
-              </p>
+            {(() => {
+              const parsedStartW = parseInt(speedKlassischStartWeight, 10);
+              const effectiveStartWeight = (!isNaN(parsedStartW) && parsedStartW > 0) ? parsedStartW : KLASSISCH_CAN_START_WEIGHT;
+              const isCustomVessel = effectiveStartWeight !== KLASSISCH_CAN_START_WEIGHT;
+              const calculatedTargets = getKlassischTargetsForStartWeight(effectiveStartWeight);
 
-              <div className={`p-4 rounded-2xl border space-y-1.5 ${darkMode ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`}>
-                <span className="text-[10px] uppercase font-black opacity-50 block mb-2">Die {Object.keys(KLASSISCH_TARGETS).length} klassischen Zielgewichte:</span>
-                <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold">
-                  {Object.entries(KLASSISCH_TARGETS).map(([lvl, target]) => (
-                    <div key={lvl}>
-                      Stufe {lvl}: {target === '0' || target === 'leer' ? 'leer' : `${target}g`}
+              return (
+                <div className="space-y-4">
+                  <p className="text-xs font-semibold opacity-80 leading-relaxed">
+                    Das klassische Speedwiegen mit 10 vordefinierten Stufen. Standardmäßig für eine 520g-Dose ausgelegt oder flexibel anpassbar an jedes alternative Gefäß:
+                  </p>
+
+                  {/* Eingabefeld für Startgewicht des vollen Gefäßes */}
+                  <div className={`p-4 rounded-2xl border space-y-3 ${
+                    darkMode ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5 opacity-90">
+                        <i className="fas fa-wine-bottle text-[#D4AF37]"></i>
+                        <span>Startgewicht (voll):</span>
+                      </label>
+                      <div className="inline-flex rounded-xl p-0.5 bg-black/10 dark:bg-white/10 text-[10px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setSpeedKlassischStartWeight('520')}
+                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer font-black ${
+                            !isCustomVessel
+                              ? 'bg-[#D4AF37] text-black shadow-xs'
+                              : 'opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          🥫 Dose (520g)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isCustomVessel) setSpeedKlassischStartWeight('');
+                          }}
+                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer font-black ${
+                            isCustomVessel
+                              ? 'bg-[#D4AF37] text-black shadow-xs'
+                              : 'opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          🍶 Alternatives Gefäß
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase opacity-60 mb-1">Spieler Name:</label>
-                <input
-                  type="text"
-                  value={speedPlayerName}
-                  onChange={e => setSpeedPlayerName(e.target.value)}
-                  placeholder="Dein Name"
-                  className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                  }`}
-                />
-              </div>
-            </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="200"
+                        max="3000"
+                        step="1"
+                        value={speedKlassischStartWeight}
+                        onChange={e => setSpeedKlassischStartWeight(e.target.value)}
+                        placeholder="520"
+                        className={`w-full p-2.5 pr-10 rounded-xl border-2 text-sm font-black text-center transition-all ${
+                          darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#D4AF37]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#D4AF37]'
+                        }`}
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold opacity-50">g</span>
+                    </div>
+
+                    <div className="text-[11px] opacity-75 leading-relaxed">
+                      {isCustomVessel ? (
+                        <span className="text-amber-500 dark:text-amber-300 font-medium">
+                          ✨ Alternatives Gefäß mit <strong>{effectiveStartWeight}g</strong> Startgewicht: Die 10 Stufen ziehen exakt die gleichen Füllmengen ab wie bei einer Dose (z. B. Stufe 1: {effectiveStartWeight}g - 40g = {effectiveStartWeight - 40}g).
+                        </span>
+                      ) : (
+                        <span>
+                          Standard-Dose (Startgewicht <strong>520g</strong>). Wenn du mit einer Flasche, einem Krug oder Becher spielst, trage oben einfach das volle Startgewicht ein.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Vorgefertigte Stufen Übersicht */}
+                  <div className={`p-4 rounded-2xl border space-y-2 ${darkMode ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black opacity-60">
+                        Die 10 Zielgewichte {isCustomVessel ? `(${effectiveStartWeight}g Startgewicht)` : '(Standard-Dose 520g)'}:
+                      </span>
+                      {isCustomVessel && (
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          Gefäß angepasst
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold">
+                      {Object.entries(calculatedTargets).map(([lvl, target]) => {
+                        const offset = KLASSISCH_OFFSETS[Number(lvl)];
+                        const offsetLabel = offset === 'leer' ? 'leer getrunken' : `-${offset}g`;
+                        return (
+                          <div key={lvl} className="flex items-center justify-between p-1.5 rounded-lg bg-black/5 dark:bg-white/5">
+                            <span className="opacity-80">Stufe {lvl}:</span>
+                            <span className="font-black text-emerald-500 dark:text-emerald-400">
+                              {target === '0' || target === 'leer' ? 'leer' : `${target}g`}
+                              <span className="text-[10px] opacity-60 ml-1 font-normal font-sans">({offsetLabel})</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Spieler Name:</label>
+                    <input
+                      type="text"
+                      value={speedPlayerName}
+                      onChange={e => setSpeedPlayerName(e.target.value)}
+                      placeholder="Dein Name"
+                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                      }`}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="flex gap-3 pt-2">
               <button
@@ -10484,9 +10592,13 @@ const App: React.FC = () => {
                     alert("Bitte zuerst deinen Namen eingeben.");
                     return;
                   }
-                  setSpeedLevels(Object.keys(KLASSISCH_TARGETS).length.toString());
+                  const parsedStartW = parseInt(speedKlassischStartWeight, 10);
+                  const effectiveStartWeight = (!isNaN(parsedStartW) && parsedStartW > 0) ? parsedStartW : KLASSISCH_CAN_START_WEIGHT;
+                  const finalTargets = getKlassischTargetsForStartWeight(effectiveStartWeight);
+
+                  setSpeedLevels('10');
                   setSpeedIsShortMode(false);
-                  setSpeedTargets({ ...KLASSISCH_TARGETS });
+                  setSpeedTargets({ ...finalTargets });
                   setSpeedResults({});
                   setShowSpeedKlassischModal(false);
                   startSpeedCountdown();

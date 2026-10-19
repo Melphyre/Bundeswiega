@@ -53,7 +53,7 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
 
   // Ansage-Achievements
   { id: 'prophet', title: 'Hellseher', description: 'Zielgewicht angesagt und selbst einen Volltreffer gelandet', icon: '🔮', rarity: 'legendary' },
-  { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'epic' },
+  { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'common' },
   { id: 'calculator', title: 'Kopfrechner', description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)', icon: '🧮', rarity: 'epic' },
   { id: 'thirsty', title: 'Durstiger', description: 'In einer Runde mehr als 20g unter dem Zielgewicht gelandet', icon: '🫗', rarity: 'common' },
   { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common' },
@@ -198,7 +198,7 @@ export const checkAchievements = (
 
     // Ansage-Achievements
     prophet: { id: 'prophet', title: 'Hellseher', description: 'Zielgewicht angesagt und selbst einen Volltreffer gelandet', icon: '🔮', rarity: 'legendary', earnedBy: new Set() },
-    strategist: { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'epic', earnedBy: new Set() },
+    strategist: { id: 'strategist', title: 'Stratege', description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer', icon: '🧠', rarity: 'common', earnedBy: new Set() },
     calculator: { id: 'calculator', title: 'Kopfrechner', description: 'Im Finale das eigene Gewicht exakt so getroffen wie angesagt (0g Abstand)', icon: '🧮', rarity: 'epic', earnedBy: new Set() },
     thirsty: { id: 'thirsty', title: 'Durstiger', description: 'In einer Runde mehr als 20g unter dem Zielgewicht gelandet', icon: '🫗', rarity: 'common', earnedBy: new Set() },
     guzzler: { id: 'guzzler', title: 'Schluckspecht', description: 'In jeder Runde unter dem Zielgewicht gelandet', icon: '🍻', rarity: 'common', earnedBy: new Set() },

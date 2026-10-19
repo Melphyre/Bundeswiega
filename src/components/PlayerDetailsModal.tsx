@@ -152,7 +152,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
       const title = def?.title || rawTitle || achId;
       const description = def?.description || rawDesc || '';
       const icon = def?.icon || rawIcon || '🏆';
-      const rarity = achId === 'strategist' ? 'epic' : (def?.rarity || rawRarity || 'common');
+      const rarity = def?.rarity || rawRarity || 'common';
 
       if (!map[achId]) {
         map[achId] = {

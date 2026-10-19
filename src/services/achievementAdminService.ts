@@ -401,7 +401,7 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     title: 'Stratege',
     description: 'Zielgewicht angesagt und ein anderer Spieler landet einen Volltreffer',
     icon: '🧠',
-    rarity: 'epic',
+    rarity: 'common',
     condition: 'is_announcer && !isFinal && other_player(dist == 0g)',
     category: 'announcement',
     categoryLabel: CATEGORY_LABELS.announcement
@@ -961,7 +961,7 @@ export function loadAdminAchievements(): AdminAchievement[] {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (stored) {
         customizedMap = JSON.parse(stored);
-        if (customizedMap['strategist'] && customizedMap['strategist'].rarity === 'common') {
+        if (customizedMap['strategist'] && customizedMap['strategist'].rarity === 'epic') {
           delete customizedMap['strategist'];
           try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(customizedMap));

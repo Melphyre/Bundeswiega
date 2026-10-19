@@ -32,18 +32,36 @@ export const PLAYER_COLORS = [
   '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'
 ];
 
-export const KLASSISCH_TARGETS: Record<number, string> = {
-  1: '480',
-  2: '420',
-  3: '369',
-  4: '332',
-  5: '250',
-  6: '222',
-  7: '169',
-  8: '123',
-  9: '69',
+export const KLASSISCH_CAN_START_WEIGHT = 520;
+
+export const KLASSISCH_OFFSETS: Record<number, number | 'leer'> = {
+  1: 40,   // 520 - 480 = 40g abgetrunken
+  2: 100,  // 520 - 420 = 100g abgetrunken
+  3: 151,  // 520 - 369 = 151g abgetrunken
+  4: 188,  // 520 - 332 = 188g abgetrunken
+  5: 270,  // 520 - 250 = 270g abgetrunken
+  6: 298,  // 520 - 222 = 298g abgetrunken
+  7: 351,  // 520 - 169 = 351g abgetrunken
+  8: 397,  // 520 - 123 = 397g abgetrunken
+  9: 451,  // 520 - 69 = 451g abgetrunken
   10: 'leer'
 };
+
+export function getKlassischTargetsForStartWeight(startWeight: number = 520): Record<number, string> {
+  const w = (!isNaN(startWeight) && startWeight > 0) ? startWeight : KLASSISCH_CAN_START_WEIGHT;
+  const result: Record<number, string> = {};
+  for (const [lvlStr, offset] of Object.entries(KLASSISCH_OFFSETS)) {
+    const lvl = Number(lvlStr);
+    if (offset === 'leer') {
+      result[lvl] = 'leer';
+    } else {
+      result[lvl] = Math.max(0, Math.round(w - offset)).toString();
+    }
+  }
+  return result;
+}
+
+export const KLASSISCH_TARGETS: Record<number, string> = getKlassischTargetsForStartWeight(520);
 
 export function formatTableName(tableIndex: number, customName: string): string {
   const clean = (customName || '').trim();

@@ -57,6 +57,11 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
   const unlockedAnimations: NameBgAnimationOption[] = getUnlockedAnimations(userLevel, unlockedContext);
   const unlockedColors: NameBgColorOption[] = getUnlockedColors(userLevel, unlockedContext);
 
+  // Echte Animationen/Muster (außer dem Standard "Keine")
+  const totalSpecialAnimationsCount = NAME_BG_ANIMATIONS.filter(a => a.id !== 'none').length;
+  const unlockedSpecialAnimations = unlockedAnimations.filter(a => a.id !== 'none');
+  const hasUnlockedAnimations = unlockedSpecialAnimations.length > 0;
+
   // Falls die aktuell gespeicherte Farbe oder Animation noch nicht freigeschaltet ist, Fallback auf freigeschaltete
   const activeColorMatch = unlockedColors.find(c => c.id === selectedColor) || unlockedColors[0] || NAME_BG_COLORS[0];
   const activeAnimMatch = unlockedAnimations.find(a => a.id === selectedAnimation) || unlockedAnimations[0] || NAME_BG_ANIMATIONS[0];
@@ -64,8 +69,9 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
   const handleColorChange = (newColorId: NameBgColorId) => {
     if (disabled) return;
     setSelectedColor(newColorId);
-    const serialized = `${newColorId}:${selectedAnimation}`;
-    onSave(newColorId, selectedAnimation, serialized);
+    const animToUse = hasUnlockedAnimations ? selectedAnimation : 'none';
+    const serialized = `${newColorId}:${animToUse}`;
+    onSave(newColorId, animToUse, serialized);
   };
 
   const handleAnimationChange = (newAnimId: NameBgAnimationId) => {
@@ -75,7 +81,8 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
     onSave(selectedColor, newAnimId, serialized);
   };
 
-  const previewSerialized = `${selectedColor}:${selectedAnimation}`;
+  const effectiveAnimation = hasUnlockedAnimations ? selectedAnimation : 'none';
+  const previewSerialized = `${selectedColor}:${effectiveAnimation}`;
 
   return (
     <div className="space-y-4">
@@ -101,52 +108,56 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
           <span className="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-400 border border-teal-500/30">
             Farbe: {activeColorMatch.label}
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30">
-            Muster: {activeAnimMatch.label}
-          </span>
+          {hasUnlockedAnimations && (
+            <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30">
+              Muster: {activeAnimMatch.label}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* 2. Decoupled Auswahl: Dropdown (Animation) direkt neben Swatches (Farben) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        {/* SPALTE LINKS: Dropdown-Box für Animation / Muster */}
-        <div className={`p-3.5 rounded-xl border space-y-2.5 ${
-          darkMode ? 'bg-slate-900/40 border-purple-500/30' : 'bg-purple-50/50 border-purple-200'
-        }`}>
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
-              <span>✨ Animation / Muster:</span>
-            </label>
-            <span className="text-[10px] font-bold opacity-60">
-              {unlockedAnimations.length} von {NAME_BG_ANIMATIONS.length} frei
-            </span>
+      {/* 2. Decoupled Auswahl: Dropdown (Animation) nur wenn mindestens eine freigeschaltet ist, neben Swatches */}
+      <div className={hasUnlockedAnimations ? "grid grid-cols-1 md:grid-cols-2 gap-4 items-start" : "w-full"}>
+        {/* SPALTE LINKS: Dropdown-Box für Animation / Muster (nur eingeblendet bei freigeschalteter Animation) */}
+        {hasUnlockedAnimations && (
+          <div className={`p-3.5 rounded-xl border space-y-2.5 ${
+            darkMode ? 'bg-slate-900/40 border-purple-500/30' : 'bg-purple-50/50 border-purple-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
+                <span>✨ Animation / Muster:</span>
+              </label>
+              <span className="text-[10px] font-bold opacity-60">
+                {unlockedSpecialAnimations.length} von {totalSpecialAnimationsCount} frei
+              </span>
+            </div>
+
+            <select
+              value={selectedAnimation}
+              onChange={(e) => handleAnimationChange(e.target.value as NameBgAnimationId)}
+              disabled={disabled}
+              className={`w-full p-2.5 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
+                darkMode
+                  ? 'border-purple-500/40 bg-slate-900 text-white focus:border-purple-400'
+                  : 'border-purple-300 bg-white text-slate-900 focus:border-purple-500'
+              }`}
+            >
+              {unlockedAnimations.map((anim) => (
+                <option key={anim.id} value={anim.id}>
+                  {anim.icon} {anim.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Erklärungstext zum aktuell gewählten Muster */}
+            <div className="text-[11px] leading-relaxed opacity-75 min-h-[36px] p-2 rounded-lg bg-black/20">
+              <span className="font-semibold text-purple-300">{activeAnimMatch.icon} {activeAnimMatch.label}: </span>
+              {activeAnimMatch.description}
+            </div>
           </div>
+        )}
 
-          <select
-            value={selectedAnimation}
-            onChange={(e) => handleAnimationChange(e.target.value as NameBgAnimationId)}
-            disabled={disabled}
-            className={`w-full p-2.5 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
-              darkMode
-                ? 'border-purple-500/40 bg-slate-900 text-white focus:border-purple-400'
-                : 'border-purple-300 bg-white text-slate-900 focus:border-purple-500'
-            }`}
-          >
-            {unlockedAnimations.map((anim) => (
-              <option key={anim.id} value={anim.id}>
-                {anim.icon} {anim.label}
-              </option>
-            ))}
-          </select>
-
-          {/* Erklärungstext zum aktuell gewählten Muster */}
-          <div className="text-[11px] leading-relaxed opacity-75 min-h-[36px] p-2 rounded-lg bg-black/20">
-            <span className="font-semibold text-purple-300">{activeAnimMatch.icon} {activeAnimMatch.label}: </span>
-            {activeAnimMatch.description}
-          </div>
-        </div>
-
-        {/* SPALTE RECHTS (Direkt daneben): Visuelle Auswahlbox (Farbkästchen / Swatches) */}
+        {/* SPALTE RECHTS (Direkt daneben oder volle Breite): Visuelle Auswahlbox (Farbkästchen / Swatches) */}
         <div className={`p-3.5 rounded-xl border space-y-2.5 ${
           darkMode ? 'bg-slate-900/40 border-teal-500/30' : 'bg-teal-50/50 border-teal-200'
         }`}>
@@ -160,7 +171,11 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
           </div>
 
           {/* Grid der Farbkätchen */}
-          <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-5 lg:grid-cols-8 gap-2 p-1 max-h-[170px] overflow-y-auto">
+          <div className={`grid gap-2 p-1 max-h-[170px] overflow-y-auto ${
+            hasUnlockedAnimations
+              ? 'grid-cols-5 sm:grid-cols-6 md:grid-cols-5 lg:grid-cols-8'
+              : 'grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12'
+          }`}>
             {unlockedColors.map((col) => {
               const isSelected = selectedColor === col.id;
               const isNone = col.id === 'none';

@@ -273,7 +273,7 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     id: 'carbon',
     label: 'Carbon',
     icon: '🏁',
-    description: 'Animierter Carboneffekt mit feiner Fasertextur und Lichtglanz',
+    description: 'Edles 4px Twill-Weave Kohlefasergewebe mit gleitendem Lichtglanz und dezenter Farbnuance',
     cssClass: 'name-anim-carbon',
     requiredLevel: 3,
     requiredQuestId: 'l3_pattern_carbon',
@@ -293,7 +293,7 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     id: 'glitter',
     label: 'Glitzer',
     icon: '✨',
-    description: 'Kleine animierte Sternchen, die in der Komplementärfarbe zum gewählten Hintergrund aufleuchten',
+    description: 'Edle, funkelnde Sternchen mit weißem Kern und leuchtender Farbaura auf tiefschwarzem Grund',
     cssClass: 'name-anim-glitter',
     requiredLevel: 3,
     requiredQuestId: 'l3_pattern_gold_glitter',
@@ -303,7 +303,7 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     id: 'matrix',
     label: 'Matrix',
     icon: '💻',
-    description: 'Farbige Neon-Zahlen in deiner gewählten Farbe, die auf schwarzem Grund von oben nach unten laufen',
+    description: 'Animierter digitaler Matrix-Ziffernregen (0 bis 9) mit leuchtendem Neon-Kopf in deiner gewählten Farbe',
     cssClass: 'name-anim-matrix',
     requiredLevel: 3,
     requiredQuestId: 'l3_pattern_matrix',
@@ -344,7 +344,7 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     id: 'snow',
     label: 'Schneeflocken',
     icon: '❄️',
-    description: 'Sanft rieselnde Schneeflocken und Eiskristalle über deinem gewählten Hintergrund',
+    description: 'Filigrane Schneekristalle (❄, ❅, ❆) mit sanftem Schaukel-Drift und eisigem Leuchten auf tiefschwarzem Grund',
     cssClass: 'name-anim-snow',
     requiredLevel: 4,
     requiredQuestId: 'l4_snow_animation_quest',
@@ -354,7 +354,7 @@ export const NAME_BG_ANIMATIONS: NameBgAnimationOption[] = [
     id: 'waves',
     label: 'Wasser & Wellen',
     icon: '🌊',
-    description: 'Sanft fließende und pulsierende Wasserwellen-Muster über dem Namensschild',
+    description: 'Lebendige, organische Wassertextur mit sanft fließenden Caustics-Lichtreflexen',
     cssClass: 'name-anim-waves',
     requiredLevel: 4,
     requiredQuestId: 'l4_waves_animation_quest',
@@ -587,27 +587,92 @@ export const parseNameBg = (raw?: string | null): ParsedNameBg => {
         ['--name-accent-color' as any]: colorMatch.bgHex
       };
     } else if (animMatch.id === 'matrix') {
-      // Matrix: Schwarzer Grund mit vertikal fallenden Neon-Zahlen in der gewählten Farbe
-      const matrixTextColor = colorMatch.bgHex === '#0F172A' ? '#00FF41' : colorMatch.bgHex;
-      cssClasses = `name-anim-matrix font-black shadow-md border`;
+      // Matrix: Schwarzer Grund mit vertikal fallendem digitalem Ziffernregen in der gewählten Farbe
+      cssClasses = `name-anim-matrix matrix-effect-container font-black shadow-md border`;
       borderHex = colorMatch.bgHex;
       style = {
-        backgroundColor: '#030504',
-        color: matrixTextColor,
+        backgroundColor: '#000000',
+        color: '#ffffff',
         borderColor: colorMatch.bgHex,
+        textShadow: '0 0 4px #000000, 0 0 8px #000000, 0 0 12px #000000, 0 2px 4px rgba(0, 0, 0, 0.95)',
+        ['--selected-color' as any]: colorMatch.bgHex,
         ['--name-accent-color' as any]: colorMatch.bgHex
       };
     } else if (animMatch.id === 'glitter') {
-      // Glitzer: Basis ist die gewählte Farbe, Sternchen leuchten in der Komplementärfarbe
-      cssClasses = `name-anim-glitter ${textClass} font-black shadow-md border`;
+      // Glitzer: Tiefschwarzer Grund (#000000) mit funkelnden Sternchen und Partikeln in der gewählten Farbe
+      cssClasses = `name-anim-glitter glitter-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
       style = {
-        backgroundColor: colorMatch.bgHex,
-        color: colorMatch.textHex,
-        borderColor: borderHex,
-        ['--name-comp-color' as any]: compHex
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        textShadow: '0 2px 5px rgba(0, 0, 0, 0.95), 0 0 10px var(--selected-color, #ef4444)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
+      };
+    } else if (animMatch.id === 'fire') {
+      // Feuer: Tiefschwarzer Grund (#000000), leuchtend weißer Hitze-Flammenkern mit Übergang in die gewählte Farbe und aufsteigenden Funken
+      cssClasses = `name-anim-fire fire-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
+      style = {
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
+      };
+    } else if (animMatch.id === 'lightning') {
+      // Blitze: Tiefschwarzer Grund (#000000), gezackte weiße Blitze mit dynamisch gefärbter Aura & Umgebungs-Flash
+      cssClasses = `name-anim-lightning lightning-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
+      style = {
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
+      };
+    } else if (animMatch.id === 'waves') {
+      // Wasser & Wellen: Organische Wassertextur mit fließenden Caustics Lichtreflexen
+      cssClasses = `name-anim-waves water-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
+      style = {
+        backgroundColor: '#030d1a',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
+      };
+    } else if (animMatch.id === 'carbon') {
+      // Carbon: Feines 4px Twill-Weave Kohlefasergewebe mit diagonalem Lackglanz & dezentem Farbakzent
+      cssClasses = `name-anim-carbon carbon-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
+      style = {
+        backgroundColor: '#111111',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        textShadow: '0 2px 4px rgba(0, 0, 0, 0.95), 0 0 6px var(--selected-color, #22c55e)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
+      };
+    } else if (animMatch.id === 'snow') {
+      // Schneeflocken: Tiefschwarzer Grund (#000000) mit großen leuchtenden Schneekristallen (❄, ❅, ❆) und starkem Rundum-Glow
+      cssClasses = `name-anim-snow snow-effect-container font-black shadow-md border`;
+      borderHex = colorMatch.bgHex;
+      style = {
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        borderColor: colorMatch.bgHex,
+        boxShadow: `0 0 16px ${colorMatch.bgHex}, inset 0 0 10px ${colorMatch.bgHex}`,
+        textShadow: '0 0 4px #000000, 0 0 8px #000000, 0 2px 6px rgba(0, 0, 0, 0.95), 0 0 12px var(--selected-color, #38bdf8)',
+        ['--selected-color' as any]: colorMatch.bgHex,
+        ['--name-accent-color' as any]: colorMatch.bgHex
       };
     } else {
-      // Flagge, Carbon, Tartan
+      // Flagge, Tartan
       cssClasses = `${animMatch.cssClass} ${textClass} font-black shadow-md border`;
       style = {
         backgroundColor: colorMatch.bgHex,
@@ -618,6 +683,8 @@ export const parseNameBg = (raw?: string | null): ParsedNameBg => {
     }
   }
 
+  const isDarkCanvas = animMatch.id === 'fire' || animMatch.id === 'lightning' || animMatch.id === 'waves' || animMatch.id === 'matrix' || animMatch.id === 'carbon' || animMatch.id === 'glitter' || animMatch.id === 'snow';
+
   return {
     id: compositeKey,
     colorId: colorMatch.id,
@@ -626,12 +693,12 @@ export const parseNameBg = (raw?: string | null): ParsedNameBg => {
     animationOption: animMatch,
     label,
     compositeKey,
-    bgHex: colorMatch.bgHex,
-    textHex: colorMatch.textHex,
+    bgHex: isDarkCanvas ? (animMatch.id === 'waves' ? '#030d1a' : animMatch.id === 'carbon' ? '#111111' : '#000000') : colorMatch.bgHex,
+    textHex: isDarkCanvas ? '#ffffff' : colorMatch.textHex,
     borderHex,
     compHex,
     cssClasses,
-    textCssClasses: colorMatch.textCssClasses,
+    textCssClasses: isDarkCanvas ? 'text-white font-black' : colorMatch.textCssClasses,
     style
   };
 };
@@ -777,75 +844,184 @@ export const getUnlockedAnimations = (
   return NAME_BG_ANIMATIONS.filter(a => isAnimationUnlocked(a.id, userLevel, context).unlocked);
 };
 
-// ─── 6. NEON GLOW RAHMEN KONFIGURATION (LEVEL 4+) ───
-export type NameGlowColorId = 'none' | 'blue' | 'red' | 'green' | 'yellow';
+// ─── 6. RAHMEN- & GLOW-KONFIGURATION (LEVEL 4+) ───
+export type NameBorderPatternId = 'none' | 'neon-glow' | 'laser-pulse' | 'double-border';
 
-export interface NameGlowOption {
-  id: NameGlowColorId;
+export interface NameBorderPatternOption {
+  id: NameBorderPatternId;
   label: string;
-  colorHex: string;
-  glowClass: string;
+  icon: string;
+  description: string;
+  cssClass: string;
   requiredLevel: number;
 }
 
-export const NAME_GLOW_OPTIONS: NameGlowOption[] = [
+export const NAME_BORDER_PATTERNS: NameBorderPatternOption[] = [
   {
     id: 'none',
-    label: 'Kein Glow-Rahmen',
-    colorHex: 'transparent',
-    glowClass: '',
+    label: 'Kein Rahmen',
+    icon: '🚫',
+    description: 'Kein zusätzlicher Leuchtrahmen um das Namensschild',
+    cssClass: '',
     requiredLevel: 4
   },
   {
-    id: 'blue',
-    label: 'Neon Blau',
-    colorHex: '#3B82F6',
-    glowClass: 'neon-glow-blue',
+    id: 'neon-glow',
+    label: 'Pulsierender Neon-Glow',
+    icon: '✨',
+    description: 'Sanft pulsierender, leuchtender Box-Shadow und Rahmen in deiner gewählten Farbe',
+    cssClass: 'name-frame-neon-glow',
     requiredLevel: 4
   },
   {
-    id: 'red',
-    label: 'Neon Rot',
-    colorHex: '#EF4444',
-    glowClass: 'neon-glow-red',
+    id: 'laser-pulse',
+    label: 'Laufender Laser-Rahmen',
+    icon: '⚡',
+    description: 'Dynamisch pulsierender Laser-Lichtstrahl entlang des Namensschildes',
+    cssClass: 'name-frame-laser-pulse',
     requiredLevel: 4
   },
   {
-    id: 'green',
-    label: 'Neon Grün',
-    colorHex: '#10B981',
-    glowClass: 'neon-glow-green',
-    requiredLevel: 4
-  },
-  {
-    id: 'yellow',
-    label: 'Neon Gelb',
-    colorHex: '#F59E0B',
-    glowClass: 'neon-glow-yellow',
+    id: 'double-border',
+    label: 'Doppelter Cyber-Rahmen',
+    icon: '💠',
+    description: 'Zweistufiger Hightech-Rahmen mit kraftvoller Leucht-Aura',
+    cssClass: 'name-frame-double-border',
     requiredLevel: 4
   }
 ];
 
-const GLOW_ALIAS_MAP: Record<string, NameGlowColorId> = {
+export interface ParsedNameBorder {
+  patternId: NameBorderPatternId;
+  colorId: NameBgColorId;
+  patternOption: NameBorderPatternOption;
+  colorOption: NameBgColorOption;
+  label: string;
+  colorHex: string;
+  glowClass: string;
+  compositeKey: string;
+  style: React.CSSProperties;
+}
+
+const GLOW_ALIAS_MAP: Record<string, NameBgColorId> = {
   blau: 'blue',
+  blue: 'blue',
   rot: 'red',
+  red: 'red',
   gruen: 'green',
   grün: 'green',
-  gelb: 'yellow'
+  green: 'green',
+  gelb: 'yellow',
+  yellow: 'yellow'
 };
 
+export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
+  if (!raw || raw === 'none' || raw === 'transparent') {
+    return {
+      patternId: 'none',
+      colorId: 'none',
+      patternOption: NAME_BORDER_PATTERNS[0],
+      colorOption: NAME_BG_COLORS[0],
+      label: 'Kein Rahmen',
+      colorHex: 'transparent',
+      glowClass: '',
+      compositeKey: 'none:none',
+      style: {}
+    };
+  }
+
+  const clean = raw.trim().toLowerCase();
+  let resolvedPattern: NameBorderPatternId = 'neon-glow';
+  let resolvedColorId: NameBgColorId = 'blue';
+
+  if (clean.includes(':')) {
+    const [pPart, cPart] = clean.split(':');
+    const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === pPart);
+    resolvedPattern = patternMatch ? patternMatch.id : (pPart === 'none' ? 'none' : 'neon-glow');
+    resolvedColorId = (cPart as NameBgColorId) || 'blue';
+  } else {
+    // Migration von Legacy Keys wie 'blue', 'red', 'green', 'yellow', 'neon-glow-blue'
+    if (clean === 'blue' || clean === 'neon-glow-blue' || clean === 'blau') {
+      resolvedPattern = 'neon-glow';
+      resolvedColorId = 'blue';
+    } else if (clean === 'red' || clean === 'neon-glow-red' || clean === 'rot') {
+      resolvedPattern = 'neon-glow';
+      resolvedColorId = 'red';
+    } else if (clean === 'green' || clean === 'neon-glow-green' || clean === 'gruen' || clean === 'grün') {
+      resolvedPattern = 'neon-glow';
+      resolvedColorId = 'green';
+    } else if (clean === 'yellow' || clean === 'neon-glow-yellow' || clean === 'gelb') {
+      resolvedPattern = 'neon-glow';
+      resolvedColorId = 'yellow';
+    } else {
+      const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === clean);
+      if (patternMatch) {
+        resolvedPattern = patternMatch.id;
+        resolvedColorId = 'blue';
+      }
+    }
+  }
+
+  const patternOption = NAME_BORDER_PATTERNS.find(p => p.id === resolvedPattern) || NAME_BORDER_PATTERNS[0];
+  const colorOption = NAME_BG_COLORS.find(c => c.id === resolvedColorId) || NAME_BG_COLORS.find(c => c.id === 'blue') || NAME_BG_COLORS[1];
+
+  const colorHex = patternOption.id === 'none' ? 'transparent' : colorOption.bgHex;
+  const glowClass = patternOption.cssClass;
+  const label = patternOption.id === 'none' ? 'Kein Rahmen' : `${patternOption.label} (${colorOption.label})`;
+
+  return {
+    patternId: patternOption.id,
+    colorId: colorOption.id,
+    patternOption,
+    colorOption,
+    label,
+    colorHex,
+    glowClass,
+    compositeKey: `${patternOption.id}:${colorOption.id}`,
+    style: patternOption.id === 'none' ? {} : {
+      ['--glow-color' as any]: colorHex
+    }
+  };
+};
+
+// Backwards-compatible exports
+export type NameGlowColorId = NameBgColorId | 'none';
+
+export interface NameGlowOption {
+  id: string;
+  patternId: NameBorderPatternId;
+  colorId: NameBgColorId;
+  label: string;
+  colorHex: string;
+  glowClass: string;
+  requiredLevel: number;
+  style: React.CSSProperties;
+}
+
+export const NAME_GLOW_OPTIONS = NAME_BORDER_PATTERNS.map(p => ({
+  id: p.id,
+  label: p.label,
+  colorHex: '#3B82F6',
+  glowClass: p.cssClass,
+  requiredLevel: p.requiredLevel
+}));
+
 export const getNameGlowOption = (glowId?: string | null): NameGlowOption => {
-  if (!glowId || glowId === 'none') return NAME_GLOW_OPTIONS[0];
-  const clean = glowId.trim().toLowerCase();
-  const aliasResolved = GLOW_ALIAS_MAP[clean] || clean;
-  const match = NAME_GLOW_OPTIONS.find(
-    g => g.id === aliasResolved || g.label.toLowerCase() === clean
-  );
-  return match || NAME_GLOW_OPTIONS[0];
+  const parsed = parseNameBorder(glowId);
+  return {
+    id: parsed.compositeKey,
+    patternId: parsed.patternId,
+    colorId: parsed.colorId,
+    label: parsed.label,
+    colorHex: parsed.colorHex,
+    glowClass: parsed.glowClass,
+    requiredLevel: 4,
+    style: parsed.style
+  };
 };
 
 export const hasActiveNameGlow = (glowId?: string | null): boolean => {
-  if (!glowId) return false;
-  const opt = getNameGlowOption(glowId);
-  return opt.id !== 'none';
+  if (!glowId || glowId === 'none') return false;
+  const parsed = parseNameBorder(glowId);
+  return parsed.patternId !== 'none';
 };

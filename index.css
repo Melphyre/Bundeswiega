@@ -97,6 +97,113 @@ html, body {
   }
 }
 
+/* ─── Dynamische Namensschild-Rahmen (Level 4+) mit Farb-Variable --glow-color ─── */
+
+/* 1. Pulsierender Neon-Glow */
+@keyframes dynamicNeonGlowPulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 6px var(--glow-color, #3b82f6),
+      0 0 16px color-mix(in srgb, var(--glow-color, #3b82f6) 80%, transparent),
+      0 0 30px color-mix(in srgb, var(--glow-color, #3b82f6) 50%, transparent),
+      inset 0 0 6px color-mix(in srgb, var(--glow-color, #3b82f6) 50%, transparent);
+    border-color: color-mix(in srgb, var(--glow-color, #3b82f6) 80%, #ffffff) !important;
+  }
+  50% {
+    box-shadow: 
+      0 0 14px color-mix(in srgb, var(--glow-color, #3b82f6) 90%, #ffffff),
+      0 0 28px var(--glow-color, #3b82f6),
+      0 0 48px color-mix(in srgb, var(--glow-color, #3b82f6) 75%, transparent),
+      inset 0 0 10px color-mix(in srgb, var(--glow-color, #3b82f6) 70%, #ffffff);
+    border-color: #ffffff !important;
+  }
+}
+
+.name-frame-neon-glow {
+  animation: dynamicNeonGlowPulse 1.8s infinite ease-in-out !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  position: relative !important;
+  z-index: 2;
+}
+
+/* 2. Laufender Laser-Rahmen */
+@keyframes laserBorderGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 8px var(--glow-color, #3b82f6),
+      0 0 20px color-mix(in srgb, var(--glow-color, #3b82f6) 70%, transparent),
+      inset 0 0 6px color-mix(in srgb, var(--glow-color, #3b82f6) 50%, transparent);
+    border-color: var(--glow-color, #3b82f6) !important;
+  }
+  50% {
+    box-shadow: 
+      0 0 16px var(--glow-color, #3b82f6),
+      0 0 32px var(--glow-color, #3b82f6),
+      inset 0 0 10px #ffffff;
+    border-color: #ffffff !important;
+  }
+}
+
+@keyframes laserSheenMove {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.name-frame-laser-pulse {
+  animation: laserBorderGlow 1.6s infinite ease-in-out !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  position: relative !important;
+  z-index: 2;
+}
+
+.name-frame-laser-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: laserSheenMove 2s linear infinite;
+  pointer-events: none;
+  opacity: 0.7;
+  mix-blend-mode: overlay;
+  z-index: 3;
+}
+
+/* 3. Doppelter Cyber-Rahmen */
+@keyframes cyberDoublePulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 0 2px rgba(15, 23, 42, 0.9),
+      0 0 0 4px var(--glow-color, #3b82f6),
+      0 0 14px var(--glow-color, #3b82f6);
+    border-color: var(--glow-color, #3b82f6) !important;
+  }
+  50% {
+    box-shadow: 
+      0 0 0 2px rgba(15, 23, 42, 0.9),
+      0 0 0 4px #ffffff,
+      0 0 24px var(--glow-color, #3b82f6),
+      0 0 38px color-mix(in srgb, var(--glow-color, #3b82f6) 65%, transparent);
+    border-color: #ffffff !important;
+  }
+}
+
+.name-frame-double-border {
+  animation: cyberDoublePulse 2.2s ease-in-out infinite !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  position: relative !important;
+  z-index: 2;
+}
+
+/* Legacy Klassen für bestehende Aufrufe */
 .neon-glow-blue {
   animation: neonGlowPulseBlue 1.8s infinite ease-in-out !important;
   border-width: 2.5px !important;
@@ -642,52 +749,72 @@ html, body {
   z-index: 1;
 }
 
-/* 2. Carbon: Animierter Carboneffekt */
-@keyframes carbonLusterAnim {
+/* 2. Carbon: Feine Mikro-Gewebe-Textur (4px Twill Weave) mit diagonalem Lichtglanz */
+@keyframes carbonGloss {
   0% {
-    background-position: -150% 0;
+    transform: translateY(-100%) rotate(25deg);
   }
-  100% {
-    background-position: 250% 0;
+  20%, 100% {
+    transform: translateY(100%) rotate(25deg);
   }
 }
 
-.name-anim-carbon {
+.name-anim-carbon,
+.carbon-effect-container {
   position: relative !important;
   overflow: hidden !important;
+  background-color: #111111 !important;
+  /* Feines Carbon-Mikro-Muster (4px Twill Weave) + dezent sublimer Farb-Schein im Zentrum */
+  background-image: 
+    linear-gradient(45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%), 
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%), 
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%),
+    radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 20%, transparent) 0%, transparent 80%) !important;
+  background-size: 4px 4px, 4px 4px, 4px 4px, 4px 4px, 100% 100% !important;
+  background-position: 0 0, 0 2px, 2px -2px, -2px 0px, 0 0 !important;
+  border: 1px solid color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 65%, #333333) !important;
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.85),
+              0 0 8px color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 28%, transparent) !important;
 }
 
+/* Entfernt das alte grobe Pseudo-Muster */
 .name-anim-carbon::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(27deg, rgba(0, 0, 0, 0.55) 5px, transparent 5px) 0 5px,
-    linear-gradient(207deg, rgba(0, 0, 0, 0.55) 5px, transparent 5px) 10px 0px,
-    linear-gradient(27deg, rgba(255, 255, 255, 0.1) 5px, transparent 5px) 0px 10px,
-    linear-gradient(207deg, rgba(255, 255, 255, 0.1) 5px, transparent 5px) 10px 5px;
-  background-size: 20px 10px;
-  pointer-events: none;
-  border-radius: inherit;
-  opacity: 0.85;
-  z-index: 1;
+  display: none !important;
 }
 
-.name-anim-carbon::after {
+/* Diagonaler Lichtglanz (Gloss Sheen) */
+.name-anim-carbon:not(:has(.carbon-sheen))::after,
+.carbon-sheen {
   content: '';
   position: absolute;
-  inset: 0;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
   background: linear-gradient(
-    110deg,
-    transparent 15%,
-    rgba(255, 255, 255, 0.32) 50%,
-    transparent 85%
+    135deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 62%
   );
-  background-size: 240% 100%;
-  animation: carbonLusterAnim 3.6s ease-in-out infinite;
+  transform: rotate(25deg);
+  animation: carbonGloss 6s ease-in-out infinite;
   pointer-events: none;
   border-radius: inherit;
   z-index: 2;
+}
+
+/* Text-Schutz: Perfekter Kontrast für den Spielernamen */
+.name-anim-carbon > span,
+.carbon-effect-container > span,
+.carbon-player-name {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.95), 
+               0 0 6px var(--selected-color, var(--name-accent-color, #22c55e)) !important;
 }
 
 /* 3. Cyberpunk: Farbige Blitze, die auf einem schwarzen Hintergrund zucken */
@@ -762,91 +889,214 @@ html, body {
   z-index: 2;
 }
 
-/* 4. Glitzer: Kleine animierte Sternchen in der Komplementärfarbe zum Hintergrund */
-@keyframes glitterStarTwinkle {
-  0%, 100% {
-    opacity: 0.2;
-    transform: scale(0.7) rotate(0deg);
+/* 4. Glitzer: Schnelles, vollständiges Blinken (Opacity 0 bis 1) mit versetzten Ebenen und hoher Dynamik */
+@keyframes fastSparkle {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+    filter: drop-shadow(0 0 1px var(--selected-color, var(--name-accent-color, #ef4444)));
+  }
+  15% {
+    opacity: 0;
+    transform: scale(0.3);
   }
   50% {
     opacity: 1;
-    transform: scale(1.3) rotate(45deg);
-    filter: drop-shadow(0 0 6px var(--name-comp-color, #fde047));
+    transform: scale(1.25);
+    filter: 
+      drop-shadow(0 0 3px #ffffff)
+      drop-shadow(0 0 7px var(--selected-color, var(--name-accent-color, #ef4444)))
+      drop-shadow(0 0 13px var(--selected-color, var(--name-accent-color, #ef4444)));
+  }
+  85% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.3);
+    filter: drop-shadow(0 0 1px var(--selected-color, var(--name-accent-color, #ef4444)));
   }
 }
 
-.name-anim-glitter {
+.name-anim-glitter,
+.glitter-effect-container {
+  background-color: #000000 !important;
   position: relative !important;
   overflow: hidden !important;
+  /* Subtiler farbiger Nebel im Zentrum für intensive Farbtiefe */
+  background-image: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--selected-color, var(--name-accent-color, #ef4444)) 35%, transparent) 0%, transparent 80%) !important;
+  border: 1.5px solid var(--selected-color, var(--name-accent-color, #ef4444)) !important;
+  box-shadow: 
+    0 0 10px color-mix(in srgb, var(--selected-color, var(--name-accent-color, #ef4444)) 45%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--selected-color, var(--name-accent-color, #ef4444)) 30%, transparent) !important;
 }
 
-.name-anim-glitter::before {
-  content: '';
+/* Entfernt eventuelle alte Pseudo-Elemente */
+.name-anim-glitter::before,
+.name-anim-glitter::after {
+  display: none !important;
+}
+
+/* Basis für alle Glitzer-Ebenen */
+.glitter-particles {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle, var(--name-comp-color, #fde047) 14%, transparent 24%) 2px 2px / 12px 12px,
-    radial-gradient(circle, #ffffff 18%, transparent 28%) 8px 6px / 14px 14px;
-  animation: glitterStarTwinkle 2.8s ease-in-out infinite;
+  inset: -12px;
+  background-repeat: repeat;
   pointer-events: none;
   border-radius: inherit;
+  will-change: transform, opacity;
+}
+
+/* Ebene 1: Schneller Blitz-Rhythmus (0.75s, Delay 0s) */
+.glitter-layer-1,
+.glitter-particles:not(.glitter-particles-secondary):not(.glitter-layer-2):not(.glitter-layer-3) {
+  background-image: 
+    radial-gradient(2px 2px at 8px 10px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(3px 3px at 28px 20px, #ffffff 0%, #ffffff 35%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 46px 7px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2.5px 2.5px at 64px 22px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 18px 24px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 54px 18px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%);
+  background-size: 72px 28px;
+  animation: fastSparkle 0.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation-delay: 0s;
   z-index: 1;
 }
 
-.name-anim-glitter::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle, var(--name-comp-color, #fde047) 12%, transparent 22%) 6px 1px / 16px 16px;
-  animation: glitterStarTwinkle 2s ease-in-out infinite reverse;
-  pointer-events: none;
-  border-radius: inherit;
+/* Ebene 2: Versetztes Aufblitzen an anderen Positionen (0.95s, Delay 0.3s) */
+.glitter-layer-2,
+.glitter-particles-secondary {
+  background-image: 
+    radial-gradient(2.5px 2.5px at 14px 22px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 34px 8px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(3px 3px at 52px 25px, #ffffff 0%, #ffffff 35%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 70px 14px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 24px 15px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 62px 6px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%);
+  background-size: 80px 32px;
+  animation: fastSparkle 0.95s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation-delay: 0.3s;
   z-index: 2;
 }
 
-/* 5. Matrix: Farbige Neon-Zahlen auf schwarzem Grund von oben nach unten laufen */
-@keyframes matrixRainDigitalAnim {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 0 48px;
-  }
+/* Ebene 3: Dritte versetzte Blitzecke (0.85s, Delay 0.6s) */
+.glitter-layer-3 {
+  background-image: 
+    radial-gradient(3px 3px at 10px 18px, #ffffff 0%, #ffffff 35%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 22px 6px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 40px 22px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2.5px 2.5px at 58px 10px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 72px 26px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 30px 14px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%);
+  background-size: 76px 30px;
+  animation: fastSparkle 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation-delay: 0.6s;
+  z-index: 3;
 }
 
-.name-anim-matrix {
-  position: relative !important;
-  overflow: hidden !important;
-  background-color: #030504 !important;
-  border-color: var(--name-accent-color, #00ff41) !important;
-}
-
-.name-anim-matrix::after {
+/* Fallback wenn ohne HTML-Markup verwendet */
+.name-anim-glitter:not(:has(.glitter-particles))::before {
   content: '';
+  display: block !important;
   position: absolute;
-  inset: 0;
-  background-image:
-    repeating-linear-gradient(
-      180deg,
-      var(--name-accent-color, #00ff41) 0px,
-      rgba(255, 255, 255, 0.8) 1.5px,
-      var(--name-accent-color, #00ff41) 3px,
-      transparent 3px,
-      transparent 8px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.8) 0px,
-      transparent 1px,
-      transparent 6px
-    );
-  background-size: 100% 24px, 8px 100%;
-  animation: matrixRainDigitalAnim 2.2s linear infinite;
-  opacity: 0.8;
+  inset: -12px;
+  background-image: 
+    radial-gradient(2px 2px at 10px 15px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2.5px 2.5px at 35px 22px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 60px 25px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(3px 3px at 85px 14px, #ffffff 0%, #ffffff 35%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2px 2px at 20px 8px, #ffffff 0%, #ffffff 25%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%),
+    radial-gradient(2.5px 2.5px at 70px 20px, #ffffff 0%, #ffffff 30%, var(--selected-color, var(--name-accent-color, #ef4444)) 70%, transparent 100%);
+  background-repeat: repeat;
+  background-size: 80px 30px;
+  animation: fastSparkle 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   pointer-events: none;
   border-radius: inherit;
   z-index: 1;
+}
+
+/* Text-Schutz & Lesbarkeit */
+.name-anim-glitter > span,
+.glitter-effect-container > span,
+.glitter-player-name {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: 
+    0 2px 5px rgba(0, 0, 0, 0.95),
+    0 0 10px var(--selected-color, var(--name-accent-color, #ef4444)),
+    0 0 18px var(--selected-color, var(--name-accent-color, #ef4444)) !important;
+}
+
+/* 5. Matrix: Animierter digitaler Ziffernregen (0 bis 9) mit leuchtendem Kopf */
+@keyframes matrixFall {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(180px);
+  }
+}
+
+.name-anim-matrix,
+.matrix-effect-container {
+  position: relative !important;
+  overflow: hidden !important;
+  background-color: #000000 !important;
+  border-color: var(--selected-color, var(--name-accent-color, #22c55e)) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Entfernt eventuelle alte Pseudo-Hintergründe */
+.name-anim-matrix::before,
+.name-anim-matrix::after {
+  display: none !important;
+}
+
+/* Vertikale Ziffern-Spalten */
+.matrix-column {
+  position: absolute;
+  top: -110px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--selected-color, var(--name-accent-color, #22c55e));
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  line-height: 11px;
+  font-weight: 700;
+  animation: matrixFall linear infinite;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Der leuchtend weiße Kopf der herabfallenden Ziffern */
+.matrix-column .matrix-head,
+.matrix-column span.matrix-head {
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: 
+    0 0 4px #ffffff,
+    0 0 8px var(--selected-color, var(--name-accent-color, #22c55e)),
+    0 0 14px var(--selected-color, var(--name-accent-color, #22c55e)) !important;
+}
+
+/* Text-Schutz & starke Lesbarkeit für den Spielernamen */
+.name-anim-matrix > span.truncate,
+.name-anim-matrix > span.relative,
+.matrix-effect-container > span,
+.matrix-player-name {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: 
+    0 0 4px #000000,
+    0 0 8px #000000,
+    0 0 12px #000000,
+    0 2px 4px rgba(0, 0, 0, 0.95) !important;
 }
 
 /* 6. Tartan: Kariertes Muster in der gewählten Farbe */
@@ -888,236 +1138,467 @@ html, body {
   z-index: 1;
 }
 
-/* 7. Feuer: Züngelnde Flammen und aufsteigende Glut-Partikel über dem Farb-Hintergrund */
-@keyframes fireFlickerLick {
-  0%, 100% {
-    transform: scaleY(0.96) scaleX(1);
-    filter: brightness(1) drop-shadow(0 -2px 6px rgba(255, 69, 0, 0.7));
+/* 7. Feuer: Züngelnde Flamme mit weißem Hitze-Kern, Farbverlauf in die gewählte Farbe und aufsteigenden Funken */
+@keyframes fireFlicker {
+  0% {
+    transform: translateX(-50%) scale(0.95) rotate(-1deg);
     opacity: 0.85;
   }
-  25% {
-    transform: scaleY(1.08) scaleX(0.98) skewX(-1.5deg);
-    filter: brightness(1.25) drop-shadow(0 -3px 9px rgba(255, 140, 0, 0.9));
-    opacity: 0.95;
-  }
   50% {
-    transform: scaleY(0.94) scaleX(1.02) skewX(1deg);
-    filter: brightness(1.1) drop-shadow(0 -2px 7px rgba(255, 69, 0, 0.75));
+    transform: translateX(-48%) scale(1.05) rotate(1deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-52%) scale(0.98) rotate(0deg);
     opacity: 0.9;
   }
-  75% {
-    transform: scaleY(1.12) scaleX(0.97) skewX(-0.5deg);
-    filter: brightness(1.3) drop-shadow(0 -4px 11px rgba(255, 200, 0, 0.95));
+}
+
+@keyframes sparkRise {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  30% {
     opacity: 1;
   }
-}
-
-@keyframes emberAscent {
-  0% {
-    background-position: 0 24px, 6px 30px, 12px 18px;
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.95;
-  }
   100% {
-    background-position: -8px -24px, 2px -30px, 18px -24px;
-    opacity: 0.2;
+    transform: translateY(-40px);
+    opacity: 0;
   }
 }
 
-.name-anim-fire {
+/* Basis-Container für den Feuer-Effekt */
+.name-anim-fire,
+.fire-effect-container {
+  background-color: #000000 !important;
   position: relative !important;
   overflow: hidden !important;
 }
 
-.name-anim-fire::before {
+/* 1. Heißer weißer Kern + Übergang in die gewählte Farbe (z.B. var(--selected-color)) */
+.name-anim-fire::before,
+.fire-effect-container::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(0deg, rgba(239, 68, 68, 0.75) 0%, rgba(249, 115, 22, 0.5) 40%, rgba(234, 179, 8, 0.25) 75%, transparent 100%),
-    radial-gradient(ellipse at 50% 120%, rgba(254, 240, 138, 0.9) 0%, rgba(249, 115, 22, 0.6) 45%, transparent 75%);
-  animation: fireFlickerLick 1.9s infinite ease-in-out;
+  bottom: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  height: 120%;
+  background: radial-gradient(
+    ellipse at bottom,
+    rgba(255, 255, 255, 0.95) 0%,        /* Heiße weiße Mitte */
+    rgba(255, 255, 255, 0.6) 18%,        /* Weicher Übergang */
+    var(--selected-color, var(--name-accent-color, #a855f7)) 45%,   /* Gewählte Farbe (z.B. Purpur) */
+    rgba(0, 0, 0, 0) 75%                 /* Auslaufend in Schwarz */
+  );
+  filter: blur(6px);
+  animation: fireFlicker 1.8s ease-in-out infinite alternate;
   pointer-events: none;
   border-radius: inherit;
   z-index: 1;
 }
 
-.name-anim-fire::after {
+/* 2. Aufsteigende Funken in der gewählten Farbe */
+.name-anim-fire::after,
+.fire-effect-container::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(circle, #fef08a 18%, transparent 28%),
-    radial-gradient(circle, #f97316 22%, transparent 32%),
-    radial-gradient(circle, #ffedd5 16%, transparent 26%);
-  background-size: 14px 16px, 18px 20px, 22px 24px;
-  animation: emberAscent 1.7s infinite linear;
+  inset: -20px 0;
+  background-image: 
+    radial-gradient(2px 2px at 20px 30px, #ffffff 0%, var(--selected-color, var(--name-accent-color, #a855f7)) 60%, transparent 100%),
+    radial-gradient(2px 2px at 40px 70px, #ffffff 0%, var(--selected-color, var(--name-accent-color, #a855f7)) 60%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 60px 20px, #ffffff 0%, var(--selected-color, var(--name-accent-color, #a855f7)) 60%, transparent 100%),
+    radial-gradient(2px 2px at 80px 50px, #ffffff 0%, var(--selected-color, var(--name-accent-color, #a855f7)) 60%, transparent 100%);
+  background-repeat: repeat;
+  background-size: 100px 100px;
+  animation: sparkRise 2.5s linear infinite;
+  opacity: 0.85;
   pointer-events: none;
   border-radius: inherit;
   z-index: 2;
 }
 
-/* 8. Blitze: Blitze, die von oben nach unten zucken (abgegrenzt zu Cyberpunk!) */
-@keyframes verticalLightningBoltStrike {
-  0%, 86%, 100% {
+/* Lesbarkeit des Spielernamens über dem Feuereffekt sicherstellen */
+.name-anim-fire > span,
+.fire-effect-container > span {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9) !important;
+}
+
+/* 8. Blitze (Lightning Effect): Tiefschwarzer Grund, Umgebungs-Schein (Flash Glow) und gezackte Blitze mit weißem Kern & farbiger Aura */
+
+/* 1. Basis-Container */
+.name-anim-lightning,
+.lightning-effect-container {
+  background-color: #000000 !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+/* 2. Umgebungs-Aufleuchten (Hintergrund-Flash) */
+.lightning-flash-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 20%, 
+    var(--selected-color, var(--name-accent-color, #a855f7)) 0%, 
+    rgba(0, 0, 0, 0) 80%
+  );
+  opacity: 0;
+  animation: backgroundFlash 3s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* Keyframe für den Umgebungs-Flash */
+@keyframes backgroundFlash {
+  0%, 42%, 46%, 48%, 52%, 100% { opacity: 0; }
+  43% { opacity: 0.65; }
+  47% { opacity: 0.95; }
+  50% { opacity: 0.35; }
+}
+
+/* SVG-Blitz-Styling mit weißem Kern und farbiger Aura */
+.lightning-svg-bolt {
+  fill: none;
+  stroke: #ffffff; /* Strahlend weißer Kern */
+  stroke-width: 2.2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Farbige Aura / Glühen um den weißen Kern */
+  filter: drop-shadow(0px 0px 4px var(--selected-color, var(--name-accent-color, #a855f7)))
+          drop-shadow(0px 0px 8px var(--selected-color, var(--name-accent-color, #a855f7)))
+          drop-shadow(0px 0px 14px var(--selected-color, var(--name-accent-color, #a855f7)));
+  opacity: 0;
+  animation: boltStrike 3s ease-in-out infinite;
+}
+
+.lightning-svg-branch {
+  stroke-width: 1.6px;
+  opacity: 0;
+}
+
+/* Sekundär-Blitz mit asynchronem Rhythmus */
+.lightning-bolt-secondary {
+  animation: secondaryBoltStrike 3s ease-in-out infinite 0.15s;
+}
+
+/* Keyframe für das zuckende Einschlagen des Hauptblitzes */
+@keyframes boltStrike {
+  0%, 42%, 53%, 100% {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: scaleY(0.85);
   }
-  88% {
+  43% {
     opacity: 1;
-    transform: translateY(0);
-    filter: drop-shadow(0 0 10px #ffffff) drop-shadow(0 0 16px #60a5fa);
+    transform: scaleY(1);
   }
-  90% {
+  45% {
     opacity: 0.2;
   }
-  92% {
+  47% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Keyframe für sekundären Blitz (kurzes Vor- oder Nachzucken) */
+@keyframes secondaryBoltStrike {
+  0%, 44%, 55%, 100% {
+    opacity: 0;
+    transform: scaleY(0.9);
+  }
+  45% {
     opacity: 0.95;
-    filter: drop-shadow(0 0 12px #ffffff) drop-shadow(0 0 20px #93c5fd);
+    transform: scaleY(1);
   }
-  94% {
-    opacity: 0.1;
-  }
-  96% {
-    opacity: 0.85;
-    filter: drop-shadow(0 0 8px #ffffff) drop-shadow(0 0 14px #3b82f6);
-  }
-  98% {
+  47% {
     opacity: 0.15;
   }
+  49% {
+    opacity: 1;
+  }
+  52% {
+    opacity: 0;
+  }
 }
 
-.name-anim-lightning {
+/* Text-Schutz: Garantiert perfekte Lesbarkeit über Blitzen und Umgebungs-Schein */
+.name-anim-lightning > span,
+.lightning-effect-container > span {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9) !important;
+}
+
+/* 9. Schneeflocken: Große, markante Schneekristalle (❄, ❅, ❆) mit intensivem Neon-Glow und Rundum-Leuchten */
+
+/* Basis-Container für den Schneeflocken-Effekt */
+.name-anim-snow,
+.snow-effect-container {
+  background-color: #000000 !important;
   position: relative !important;
   overflow: hidden !important;
+  /* Kräftiger, leuchtender Rahmen in der Spielerfarbe */
+  border: 1.5px solid color-mix(in srgb, var(--selected-color, var(--name-accent-color, #38bdf8)) 80%, #ffffff) !important;
+  box-shadow: 
+    0 0 16px var(--selected-color, var(--name-accent-color, #38bdf8)),
+    0 0 8px var(--selected-color, var(--name-accent-color, #38bdf8)),
+    inset 0 0 10px var(--selected-color, var(--name-accent-color, #38bdf8)) !important;
 }
 
-.name-anim-lightning::before {
-  content: '';
+/* Entfernt eventuelle alte Pseudo-Elemente */
+.name-anim-snow::before,
+.name-anim-snow::after {
+  display: none !important;
+}
+
+/* Großflächiger, intensiver Umgebungs-Schein in Spielerfarbe */
+.snow-ambient-glow {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, transparent 60%);
-  opacity: 0.5;
+  background: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--selected-color, var(--name-accent-color, #38bdf8)) 45%, transparent) 0%, transparent 85%);
   pointer-events: none;
   border-radius: inherit;
   z-index: 1;
 }
 
-.name-anim-lightning::after {
-  content: '';
+/* Feine Frost-Kante oben und unten */
+.snow-frost-edge {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(180deg, transparent 0%, #ffffff 25%, #93c5fd 50%, #ffffff 75%, transparent 100%),
-    linear-gradient(176deg, transparent 5%, #60a5fa 30%, #ffffff 45%, #60a5fa 60%, transparent 95%),
-    linear-gradient(184deg, transparent 15%, #ffffff 48%, #3b82f6 65%, transparent 92%);
-  background-size: 3px 100%, 2.5px 100%, 2px 100%;
-  background-position: 22% 0, 54% 0, 82% 0;
-  background-repeat: no-repeat;
-  animation: verticalLightningBoltStrike 2.4s infinite ease-out;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, transparent 35%, rgba(255, 255, 255, 0.12) 100%);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* Einzelne große Schneeflocke mit massiver Leuchtkraft */
+.snowflake-flake,
+.snow-flake {
+  position: absolute;
+  top: -22px;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+  color: #ffffff !important;
+  font-weight: 900;
+  /* Massives Leuchten um jede einzelne Flocke mit strahlend weißem Kern und breiter Farb-Aura */
+  text-shadow: 
+    0 0 4px #ffffff,
+    0 0 8px var(--selected-color, var(--name-accent-color, #38bdf8)),
+    0 0 16px var(--selected-color, var(--name-accent-color, #38bdf8));
+  filter: 
+    drop-shadow(0 0 3px #ffffff)
+    drop-shadow(0 0 6px var(--selected-color, var(--name-accent-color, #38bdf8)))
+    drop-shadow(0 0 12px var(--selected-color, var(--name-accent-color, #38bdf8)))
+    drop-shadow(0 0 20px var(--selected-color, var(--name-accent-color, #38bdf8)));
+  will-change: transform, opacity;
+  z-index: 2;
+}
+
+/* Fall- & Schaukelbewegung Typ 1: Sanft nach rechts driftend und zurück */
+@keyframes snowSway1 {
+  0% {
+    transform: translateY(0px) translateX(0px) rotate(0deg);
+  }
+  25% {
+    transform: translateY(16px) translateX(7px) rotate(35deg);
+  }
+  50% {
+    transform: translateY(32px) translateX(2px) rotate(70deg);
+  }
+  75% {
+    transform: translateY(48px) translateX(-6px) rotate(110deg);
+  }
+  100% {
+    transform: translateY(68px) translateX(4px) rotate(150deg);
+  }
+}
+
+/* Fall- & Schaukelbewegung Typ 2: Sanft nach links pendelnd */
+@keyframes snowSway2 {
+  0% {
+    transform: translateY(0px) translateX(0px) rotate(0deg);
+  }
+  30% {
+    transform: translateY(18px) translateX(-8px) rotate(-40deg);
+  }
+  60% {
+    transform: translateY(38px) translateX(6px) rotate(-80deg);
+  }
+  85% {
+    transform: translateY(54px) translateX(-2px) rotate(-120deg);
+  }
+  100% {
+    transform: translateY(68px) translateX(-7px) rotate(-160deg);
+  }
+}
+
+/* Fall- & Schaukelbewegung Typ 3: Weiter Schwung */
+@keyframes snowSway3 {
+  0% {
+    transform: translateY(0px) translateX(0px) rotate(0deg);
+  }
+  35% {
+    transform: translateY(22px) translateX(9px) rotate(50deg);
+  }
+  70% {
+    transform: translateY(45px) translateX(-7px) rotate(100deg);
+  }
+  100% {
+    transform: translateY(68px) translateX(5px) rotate(180deg);
+  }
+}
+
+.snowflake-flake.snow-sway-1,
+.snow-flake.snow-sway-1 {
+  animation: snowSway1 ease-in-out infinite;
+}
+
+.snowflake-flake.snow-sway-2,
+.snow-flake.snow-sway-2 {
+  animation: snowSway2 ease-in-out infinite;
+}
+
+.snowflake-flake.snow-sway-3,
+.snow-flake.snow-sway-3 {
+  animation: snowSway3 ease-in-out infinite;
+}
+
+/* Text-Schutz & Lesbarkeit für den Spielernamen */
+.name-anim-snow > span.truncate,
+.name-anim-snow > span.relative,
+.snow-effect-container > span,
+.snow-player-name {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  font-weight: 900;
+  text-shadow: 
+    0 0 4px #000000,
+    0 0 8px #000000,
+    0 2px 6px rgba(0, 0, 0, 0.95),
+    0 0 12px var(--selected-color, var(--name-accent-color, #38bdf8)),
+    0 0 22px var(--selected-color, var(--name-accent-color, #38bdf8)) !important;
+}
+
+/* 10. Wasser & Wellen: Organische Wassertextur mit fließenden Caustics Lichtreflexen */
+
+/* Basis-Container */
+.name-anim-waves,
+.water-effect-container {
+  position: relative !important;
+  overflow: hidden !important;
+  background-color: #030d1a !important;
+  background-color: color-mix(in srgb, var(--selected-color, var(--name-accent-color, #0284c7)) 35%, #020617) !important;
+}
+
+/* Wasser-Oberfläche mit mehrfachen feinen Lichtreflexen und reichem Farbverlauf */
+.water-surface {
+  position: absolute;
+  inset: -15px;
+  background: 
+    radial-gradient(ellipse 14px 8px at 18% 30%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.25) 45%, transparent 75%),
+    radial-gradient(ellipse 16px 9px at 52% 68%, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.2) 45%, transparent 80%),
+    radial-gradient(ellipse 12px 7px at 78% 28%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.25) 40%, transparent 75%),
+    radial-gradient(ellipse 15px 8px at 86% 76%, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.2) 40%, transparent 75%),
+    radial-gradient(circle 20px at 32% 80%, var(--selected-color, var(--name-accent-color, #0284c7)) 0%, transparent 70%),
+    radial-gradient(circle 24px at 68% 22%, var(--selected-color, var(--name-accent-color, #0284c7)) 0%, transparent 70%),
+    linear-gradient(135deg, 
+      color-mix(in srgb, var(--selected-color, var(--name-accent-color, #0284c7)) 38%, #020617) 0%, 
+      var(--selected-color, var(--name-accent-color, #0284c7)) 50%, 
+      color-mix(in srgb, var(--selected-color, var(--name-accent-color, #0284c7)) 70%, #ffffff) 100%
+    );
+  filter: url(#water-distortion);
+  animation: waterFlow 7s ease-in-out infinite alternate;
+  opacity: 0.92;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* Caustics: Dichtes, kleinteilig glitzerndes Lichtnetz über das gesamte Schild */
+.water-caustics {
+  position: absolute;
+  inset: -15px;
+  background-image: 
+    radial-gradient(circle 4px at 15px 12px, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%),
+    radial-gradient(circle 5px at 45px 22px, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%),
+    radial-gradient(circle 3.5px at 75px 8px, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.25) 50%, transparent 100%),
+    radial-gradient(circle 4.5px at 105px 24px, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%),
+    repeating-radial-gradient(circle at 50% 50%, transparent 0, transparent 4px, rgba(255, 255, 255, 0.22) 5px, rgba(255, 255, 255, 0.32) 6.5px, transparent 8.5px);
+  background-size: 120px 32px, 120px 32px, 120px 32px, 120px 32px, 26px 26px;
+  filter: url(#water-distortion);
+  animation: causticShimmer 5s ease-in-out infinite alternate;
+  mix-blend-mode: overlay;
   pointer-events: none;
   border-radius: inherit;
   z-index: 2;
 }
 
-/* 9. Schneeflocken: Sanft rieselnde Schneeflocken und Kristalle über dem Farb-Hintergrund */
-@keyframes gentleSnowFall {
+/* Fallback ::before / ::after wenn außerhalb von PlayerNameTag ohne HTML-Markup verwendet */
+.name-anim-waves:not(:has(.water-surface))::before {
+  content: '';
+  position: absolute;
+  inset: -15px;
+  background: 
+    radial-gradient(ellipse 14px 8px at 25% 35%, rgba(255, 255, 255, 0.7) 0%, transparent 70%),
+    radial-gradient(ellipse 16px 9px at 75% 65%, rgba(255, 255, 255, 0.7) 0%, transparent 70%),
+    linear-gradient(135deg, 
+      color-mix(in srgb, var(--selected-color, var(--name-accent-color, #0284c7)) 35%, #020617) 0%, 
+      var(--selected-color, var(--name-accent-color, #0284c7)) 50%, 
+      rgba(255, 255, 255, 0.4) 100%
+    );
+  filter: url(#water-distortion);
+  animation: waterFlow 7s ease-in-out infinite alternate;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+@keyframes waterFlow {
   0% {
-    background-position: 0 -22px, 0 -16px, 0 -10px;
-    opacity: 0.35;
+    transform: scale(1) translate(0, 0);
   }
   50% {
+    transform: scale(1.03) translate(-2px, 1.5px);
+  }
+  100% {
+    transform: scale(1.02) translate(2px, -2px);
+  }
+}
+
+@keyframes causticShimmer {
+  0% {
+    transform: scale(1) translate(1px, -1px);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.04) translate(-1.5px, 1px);
     opacity: 0.95;
   }
   100% {
-    background-position: 16px 44px, -14px 38px, 10px 32px;
-    opacity: 0.35;
+    transform: scale(0.98) translate(1.5px, 1px);
+    opacity: 0.8;
   }
 }
 
-.name-anim-snow {
-  position: relative !important;
-  overflow: hidden !important;
-}
-
-.name-anim-snow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, transparent 65%);
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 1;
-}
-
-.name-anim-snow::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(circle, #ffffff 18%, transparent 26%),
-    radial-gradient(circle, rgba(224, 242, 254, 0.92) 15%, transparent 25%),
-    radial-gradient(circle, #ffffff 12%, transparent 22%);
-  background-size: 15px 15px, 22px 22px, 30px 30px;
-  animation: gentleSnowFall 3.4s infinite linear;
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 2;
-}
-
-/* 10. Wasser/Wellen: Sanft fließende und pulsierende Wasserwellen-Muster */
-@keyframes oceanWaveFlowPulse {
-  0% {
-    background-position: 0% 50%, 0% 100%;
-  }
-  50% {
-    background-position: 100% 50%, 50% 80%;
-  }
-  100% {
-    background-position: 200% 50%, 100% 100%;
-  }
-}
-
-.name-anim-waves {
-  position: relative !important;
-  overflow: hidden !important;
-}
-
-.name-anim-waves::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, transparent 35%, rgba(6, 182, 212, 0.35) 65%, rgba(14, 116, 144, 0.55) 100%);
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 1;
-}
-
-.name-anim-waves::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.45) 0%, transparent 55%),
-    repeating-linear-gradient(
-      115deg,
-      transparent,
-      transparent 8px,
-      rgba(255, 255, 255, 0.32) 8px,
-      rgba(255, 255, 255, 0.32) 12px,
-      transparent 12px,
-      transparent 20px,
-      rgba(56, 189, 248, 0.38) 20px,
-      rgba(56, 189, 248, 0.38) 25px
-    );
-  background-size: 150% 100%, 200% 100%;
-  animation: oceanWaveFlowPulse 4.4s ease-in-out infinite;
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 2;
+/* Text-Schutz */
+.name-anim-waves > span,
+.water-effect-container > span {
+  position: relative;
+  z-index: 10;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════

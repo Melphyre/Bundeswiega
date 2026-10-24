@@ -10,12 +10,15 @@ import {
   NAME_TAG_COLORS,
   getNameTagOption,
   NAME_GLOW_OPTIONS,
+  getNameGlowOption,
+  NameBorderPatternId,
   isColorUnlocked,
   parseNameBg,
   NameBgColorId,
   NameBgAnimationId
 } from '../constants/nameTagConfig';
 import NameBgSelector from './NameBgSelector';
+import NameBorderSelector from './NameBorderSelector';
 import {
   hasUnlockedAnyAvatarFrame,
   hasUnlockedAnyColumnTheme,
@@ -686,12 +689,16 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         // ignore
       }
 
-      const opt = NAME_GLOW_OPTIONS.find(o => o.id === newGlow);
-      setNameGlowMessage(`✅ Neon-Glow Rahmen "${opt?.label || newGlow}" erfolgreich gespeichert!`);
+      const opt = getNameGlowOption(newGlow);
+      setNameGlowMessage(
+        opt.patternId === 'none'
+          ? '✅ Namensschild-Rahmen ausgeschaltet!'
+          : `✅ Namensschild-Rahmen "${opt.label}" erfolgreich gespeichert!`
+      );
       if (refreshUserData) await refreshUserData();
     } catch (e: any) {
-      console.error('Fehler beim Aktualisieren des Neon-Glow Rahmens:', e);
-      setNameGlowMessage(`❌ Fehler: ${e.message || 'Konnte Neon-Glow nicht speichern'}`);
+      console.error('Fehler beim Aktualisieren des Namensschild-Rahmens:', e);
+      setNameGlowMessage(`❌ Fehler: ${e.message || 'Konnte Rahmen nicht speichern'}`);
     } finally {
       setNameGlowLoading(false);
     }
@@ -1424,46 +1431,37 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                           </div>
                         )}
 
-                        {/* Kategorie 2: Neon Glow Rahmen (ab Level 4 sichtbar) */}
+                        {/* Kategorie 2: Namensschild-Rahmen & Leuchteffekte (ab Level 4 sichtbar) */}
                         {showNameGlow && (
                           <div className="space-y-2 p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/5 animate-in fade-in">
                             <div className="flex items-center justify-between flex-wrap gap-1">
                               <label className="block text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
                                 <i className="fas fa-sparkles"></i>
-                                <span>✨ Pulsierender Neon-Glow Rahmen:</span>
+                                <span>✨ Namensschild-Rahmen & Effekte konfigurieren:</span>
                               </label>
                               <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/40">
                                 Ab Level 4 freigeschaltet
                               </span>
                             </div>
 
-                            <p className="text-[11px] opacity-70">
-                              Wähle einen leuchtenden, sanft pulsierenden Rahmen um deinen Namen:
-                            </p>
-
-                            <select
-                              value={selectedNameGlow || 'none'}
-                              onChange={(e) => handleNameGlowChange(e.target.value)}
+                            <NameBorderSelector
+                              currentValue={selectedNameGlow}
+                              userLevel={levelInfo.level}
+                              unlockedContext={{
+                                completedQuestIds,
+                                achievementsCount: totalAchievementsCount,
+                                standardWins: standardWinsCount,
+                                unlockedColors: userUnlockedColors
+                              }}
+                              playerName={profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.user_metadata?.display_name || 'Dein Name'}
+                              activeBg={selectedNameBgColor}
                               disabled={nameGlowLoading}
-                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
-                                darkMode ? 'border-purple-500/40 bg-slate-900 text-white' : 'border-purple-300 bg-white text-black'
-                              }`}
-                            >
-                              {NAME_GLOW_OPTIONS.map((opt) => {
-                                const glowEmoji = opt.id === 'none' ? '🚫' : opt.id === 'blue' ? '🔵' : opt.id === 'red' ? '🔴' : opt.id === 'green' ? '🟢' : '🟡';
-                                return (
-                                  <option key={opt.id} value={opt.id}>
-                                    {glowEmoji} {opt.label}
-                                  </option>
-                                );
-                              })}
-                            </select>
-
-                            {nameGlowMessage && (
-                              <p className={`text-xs font-bold animate-in fade-in ${nameGlowMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {nameGlowMessage}
-                              </p>
-                            )}
+                              onSave={async (_newPattern, _newColor, serialized) => {
+                                await handleNameGlowChange(serialized);
+                              }}
+                              message={nameGlowMessage}
+                              darkMode={darkMode}
+                            />
                           </div>
                         )}
 

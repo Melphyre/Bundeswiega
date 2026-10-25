@@ -352,3 +352,112 @@ export function checkTournamentAchievements(
 
   return earned;
 }
+
+/**
+ * Prüft, ob zwei Spieler exakt dieselben Leistungswerte haben (Gleichstand):
+ * Identischer Durchschnittsabstand (avg) und identische Schnäpse (schnaepse).
+ */
+export function areScoresEqual(
+  a: { avg: number; schnaepse?: number },
+  b: { avg: number; schnaepse?: number }
+): boolean {
+  const avgDiff = Math.abs((Number(a.avg) || 0) - (Number(b.avg) || 0));
+  const schnappsA = Number(a.schnaepse) || 0;
+  const schnappsB = Number(b.schnaepse) || 0;
+  return avgDiff < 0.001 && schnappsA === schnappsB;
+}
+
+export interface PlayerScoreItem {
+  id?: string;
+  name?: string;
+  avg: number;
+  schnaepse?: number;
+  total?: number;
+  isDisqualified?: boolean;
+  [key: string]: any;
+}
+
+/**
+ * Standard Competition Ranking (1224-Ranking / Wettbewerbs-Rangliste bei Gleichstand):
+ * Sortierkriterien:
+ * 1. Bester Durchschnitt (avg aufsteigend; kleinerer Abstand ist besser)
+ * 2. Wenigste Schnäpse (schnaepse aufsteigend)
+ * 3. Bei absolutem Gleichstand in beiden Metriken erhalten die Spieler denselben Rang.
+ *    Der Folgerang wird um die Anzahl der vorherigen Spieler übersprungen (z. B. Platz 1, Platz 1, Platz 3).
+ * Disqualifizierte Spieler werden ans Ende gesetzt.
+ */
+export function calculateCompetitionRanks<T extends PlayerScoreItem>(
+  players: T[],
+  options?: {
+    higherAvgIsBetter?: boolean;
+  }
+): (T & { rank: number })[] {
+  const higherAvg = options?.higherAvgIsBetter ?? false;
+
+  const sorted = [...players].sort((a, b) => {
+    // Disqualifizierte Spieler immer ans Ende
+    if (a.isDisqualified && !b.isDisqualified) return 1;
+    if (!a.isDisqualified && b.isDisqualified) return -1;
+    if (a.isDisqualified && b.isDisqualified) return 0;
+
+    // 1. Kriterium: Bester Durchschnitt (avg)
+    const avgA = Number(a.avg) || 0;
+    const avgB = Number(b.avg) || 0;
+    const diffAvg = higherAvg ? avgB - avgA : avgA - avgB;
+    if (Math.abs(diffAvg) > 0.0001) return diffAvg;
+
+    // 2. Kriterium: Wenigste Schnäpse
+    const sA = Number(a.schnaepse) || 0;
+    const sB = Number(b.schnaepse) || 0;
+    if (sA !== sB) {
+      return sA - sB;
+    }
+
+    return 0;
+  });
+
+  let currentRank = 1;
+  return sorted.map((player, index, arr) => {
+    if (player.isDisqualified) {
+      return { ...player, rank: index + 1 };
+    }
+
+    if (index === 0) {
+      currentRank = 1;
+    } else {
+      const prev = arr[index - 1];
+      if (prev.isDisqualified) {
+        currentRank = index + 1;
+      } else {
+        const isTie = areScoresEqual(player, prev);
+        if (!isTie) {
+          // Standard Competition Ranking: Überspringen um Anzahl der vorherigen Spieler
+          currentRank = index + 1;
+        }
+      }
+    }
+
+    return { ...player, rank: currentRank };
+  });
+}
+
+/**
+ * Standard Competition Ranking für Teams (nach wenigsten Strafpunkten)
+ */
+export function calculateTeamCompetitionRanks<T extends { id?: string; name: string; points: number }>(
+  teams: T[]
+): (T & { rank: number })[] {
+  const sorted = [...teams].sort((a, b) => (Number(a.points) || 0) - (Number(b.points) || 0));
+  let currentRank = 1;
+  return sorted.map((team, index, arr) => {
+    if (index === 0) {
+      currentRank = 1;
+    } else {
+      const prev = arr[index - 1];
+      if ((Number(team.points) || 0) !== (Number(prev.points) || 0)) {
+        currentRank = index + 1;
+      }
+    }
+    return { ...team, rank: currentRank };
+  });
+}

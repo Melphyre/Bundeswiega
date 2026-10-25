@@ -1661,15 +1661,34 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
 
       // Entferne bestehende Ergebnisse für diesen Tisch und füge neue hinzu
       const filteredResults = currentResults.filter((r: any) => r.tableId !== tableId);
-      const newTableResults = results.map((r: any) => ({
-        tableId,
-        name: r.name,
-        rank: r.rank,
-        avg: r.avg,
-        schnaepse: r.schnaepse,
-        total: r.total,
-        date
-      }));
+      // Sicherstellen, dass Standard-Wettbewerbsranking (Gleichstand erhalten) gewahrt bleibt
+      const sortedInputResults = [...results].sort((a: any, b: any) => {
+        const diffAvg = Number(a.avg || 0) - Number(b.avg || 0);
+        if (Math.abs(diffAvg) > 0.0001) return diffAvg;
+        return Number(a.schnaepse || 0) - Number(b.schnaepse || 0);
+      });
+
+      let currentCompRank = 1;
+      const newTableResults = sortedInputResults.map((r: any, idx: number, arr: any[]) => {
+        if (idx === 0) {
+          currentCompRank = 1;
+        } else {
+          const prev = arr[idx - 1];
+          const isTie = Math.abs(Number(r.avg || 0) - Number(prev.avg || 0)) < 0.001 && Number(r.schnaepse || 0) === Number(prev.schnaepse || 0);
+          if (!isTie) {
+            currentCompRank = idx + 1;
+          }
+        }
+        return {
+          tableId,
+          name: r.name,
+          rank: r.rank !== undefined && typeof r.rank === 'number' ? r.rank : currentCompRank,
+          avg: r.avg,
+          schnaepse: r.schnaepse,
+          total: r.total,
+          date
+        };
+      });
       const updatedResults = [...filteredResults, ...newTableResults];
 
       // Setze Status des Tisches auf Abgeschlossen

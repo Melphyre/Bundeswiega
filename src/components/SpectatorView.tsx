@@ -7,7 +7,7 @@ import PlayerAvatar from './PlayerAvatar';
 import PlayerTitleBadge from './PlayerTitleBadge';
 import PlayerLevelBadge from './PlayerLevelBadge';
 import { PlayerNameTag } from './PlayerNameTag';
-import { calculateAverageDistance } from '../../utils';
+import { calculateAverageDistance, calculateCompetitionRanks } from '../../utils';
 import { BRAND_COLOR, DARK_GRAY, PLAYER_COLORS } from '../constants';
 import { getColumnThemeClass, getRowThemeClass } from '../constants/cosmeticsConfig';
 
@@ -110,19 +110,27 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
   const rounds = Array.isArray(gameData.rounds) ? gameData.rounds : [];
   const currentRoundResults = gameData.currentRoundResults || {};
   const isFinished = game.status === 'finished';
+  const isLiveMode = !isFinished;
 
   // Standings / Rangliste für Standardspiel & Turnier
-  const sortedPlayers = [...players].map(p => {
+  const rawPlayers = [...players].map(p => {
     const avg = calculateAverageDistance(p.id, rounds);
     const schnaepse = Number(p.schnaepse) || 0;
     const total = Math.round((avg + schnaepse) * 100) / 100;
     return { ...p, avg, schnaepse, total };
-  }).sort((a, b) => {
-    if (a.isDisqualified && !b.isDisqualified) return 1;
-    if (!a.isDisqualified && b.isDisqualified) return -1;
-    if (a.total !== b.total) return a.total - b.total;
-    return a.avg - b.avg;
   });
+
+  const rankedPlayers = calculateCompetitionRanks(rawPlayers);
+
+  // Im Live-Modus (Spiel läuft noch):
+  // 1. Spoilerschutz: Spieler werden in ursprünglicher Sitzreihenfolge angezeigt, um nicht schon durch die Listenreihenfolge den Führenden zu verraten
+  // 2. Sobald das Spiel beendet ist: Nach offiziellem Rang (Standard Competition Ranking mit Tie-Handling) sortiert
+  const displayPlayers = isFinished
+    ? rankedPlayers
+    : rawPlayers.map(p => {
+        const rk = rankedPlayers.find(rp => rp.id === p.id);
+        return { ...p, rank: rk ? rk.rank : 1 };
+      });
 
   return (
     <div className={`min-h-screen flex flex-col p-3 md:p-6 transition-colors duration-300 ${
@@ -499,19 +507,37 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
 
             {/* Live-Rangliste (Standings) */}
             <div className={`p-4 md:p-6 rounded-3xl border ${darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-gray-200'} shadow-md`}>
-              <h3 className="font-black text-base mb-4 flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <i className="fas fa-trophy text-amber-400"></i>
-                  <span>Live-Rangliste</span>
-                </span>
-                <span className="text-xs font-normal opacity-50">
-                  Sortiert nach bestem Schnitt & Schnäpsen
-                </span>
-              </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <i className={`fas ${isFinished ? 'fa-trophy text-amber-400' : 'fa-shield-alt text-teal-400'}`}></i>
+                  <h3 className="font-black text-base">
+                    {isFinished ? 'Offizielle Rangliste' : 'Live-Zwischenstand'}
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {isLiveMode ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500/15 text-amber-500 border border-amber-500/30 shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      <span>Live (Rang ausgeblendet)</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-xs">
+                      <i className="fas fa-check-circle text-xs"></i>
+                      <span>Endergebnis feststehend</span>
+                    </span>
+                  )}
+                  <span className="text-xs font-normal opacity-50 hidden sm:inline">
+                    {isFinished
+                      ? 'Sortiert nach Schnitt & Schnäpsen (Standard Competition Ranking)'
+                      : 'Spoilerschutz aktiv • Platzierungen verdeckt bis Spielende'}
+                  </span>
+                </div>
+              </div>
 
               <div className="space-y-2">
-                {sortedPlayers.map((p, idx) => {
-                  const isLeader = idx === 0 && !p.isDisqualified;
+                {displayPlayers.map((p, idx) => {
+                  const isLeader = isFinished && p.rank === 1 && !p.isDisqualified;
                   const rowThemeClass = getRowThemeClass(p.leaderboard_row_theme || (p as any).row_theme);
                   return (
                     <div
@@ -523,10 +549,23 @@ export const SpectatorView: React.FC<SpectatorViewProps> = ({
                       }`}
                     >
                       <div className="flex items-center space-x-3">
-                        <span className={`w-7 h-7 rounded-xl font-black text-xs flex items-center justify-center ${
-                          idx === 0 ? 'bg-amber-400 text-black shadow-xs' : idx === 1 ? 'bg-slate-300 text-black' : idx === 2 ? 'bg-amber-700 text-white' : 'bg-gray-500/20 opacity-60'
-                        }`}>
-                          {idx + 1}
+                        <span
+                          className={`w-9 h-7 rounded-xl font-black text-xs flex items-center justify-center transition-all ${
+                            isLiveMode
+                              ? 'bg-slate-500/20 text-slate-400 border border-dashed border-slate-500/30'
+                              : p.isDisqualified
+                              ? 'bg-red-500/20 text-red-400'
+                              : p.rank === 1
+                              ? 'bg-amber-400 text-black shadow-xs'
+                              : p.rank === 2
+                              ? 'bg-slate-300 text-black'
+                              : p.rank === 3
+                              ? 'bg-amber-700 text-white'
+                              : 'bg-gray-500/20 opacity-60'
+                          }`}
+                          title={isLiveMode ? 'Live (Rang ausgeblendet)' : p.isDisqualified ? 'Disqualifiziert' : `Platz ${p.rank}`}
+                        >
+                          {isLiveMode ? '# -' : p.isDisqualified ? '💀' : p.rank}
                         </span>
 
                         <PlayerAvatar

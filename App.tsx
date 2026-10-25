@@ -5,7 +5,7 @@ import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 import QRScannerModal from './src/components/QRScannerModal';
 import { GameState, Player, Round, Team, Achievement, ParsedRecord, Friend, PendingFriendRequest, Friendship, FriendshipJoined } from './types';
-import { calculateAverageDistance, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
+import { calculateAverageDistance, calculateCompetitionRanks, calculateTeamCompetitionRanks, getRoundSummary, getTargetRange, SPECIAL_NUMBERS, TOGETHER_ACHIEVEMENT_IDS, checkTournamentAchievements } from './utils';
 
 import {
   MASTER_ACHIEVEMENTS_DEFINITIONS,
@@ -3050,24 +3050,28 @@ const App: React.FC = () => {
 
         // Standardspiel
         if (teams.length === 0) {
-          const sortedPlayers = [...players].map(p => {
-            const avg = calculateAverageDistance(p.id, rounds);
-            const total = avg + p.schnaepse;
-            return {
-              id: p.id,
-              name: p.name,
-              avg,
-              schnaepse: p.schnaepse,
-              total,
-              isDisqualified: p.isDisqualified
-            };
-          }).sort((a, b) => (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.total - b.total));
+          const rankedPlayers = calculateCompetitionRanks(
+            players.map(p => {
+              const avg = calculateAverageDistance(p.id, rounds);
+              const schnaepse = Number(p.schnaepse) || 0;
+              const total = avg + schnaepse;
+              return {
+                id: p.id,
+                name: p.name,
+                avg,
+                schnaepse,
+                total,
+                isDisqualified: p.isDisqualified
+              };
+            })
+          );
 
           for (const player of players) {
             const targetUserId = player.userId || playerAccountLinks[player.id]?.userId;
             if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
-              const avg = calculateAverageDistance(player.id, rounds);
-              const rank = sortedPlayers.findIndex(sp => sp.id === player.id) + 1;
+              const ranked = rankedPlayers.find(sp => sp.id === player.id);
+              const avg = ranked ? ranked.avg : calculateAverageDistance(player.id, rounds);
+              const rank = ranked ? ranked.rank : 1;
               await saveForPlayer(
                 targetUserId,
                 player.name,
@@ -3086,7 +3090,7 @@ const App: React.FC = () => {
 
         // Teamwiegen (falls Teams vorhanden sind)
         if (teams.length > 0) {
-          const sortedTeams = [...teams].sort((a, b) => a.points - b.points);
+          const rankedTeams = calculateTeamCompetitionRanks(teams);
           const allTeamUserIds = Object.values(teamMemberAccountLinks || {})
             .map((link: any) => link?.userId)
             .filter(Boolean);
@@ -3096,7 +3100,7 @@ const App: React.FC = () => {
             if (targetUserId && !accountResultsSaved.includes(targetUserId)) {
               const team = teams.find(t => t.playerIds?.includes(player.id));
               if (team) {
-                const teamRank = sortedTeams.findIndex(st => st.id === team.id) + 1;
+                const teamRank = rankedTeams.find(st => st.id === team.id)?.rank || 1;
                 const avg = calculateAverageDistance(player.id, rounds);
                 await saveForPlayer(
                   targetUserId,
@@ -3253,28 +3257,30 @@ const App: React.FC = () => {
       const getJson = await getRes.json();
       if (!getRes.ok) throw new Error(getJson.error || 'Fehler beim Laden der Turnier-CSV');
 
-      // 2. Player results zusammenstellen
-      const playerResults = players
-        .map(p => {
-          const avg = calculateAverageDistance(p.id, rounds);
-          const total = avg + p.schnaepse;
-          return {
-            id: p.id,
-            name: p.name,
-            avg: avg,
-            schnaepse: p.schnaepse,
-            total: total,
-            isDisqualified: p.isDisqualified
-          };
-        })
-        .sort((a, b) => (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.total - b.total))
-        .map((p, idx) => ({
+      // 2. Player results zusammenstellen mit Standard Competition Ranking (Tie-Handling)
+      const rawTournamentResults = players.map(p => {
+        const avg = calculateAverageDistance(p.id, rounds);
+        const schnaepse = Number(p.schnaepse) || 0;
+        const total = avg + schnaepse;
+        return {
+          id: p.id,
           name: p.name,
-          rank: idx + 1,
-          avg: Number(p.avg.toFixed(2)),
-          schnaepse: p.schnaepse,
-          total: Number(p.total.toFixed(2))
-        }));
+          avg: Number(avg.toFixed(2)),
+          schnaepse: schnaepse,
+          total: Number(total.toFixed(2)),
+          isDisqualified: p.isDisqualified
+        };
+      });
+
+      const rankedTournamentResults = calculateCompetitionRanks(rawTournamentResults);
+
+      const playerResults = rankedTournamentResults.map(p => ({
+        name: p.name,
+        rank: p.rank,
+        avg: p.avg,
+        schnaepse: p.schnaepse,
+        total: p.total
+      }));
 
       const targetTableId = activeTournamentTableId || activeTournamentTable.tableId;
       const isSecondChance = targetTableId === 'table_second_chance' || targetTableId === 'SecondChance';
@@ -5323,11 +5329,12 @@ const App: React.FC = () => {
                 action: 'saveTableResult',
                 name: selectedTournamentName,
                 tableId: activeTournamentTableId,
-                results: resultsToUpload.map((r, idx) => ({
+                results: calculateCompetitionRanks(resultsToUpload).map(r => ({
                   name: r.name,
-                  rank: idx + 1,
+                  rank: r.rank,
                   avg: r.avg,
-                  schnaepse: r.schnaepse
+                  schnaepse: r.schnaepse,
+                  total: r.total
                 })),
                 date: today
               })
@@ -6953,9 +6960,9 @@ const App: React.FC = () => {
                      <table className="w-full text-left">
                         <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Team</th><th className="text-center pb-2">Strafpunkte</th></tr></thead>
                         <tbody>
-                          {teams.slice().sort((a,b) => a.points - b.points).map((t, idx) => (
+                          {calculateTeamCompetitionRanks(teams).map((t) => (
                             <tr key={t.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
-                              <td className="py-4 font-black">{idx === 0 ? '🏆 #1' : `#${idx+1}`}</td>
+                              <td className="py-4 font-black">{t.rank === 1 ? '🏆 #1' : `#${t.rank}`}</td>
                               <td className="py-4 font-black" style={{ color: PLAYER_COLORS[teams.indexOf(t) % PLAYER_COLORS.length] }}>{t.name}</td>
                               <td className="text-center font-black text-amber-500 text-lg">{t.points} Pkt</td>
                             </tr>
@@ -6972,15 +6979,26 @@ const App: React.FC = () => {
                    <table className="w-full text-left">
                       <thead><tr className={`opacity-70 text-xs font-bold uppercase border-b ${darkMode ? 'border-white/10' : 'border-gray-700/10'}`}><th className="pb-2">#</th><th className="pb-2">Spieler</th><th className="text-center pb-2">Ø Abst.</th><th className="text-center pb-2">S.</th><th className="text-center pb-2">Total</th></tr></thead>
                       <tbody>
-                        {players.map(p => ({...p, avg: calculateAverageDistance(p.id, rounds), tot: calculateAverageDistance(p.id, rounds) + p.schnaepse}))
-                          .sort((a,b)=> (a.isDisqualified ? 1 : b.isDisqualified ? -1 : a.tot - b.tot))
-                          .map((p, idx) => (
-                            <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
-                              <td className="py-4 font-black">{p.isDisqualified ? '💀' : idx+1}</td>
+                        {calculateCompetitionRanks(
+                          players.map(p => {
+                            const avg = calculateAverageDistance(p.id, rounds);
+                            const schnaepse = Number(p.schnaepse) || 0;
+                            return {
+                              ...p,
+                              avg,
+                              schnaepse,
+                              tot: avg + schnaepse
+                            };
+                          })
+                        ).map((p) => (
+                          <tr key={p.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-700/10'}`}>
+                            <td className="py-4 font-black">
+                              {p.isDisqualified ? '💀' : p.rank === 1 ? '🥇 1' : p.rank === 2 ? '🥈 2' : p.rank === 3 ? '🥉 3' : p.rank}
+                            </td>
                               <td className={`py-4 font-black ${p.isDisqualified ? 'line-through opacity-40' : ''}`}>
                                 <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                                  <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p)} />
-                                  <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name, p)} size="sm" />
+                                  <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name, p as unknown as Player)} />
+                                  <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name, p as unknown as Player)} size="sm" />
                                   {getPlayerTitle(p.name) && (
                                     <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
                                   )}
@@ -7015,13 +7033,23 @@ const App: React.FC = () => {
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     {registeredPlayers.map((p, idx) => {
-                       const pAvg = calculateAverageDistance(p.id, rounds);
-                       const isWinner = idx === 0 && !p.isDisqualified;
+                     {registeredPlayers.map((p) => {
+                       const rankedAll = calculateCompetitionRanks(
+                         players.map(pl => ({
+                           ...pl,
+                           avg: calculateAverageDistance(pl.id, rounds),
+                           schnaepse: Number(pl.schnaepse) || 0
+                         }))
+                       );
+                       const ranked = rankedAll.find(rp => rp.id === p.id);
+                       const pAvg = ranked ? ranked.avg : calculateAverageDistance(p.id, rounds);
+                       const isWinner = ranked ? (ranked.rank === 1 && !p.isDisqualified) : false;
+                       const pRank = ranked ? ranked.rank : undefined;
                        const gameXp = roundPlayerXp[p.name]?.xpEarned ?? calculateGameXp({
                          avg: pAvg,
                          schnaepse: p.schnaepse,
                          isWinner,
+                         rank: pRank,
                          disqualified: p.isDisqualified
                        }).totalXp;
 

@@ -590,7 +590,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
 
       {/* Haupt-Modal */}
       <div className="fixed inset-0 z-[850] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-        <div className={`rounded-3xl p-5 sm:p-7 max-w-xl w-full border shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto flex flex-col ${
+        <div className={`rounded-3xl p-5 sm:p-7 max-w-xl w-full border shadow-2xl space-y-5 max-h-[92dvh] min-h-0 overflow-y-auto pb-16 flex flex-col ${
           darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
         }`}>
           {/* Header */}
@@ -784,7 +784,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
               {/* 1. STANDARDSPIEL ANSICHT */}
               {currentModeTab === 'Standard' && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* 1. Durchschnittlicher Abweichungs-Wert (avg) */}
                     <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'}`}>
                       <span className="text-[10px] uppercase font-bold opacity-50 block mb-1">
@@ -849,7 +849,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
               {/* 2. SPEEDWIEGEN ANSICHT */}
               {currentModeTab === 'Speedwiegen' && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* 1. Anzahl der absolvierten Speedwiegen-Spiele */}
                     <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'}`}>
                       <span className="text-[10px] uppercase font-bold opacity-50 block mb-1">

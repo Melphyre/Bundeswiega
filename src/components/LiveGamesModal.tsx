@@ -142,7 +142,7 @@ export const LiveGamesModal: React.FC<LiveGamesModalProps> = ({
   return (
     <div className="fixed inset-0 z-[950] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in">
       <div
-        className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl border flex flex-col max-h-[90vh] ${
+        className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl border flex flex-col max-h-[92dvh] min-h-0 ${
           darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
         }`}
       >

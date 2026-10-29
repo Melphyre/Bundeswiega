@@ -50,7 +50,7 @@ export const WorldOfWiegenMinigamesModal: React.FC<WorldOfWiegenMinigamesModalPr
   return (
     <div className="fixed inset-0 z-[850] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div
-        className={`p-6 sm:p-7 rounded-3xl max-w-lg w-full border shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto flex flex-col ${
+        className={`p-6 sm:p-7 rounded-3xl max-w-lg w-full border shadow-2xl space-y-5 max-h-[92dvh] min-h-0 overflow-y-auto pb-16 flex flex-col ${
           darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
         }`}
         onClick={(e) => e.stopPropagation()}

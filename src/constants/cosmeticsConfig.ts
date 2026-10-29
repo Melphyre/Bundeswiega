@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+
 /**
  * Kosmetik- & Design-System für Bundeswiega (Level 5-20 Belohnungen)
  * 
@@ -9,8 +11,11 @@
  */
 
 // ─── 1. AVATAR RAHMEN (avatar_frame) ───
-export type AvatarFrameId =
+export type AvatarFramePatternId =
   | 'none'
+  | 'neon-glow'
+  | 'laser-pulse'
+  | 'double-border'
   | 'oak_wood'
   | 'neon_purple_glow'
   | 'silver_metal'
@@ -19,8 +24,10 @@ export type AvatarFrameId =
   | 'matrix_green'
   | 'diamond_glow';
 
+export type AvatarFrameId = AvatarFramePatternId | string;
+
 export interface AvatarFrameOption {
-  id: AvatarFrameId;
+  id: AvatarFramePatternId;
   label: string;
   requiredLevel: number;
   description: string;
@@ -28,7 +35,26 @@ export interface AvatarFrameOption {
   className: string;
 }
 
-export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
+export interface FrameColorSwatch {
+  id: string;
+  label: string;
+  hex: string;
+}
+
+export const FRAME_COLOR_SWATCHES: FrameColorSwatch[] = [
+  { id: 'cyan', label: 'Neon Cyan', hex: '#06B6D4' },
+  { id: 'blue', label: 'Neon Blau', hex: '#3B82F6' },
+  { id: 'purple', label: 'Neon Lila', hex: '#A855F7' },
+  { id: 'pink', label: 'Neon Pink', hex: '#EC4899' },
+  { id: 'red', label: 'Neon Rot', hex: '#EF4444' },
+  { id: 'orange', label: 'Neon Orange', hex: '#F97316' },
+  { id: 'amber', label: 'Gold Amber', hex: '#FBBF24' },
+  { id: 'green', label: 'Smaragd Grün', hex: '#10B981' },
+  { id: 'mint', label: 'Neon Mint', hex: '#00FFA3' },
+  { id: 'white', label: 'Eisweiß', hex: '#FFFFFF' }
+];
+
+export const AVATAR_FRAME_PATTERNS: AvatarFrameOption[] = [
   {
     id: 'none',
     label: 'Kein Rahmen',
@@ -38,20 +64,36 @@ export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
     className: ''
   },
   {
+    id: 'neon-glow',
+    label: 'Pulsierender Neon-Glow',
+    requiredLevel: 5,
+    description: 'Pulsierender Neon-Leuchtrahmen in deiner gewählten Leuchtfarbe',
+    icon: '✨',
+    className: 'avatar-frame-neon-glow'
+  },
+  {
+    id: 'laser-pulse',
+    label: 'Laufender Laser-Rahmen',
+    requiredLevel: 5,
+    description: 'Intensiv pulsierender Laser-Glow um den Avatar',
+    icon: '⚡',
+    className: 'avatar-frame-laser-pulse'
+  },
+  {
+    id: 'double-border',
+    label: 'Doppelter Cyber-Rahmen',
+    requiredLevel: 5,
+    description: 'Zweistufiger Hightech-Rahmen mit doppelter Leuchtkante',
+    icon: '💠',
+    className: 'avatar-frame-double-border'
+  },
+  {
     id: 'oak_wood',
     label: 'Eichen-Holzring',
     requiredLevel: 5,
     description: 'Edler Holzring um den Avatar (Meilenstein 1)',
     icon: '🪵',
     className: 'frame-oak_wood'
-  },
-  {
-    id: 'neon_purple_glow',
-    label: 'Pulsierender lila Glow',
-    requiredLevel: 8,
-    description: 'Pulsierender lila Neon-Glow um den Avatar',
-    icon: '💜',
-    className: 'frame-neon_purple_glow'
   },
   {
     id: 'silver_metal',
@@ -65,7 +107,7 @@ export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
     id: 'fire_aura',
     label: 'Feuer-Aura',
     requiredLevel: 13,
-    description: 'Animierter, feuriger Glow um den Avatar',
+    description: 'Animierter feuriger Glow um den Avatar',
     icon: '🔥',
     className: 'frame-fire_aura'
   },
@@ -73,7 +115,7 @@ export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
     id: 'aurora_glow',
     label: 'Nordlicht-Aura',
     requiredLevel: 15,
-    description: 'Nordlicht-Aura: Animierter grün-türkis-violetter Schimmer-Kranz (Gold-Meilenstein)',
+    description: 'Nordlicht-Aura: Animierter Schimmer-Kranz (Gold-Meilenstein)',
     icon: '🌌',
     className: 'frame-aurora_glow'
   },
@@ -81,7 +123,7 @@ export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
     id: 'matrix_green',
     label: 'Matrix-Digital',
     requiredLevel: 17,
-    description: 'Grün pulsierendes Digital-Muster um den Avatar',
+    description: 'Pulsierendes Digital-Muster um den Avatar',
     icon: '💚',
     className: 'frame-matrix_green'
   },
@@ -89,9 +131,21 @@ export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
     id: 'diamond_glow',
     label: 'Diamant-Schimmer',
     requiredLevel: 20,
-    description: 'Prismatischer Diamant-Schimmer mit regenbogenfarbenen Lichtreflexen (Gott-Status)',
+    description: 'Prismatischer Diamant-Schimmer mit Lichtreflexen (Gott-Status)',
     icon: '💎',
     className: 'frame-diamond_glow'
+  }
+];
+
+export const AVATAR_FRAME_OPTIONS: AvatarFrameOption[] = [
+  ...AVATAR_FRAME_PATTERNS,
+  {
+    id: 'neon_purple_glow',
+    label: 'Pulsierender lila Glow',
+    requiredLevel: 8,
+    description: 'Pulsierender lila Neon-Glow um den Avatar',
+    icon: '💜',
+    className: 'avatar-frame-neon-glow'
   }
 ];
 
@@ -281,11 +335,92 @@ export const hasUnlockedAnyNameBg = (level: number): boolean => {
   return level >= 2;
 };
 
+export interface ParsedAvatarFrame {
+  pattern: AvatarFramePatternId;
+  colorHex: string;
+  className: string;
+  style: CSSProperties;
+  label: string;
+  description: string;
+  icon: string;
+  serialized: string;
+}
+
+/**
+ * Parst einen gespeicherten Avatar-Rahmen (z. B. "neon-glow:#3B82F6" oder legacy "neon_purple_glow")
+ * in Muster, Swatch-Farbe, CSS-Klasse und Inline-Style (--frame-color).
+ */
+export const parseAvatarFrame = (rawFrame?: string | null): ParsedAvatarFrame => {
+  const fallbackColor = '#3B82F6';
+  if (!rawFrame || rawFrame === 'none' || rawFrame.trim() === '') {
+    return {
+      pattern: 'none',
+      colorHex: fallbackColor,
+      className: '',
+      style: {},
+      label: 'Kein Rahmen',
+      description: 'Standard-Avatar ohne zusätzlichen Schmuckrahmen',
+      icon: '🚫',
+      serialized: 'none'
+    };
+  }
+
+  let patternPart = rawFrame.trim();
+  let colorHex = fallbackColor;
+
+  if (rawFrame.includes(':')) {
+    const parts = rawFrame.split(':');
+    patternPart = parts[0].trim();
+    colorHex = parts[1]?.trim() || fallbackColor;
+  } else if (rawFrame === 'neon_purple_glow') {
+    patternPart = 'neon-glow';
+    colorHex = '#A855F7';
+  } else if (rawFrame === 'oak_wood') {
+    colorHex = '#8B5A2B';
+  } else if (rawFrame === 'fire_aura') {
+    colorHex = '#F97316';
+  } else if (rawFrame === 'aurora_glow') {
+    colorHex = '#06B6D4';
+  } else if (rawFrame === 'matrix_green') {
+    colorHex = '#22C55E';
+  } else if (rawFrame === 'diamond_glow') {
+    colorHex = '#38BDF8';
+  } else if (rawFrame === 'silver_metal') {
+    colorHex = '#CBD5E1';
+  }
+
+  const patternOpt =
+    AVATAR_FRAME_PATTERNS.find(p => p.id === patternPart) ||
+    AVATAR_FRAME_OPTIONS.find(p => p.id === patternPart) ||
+    AVATAR_FRAME_PATTERNS[0];
+
+  const className = patternOpt.className || '';
+  const style: CSSProperties = patternOpt.id === 'none' ? {} : {
+    ['--frame-color' as any]: colorHex,
+    borderColor: colorHex
+  };
+
+  return {
+    pattern: patternOpt.id,
+    colorHex,
+    className,
+    style,
+    label: patternOpt.label,
+    description: patternOpt.description,
+    icon: patternOpt.icon,
+    serialized: patternOpt.id === 'none' ? 'none' : `${patternOpt.id}:${colorHex}`
+  };
+};
+
 /**
  * Liefert alle für das Level freigeschalteten Avatar-Rahmen (inklusive 'none').
  */
 export const getUnlockedAvatarFrames = (level: number): AvatarFrameOption[] => {
   return AVATAR_FRAME_OPTIONS.filter(opt => opt.requiredLevel === 0 || opt.requiredLevel <= level);
+};
+
+export const getUnlockedAvatarFramePatterns = (level: number): AvatarFrameOption[] => {
+  return AVATAR_FRAME_PATTERNS.filter(opt => opt.requiredLevel === 0 || opt.requiredLevel <= level);
 };
 
 /**
@@ -306,9 +441,14 @@ export const getUnlockedRowThemes = (level: number): LeaderboardRowThemeOption[]
  * Liefert die CSS-Klasse für einen Avatar-Rahmen.
  */
 export const getAvatarFrameClass = (frameId?: string | null): string => {
-  if (!frameId || frameId === 'none') return '';
-  const match = AVATAR_FRAME_OPTIONS.find(f => f.id === frameId);
-  return match?.className || '';
+  return parseAvatarFrame(frameId).className;
+};
+
+/**
+ * Liefert den Inline-Style für einen Avatar-Rahmen (z. B. --frame-color).
+ */
+export const getAvatarFrameStyle = (frameId?: string | null): CSSProperties => {
+  return parseAvatarFrame(frameId).style;
 };
 
 /**
@@ -330,8 +470,12 @@ export const getRowThemeClass = (themeId?: string | null): string => {
 };
 
 export const getAvatarFrameOption = (frameId?: string | null): AvatarFrameOption => {
-  if (!frameId || frameId === 'none') return AVATAR_FRAME_OPTIONS[0];
-  return AVATAR_FRAME_OPTIONS.find(f => f.id === frameId) || AVATAR_FRAME_OPTIONS[0];
+  const parsed = parseAvatarFrame(frameId);
+  return (
+    AVATAR_FRAME_PATTERNS.find(f => f.id === parsed.pattern) ||
+    AVATAR_FRAME_OPTIONS.find(f => f.id === parsed.pattern) ||
+    AVATAR_FRAME_OPTIONS[0]
+  );
 };
 
 export const getColumnThemeOption = (themeId?: string | null): IngameColumnThemeOption => {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { DEFAULT_AVATAR_URL, handleAvatarError, getAvatarUrl } from '../supabaseClient';
-import { getAvatarFrameClass } from '../constants/cosmeticsConfig';
+import { parseAvatarFrame } from '../constants/cosmeticsConfig';
 
 export interface PlayerAvatarProps {
   /** Die URL des Profilbilds (null, undefined oder "" nutzt automatisch unknown.svg) */
@@ -15,7 +15,7 @@ export interface PlayerAvatarProps {
   style?: React.CSSProperties;
   /** Größe: Vordefiniert oder über className steuerbar */
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom';
-  /** Freigeschalteter Kosmetik-Rahmen (z. B. oak_wood, neon_purple_glow, aurora_glow, etc.) */
+  /** Freigeschalteter Kosmetik-Rahmen (z. B. oak_wood, neon-glow, neon-glow:#3B82F6, etc.) */
   avatar_frame?: string | null;
   avatarFrame?: string | null;
   frame?: string | null;
@@ -40,7 +40,7 @@ const sizeClassesMap = {
  * - Nutzt automatisch DEFAULT_AVATAR_URL (unknown.svg aus Supabase Storage 'avatars'),
  *   falls kein Profilbild hinterlegt ist.
  * - Fängt 404- bzw. Ladefehler per onError ab und schaltet auf unknown.svg um.
- * - Unterstützt freigeschaltete Avatar-Rahmen (Level 5-20 Belohnungen).
+ * - Unterstützt freigeschaltete Avatar-Rahmen (decoupled Muster & Leuchtfarben).
  */
 export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   url,
@@ -59,7 +59,13 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   const finalSrc = getAvatarUrl(targetUrl);
   const sizeClass = size !== 'custom' ? sizeClassesMap[size] : '';
   const effectiveFrame = avatar_frame || avatarFrame || frame;
-  const frameClass = getAvatarFrameClass(effectiveFrame);
+  const parsed = parseAvatarFrame(effectiveFrame);
+  const frameClass = parsed.className;
+
+  // Wenn ein Rahmen aktiv ist, dynamische Styles (--frame-color, borderColor) anwenden
+  const dynamicStyle = parsed.pattern !== 'none'
+    ? { ...style, ...parsed.style }
+    : style;
 
   return (
     <img
@@ -69,7 +75,7 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
       onClick={onClick}
       onError={handleAvatarError}
       className={`rounded-full object-cover select-none shrink-0 ${onClick ? 'cursor-pointer hover:opacity-95 active:scale-95' : ''} ${sizeClass} ${frameClass} ${className}`}
-      style={style}
+      style={dynamicStyle}
       loading="lazy"
     />
   );

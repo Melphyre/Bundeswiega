@@ -838,6 +838,9 @@ const App: React.FC = () => {
     );
     if (linked) {
       const match = clerkUsers.find(u => u.id === linked.userId);
+      if ((match as any)?.xp !== undefined && (match as any)?.xp !== null) {
+        return calculateLevelFromXp(Number((match as any).xp) || 0).level;
+      }
       if ((match as any)?.level) return Number((match as any).level) || 1;
     }
 
@@ -845,6 +848,9 @@ const App: React.FC = () => {
     const matchUser = clerkUsers.find(
       u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
+    if ((matchUser as any)?.xp !== undefined && (matchUser as any)?.xp !== null) {
+      return calculateLevelFromXp(Number((matchUser as any).xp) || 0).level;
+    }
     if ((matchUser as any)?.level) return Number((matchUser as any).level) || 1;
 
     return 1;
@@ -1158,8 +1164,9 @@ const App: React.FC = () => {
         setUserColumnTheme(activeColTheme);
         const activeRowTheme = prof.leaderboard_row_theme || supabaseUser?.user_metadata?.leaderboard_row_theme || localStorage.getItem(`bundeswiega_user_row_theme_${currentUserId}`) || 'none';
         setUserRowTheme(activeRowTheme);
-        const lvl = Number(prof.level) || 1;
         const xp = Number(prof.xp) || 0;
+        const calculatedLvl = calculateLevelFromXp(xp).level;
+        const lvl = Math.max(Number(prof.level) || 1, calculatedLvl);
         setUserLevel(lvl);
         setUserXp(xp);
 
@@ -5593,7 +5600,7 @@ const App: React.FC = () => {
   const showModeFooter = ![GameState.START, GameState.PLAYER_COUNT, GameState.TEAM_SETUP, GameState.SPEED_SETUP].includes(gameState);
 
   return (
-    <div className={`min-h-screen flex flex-col p-4 md:p-8 pt-safe-top pb-safe-bottom overflow-y-auto transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+    <div className={`min-h-dvh flex flex-col p-4 md:p-8 pt-safe-top pb-52 md:pb-safe-bottom overflow-y-auto transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full flex-wrap gap-2">
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => gameState !== GameState.START && setShowResetConfirm(true)}>
           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
@@ -5685,7 +5692,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto relative">
+      <main className="flex-1 flex flex-col items-center justify-center max-w-4xl w-full mx-auto relative pb-36 md:pb-12">
         {gameState === GameState.START && (
           <div className="text-center animate-in fade-in duration-700">
             <img src={LOGO_URL} className="w-64 h-64 mx-auto mb-12 drop-shadow-2xl" alt="Bundeswiega Logo" />
@@ -5926,7 +5933,7 @@ const App: React.FC = () => {
 
         {/* PLAYER_NAMES SCREEN */}
         {gameState === GameState.PLAYER_NAMES && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl pb-28 sm:pb-8">
             <h2 className="text-2xl font-black mb-8 text-center">Spielernamen</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               {players.map((p, i) => (
@@ -6004,15 +6011,17 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={handlePlayerNamesConfirm} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-safe shadow-2xl flex justify-center sm:p-0 sm:border-0 sm:bg-transparent">
+              <button onClick={handlePlayerNamesConfirm} className="w-full max-w-md sm:max-w-none text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
+            </div>
           </div>
         )}
 
         {/* START_WEIGHTS SCREEN */}
         {gameState === GameState.START_WEIGHTS && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl pb-24 sm:pb-8">
             <h2 className="text-2xl font-black mb-6 text-center">Startgewichte (g)</h2>
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
               {players.map((p, i) => (
                 <div key={p.id} className="relative">
                   <label className="text-[10px] font-bold opacity-50 uppercase mb-1 block">{p.name}</label>
@@ -6020,13 +6029,15 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={onWeightsSubmit} className="w-full text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht festlegen</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={onWeightsSubmit} className="w-full max-w-md text-white font-bold py-4 rounded-2xl active:scale-95 shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht festlegen</button>
+            </div>
           </div>
         )}
 
         {/* ROUND_TARGET SCREEN */}
         {gameState === GameState.ROUND_TARGET && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center pb-24 sm:pb-8">
             <h2 className="text-3xl font-black mb-4">Zielgewicht</h2>
 
             {(() => {
@@ -6057,7 +6068,7 @@ const App: React.FC = () => {
             })()}
 
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
-            <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
               {players.map(p => (
                 <div key={p.id} className={`flex justify-between p-2 rounded-xl ${darkMode ? 'bg-white/10' : 'bg-black/10'} text-[10px] md:text-xs`}>
                   <span>{p.name}</span>
@@ -6075,13 +6086,15 @@ const App: React.FC = () => {
                 </div>
               );
             })()}
-            <button onClick={() => handleTargetWeightConfirm()} className="w-full text-white font-bold py-5 rounded-2xl active:scale-95 shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={() => handleTargetWeightConfirm()} className="w-full max-w-md text-white font-bold py-4 md:py-5 rounded-2xl active:scale-95 shadow-xl cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
+            </div>
           </div>
         )}
 
         {/* GAMEPLAY SCREEN */}
         {gameState === GameState.GAMEPLAY && (
-          <div className="w-full space-y-4 animate-in fade-in max-h-[90vh] overflow-y-auto pb-10 flex flex-col items-center">
+          <div className="w-full space-y-4 animate-in fade-in pb-40 flex flex-col items-center">
              <h2 className="text-2xl font-black uppercase text-center" style={{ color: BRAND_COLOR }}>Runde {rounds.length}</h2>
              <GameTable 
                showInputs={true} 
@@ -6101,7 +6114,9 @@ const App: React.FC = () => {
                activeEffects={activeEffects}
                onOpenQuestlog={() => setShowWorldOfWiegenQuestlog(true)}
              />
-             <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
+             <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+               <button onClick={handleNextRound} className="w-full max-w-sm text-white font-black py-4 md:py-5 rounded-2xl active:scale-95 shadow-2xl cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Runde auswerten</button>
+             </div>
           </div>
         )}
 
@@ -6142,7 +6157,7 @@ const App: React.FC = () => {
         )}
 
         {gameState === GameState.TEAM_NAMES && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl overflow-y-auto max-h-[80vh]">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl pb-28 sm:pb-8">
             <h2 className="text-2xl font-black mb-8 text-center">Team- & Spielernamen</h2>
             <div className="space-y-8">
               {teams.map((t, tIdx) => (
@@ -6229,18 +6244,20 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={handleTeamNamesConfirm} className="w-full mt-8 text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-safe shadow-2xl flex justify-center sm:p-0 sm:border-0 sm:bg-transparent">
+              <button onClick={handleTeamNamesConfirm} className="w-full max-w-md sm:max-w-none sm:mt-8 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Startgewichte</button>
+            </div>
           </div>
         )}
 
         {gameState === GameState.TEAM_START_WEIGHTS && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl overflow-y-auto max-h-[80vh]">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl pb-24 sm:pb-8">
             <h2 className="text-2xl font-black mb-8 text-center">Team-Startgewichte</h2>
             <div className="space-y-6">
               {teams.map((t, tIdx) => (
                 <div key={t.id} className="p-4 rounded-2xl bg-black/10">
                   <h3 className="font-black text-sm uppercase opacity-50 mb-3" style={{ color: PLAYER_COLORS[tIdx % PLAYER_COLORS.length] }}>{t.name}</h3>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {t.playerIds.map(pid => {
                       const p = players.find(px => px.id === pid)!;
                       const pGlobalIdx = players.indexOf(p);
@@ -6255,12 +6272,14 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={onWeightsSubmit} className="w-full mt-8 text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={onWeightsSubmit} className="w-full max-w-md text-white font-bold py-4 rounded-2xl shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Zielgewicht</button>
+            </div>
           </div>
         )}
 
         {gameState === GameState.TEAM_ROUND_TARGET && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center pb-24 sm:pb-8">
             <h2 className="text-3xl font-black mb-4">Team-Ziel</h2>
             {(() => {
               const activePlayers = players.filter(p => !p.isDisqualified);
@@ -6289,7 +6308,7 @@ const App: React.FC = () => {
               );
             })()}
             <p className="text-xs font-bold opacity-40 uppercase tracking-widest mb-4">Aktuelle Füllstände</p>
-            <div className="mb-6 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
               {players.map(p => (
                 <div key={p.id} className={`flex justify-between p-2 rounded-xl ${darkMode ? 'bg-white/10' : 'bg-black/10'} text-[10px] md:text-xs`}>
                   <span>{p.name}</span>
@@ -6307,7 +6326,9 @@ const App: React.FC = () => {
                 </div>
               );
             })()}
-            <button onClick={() => handleTargetWeightConfirm()} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Start</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={() => handleTargetWeightConfirm()} className="w-full max-w-md text-white font-bold py-4 rounded-2xl shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Start</button>
+            </div>
           </div>
         )}
 
@@ -6598,7 +6619,7 @@ const App: React.FC = () => {
         )}
 
         {gameState === GameState.SPEED_CONFIG && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl overflow-y-auto max-h-[80vh]">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl pb-24 sm:pb-8">
             <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-3">
               <h2 className="text-2xl font-black">Zielgewichte festlegen</h2>
               {parseInt(speedLevels) === 10 && (
@@ -6613,7 +6634,7 @@ const App: React.FC = () => {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
               {Array.from({ length: parseInt(speedLevels) }).map((_, i) => {
                 const levelNum = i + 1;
                 const isLastLevel = levelNum === parseInt(speedLevels);
@@ -6650,7 +6671,9 @@ const App: React.FC = () => {
                 );
               })}
             </div>
-            <button onClick={handleSpeedConfigConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg hover:opacity-90 active:scale-95 transition-all cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Countdown starten</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={handleSpeedConfigConfirm} className="w-full max-w-md text-white font-bold py-4 rounded-2xl shadow-lg hover:opacity-90 active:scale-95 transition-all cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Countdown starten</button>
+            </div>
           </div>
         )}
 
@@ -6855,9 +6878,9 @@ const App: React.FC = () => {
       })()}
 
         {gameState === GameState.FINAL_ROUND_TARGETS && (
-          <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl">
+          <div className="p-6 md:p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-xl pb-24 sm:pb-8">
             <h2 className="text-2xl font-black mb-8 text-center uppercase" style={{ color: BRAND_COLOR }}>Leergewicht schätzen</h2>
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
               {players.filter(p => !p.isDisqualified).map(p => (
                 <div key={p.id}>
                   <label className="text-[10px] font-bold opacity-50 uppercase mb-1 block">{p.name}</label>
@@ -6865,12 +6888,14 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button onClick={handleFinalTargetsConfirm} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+              <button onClick={handleFinalTargetsConfirm} className="w-full max-w-md text-white font-bold py-4 rounded-2xl shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Bestätigen</button>
+            </div>
           </div>
         )}
 
         {gameState === GameState.FINAL_ROUND_RESULTS && (
-          <div className="w-full space-y-4 animate-in fade-in max-h-[90vh] overflow-y-auto pb-10 flex flex-col items-center">
+          <div className="w-full space-y-4 animate-in fade-in pb-40 flex flex-col items-center">
              <h2 className="text-2xl font-black uppercase text-center" style={{ color: BRAND_COLOR }}>Leergewicht messen</h2>
              <GameTable 
                showInputs={true} 
@@ -6890,13 +6915,15 @@ const App: React.FC = () => {
                activeEffects={activeEffects}
                onOpenQuestlog={() => setShowWorldOfWiegenQuestlog(true)}
              />
-             <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-5 rounded-2xl active:scale-95 shadow-2xl" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
+             <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl flex justify-center">
+               <button onClick={handleFinalResultsConfirm} className="w-full max-w-sm text-white font-black py-4 md:py-5 rounded-2xl active:scale-95 shadow-2xl cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}>Finale auswerten</button>
+             </div>
           </div>
         )}
 
         {/* SHARED RESULTS SCREEN */}
         {gameState === GameState.RESULT_SCREEN && (
-          <div className="w-full space-y-8 pb-20 animate-in fade-in duration-500 overflow-y-auto max-h-screen">
+          <div className="w-full space-y-8 pb-40 animate-in fade-in duration-500">
              {activeTournamentTable && (
                <div className="w-full space-y-2 mb-4">
                  <div
@@ -7178,9 +7205,9 @@ const App: React.FC = () => {
                )
              )}
 
-              <div className="grid grid-cols-2 gap-3 px-2">
-                <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
-                <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-2">
+                <button onClick={() => setShowStats(true)} className="py-4 rounded-2xl bg-brand text-white font-black shadow-lg cursor-pointer" style={{ backgroundColor: BRAND_COLOR }}><i className="fas fa-chart-line mr-2"></i>Statistik</button>
+                <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg cursor-pointer"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
               </div>
               <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
               <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
@@ -7244,6 +7271,9 @@ const App: React.FC = () => {
           <i className="fab fa-instagram text-xl"></i>
         </a>
       </footer>
+
+      {/* Mobiler Pufferabstand für Smartphones */}
+      <div className="h-40 sm:h-12 w-full flex-shrink-0 pointer-events-none" aria-hidden="true" />
 
       {/* --- MODALS --- */}
       {showExitWithoutSaveConfirm && (
@@ -7315,8 +7345,8 @@ const App: React.FC = () => {
       )}
 
       {showSaveModal && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 space-y-6 max-h-[90vh] overflow-y-auto ${
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 space-y-6 max-h-[92dvh] min-h-0 overflow-y-auto pb-24 sm:pb-8 ${
             darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
           }`}>
             <div className="flex items-center justify-between border-b pb-4 border-gray-500/20">
@@ -7497,8 +7527,8 @@ const App: React.FC = () => {
       })()}
 
       {showSummary && summaryData && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[92dvh] min-h-0 pb-24 sm:pb-8 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900 border-gray-200'}`}>
             <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Rundenergebnis</h3>
 
             {summaryData.isTeamSummary ? (
@@ -7573,8 +7603,8 @@ const App: React.FC = () => {
       )}
 
       {showAchievements && (
-        <div className="fixed inset-0 z-[450] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className={`rounded-3xl p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900'}`}>
+        <div className="fixed inset-0 z-[450] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border-2 overflow-y-auto max-h-[92dvh] min-h-0 pb-24 sm:pb-8 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white text-gray-900'}`}>
             <div className="flex items-center justify-center space-x-3 mb-6">
               <i className="fas fa-trophy text-3xl text-amber-500 animate-bounce"></i>
               <h3 className="text-3xl font-black uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>
@@ -7715,8 +7745,8 @@ const App: React.FC = () => {
       )}
 
       {showRecords && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border-2 flex flex-col ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-black'}`}>
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-4 sm:p-6 md:p-8 max-w-4xl w-full max-h-[92dvh] min-h-0 overflow-y-auto shadow-2xl border-2 flex flex-col pb-36 sm:pb-8 relative ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-black'}`}>
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black uppercase flex items-center" style={{ color: BRAND_COLOR }}>
                 <i className="fas fa-trophy mr-3 text-yellow-500"></i>Rekorde & Statistiken
@@ -8390,7 +8420,7 @@ const App: React.FC = () => {
                   if (filtered.length === 0) {
                     if (effectiveGameTab === 'Speedwiegen') {
                       return (
-                        <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
+                        <div className="space-y-6 max-h-[60vh] sm:max-h-[65vh] overflow-y-auto pr-2 pb-12">
                           <div className="text-center py-16 opacity-55">
                             <i className="fas fa-stopwatch text-4xl mb-3 text-amber-500"></i>
                             <p className="font-bold text-sm">Keine Einträge für den {speedwiegenSizeTab === '500ml' ? '500 ml Modus' : '0,33 L Modus'} im Speedwiegen gefunden.</p>
@@ -9681,7 +9711,7 @@ const App: React.FC = () => {
                     });
 
                   return (
-                    <div className="space-y-8 max-h-[55vh] overflow-y-auto pr-2">
+                    <div className="space-y-8 max-h-[60vh] sm:max-h-[65vh] overflow-y-auto pr-2 pb-12">
                       {effectiveGameTab === 'Speedwiegen' ? (
                         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900/40 border-white/5' : 'bg-black/5 border-black/5'}`}>
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 pb-2 border-b border-gray-500/10">
@@ -10353,12 +10383,19 @@ const App: React.FC = () => {
         </div>
       )}
 
-            <button 
-              onClick={() => setShowRecords(false)}
-              className="mt-6 w-full py-4 rounded-xl font-black uppercase text-xs tracking-widest border border-gray-500/20 opacity-60 hover:opacity-100"
-            >
-              Schließen
-            </button>
+            {/* Schließen Button: Mobil als fixierte Glasmorphismus-Leiste am unteren Rand, Desktop normal */}
+            <div className="w-full sm:static fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 pb-safe shadow-2xl flex justify-center sm:p-0 sm:border-0 sm:bg-transparent sm:mt-6">
+              <button 
+                type="button"
+                onClick={() => setShowRecords(false)}
+                className="w-full max-w-md sm:max-w-none py-3.5 sm:py-4 rounded-xl font-black uppercase text-xs tracking-widest border border-gray-500/20 bg-slate-800 text-white hover:bg-slate-700 cursor-pointer shadow-lg active:scale-95 transition-all"
+              >
+                Schließen
+              </button>
+            </div>
+
+            {/* Mobiler Pufferabstand für Smartphones */}
+            <div className="h-28 sm:h-8 w-full flex-shrink-0 pointer-events-none" aria-hidden="true" />
           </div>
         </div>
       )}
@@ -10464,8 +10501,8 @@ const App: React.FC = () => {
       )}
 
       {showSpeedKlassischModal && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 ${
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-2 space-y-6 max-h-[92dvh] min-h-0 overflow-y-auto pb-24 sm:pb-8 ${
             darkMode ? 'bg-slate-900 border-yellow-500/30 text-white' : 'bg-white border-yellow-500/30 text-gray-900'
           }`}>
             <div className="flex items-center justify-between border-b pb-4 border-yellow-500/20">
@@ -11787,8 +11824,8 @@ const App: React.FC = () => {
       )}
 
       {showStats && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-5xl w-full shadow-2xl border flex flex-col ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-black/10 text-black'}`}>
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-2xl overflow-y-auto overscroll-contain pb-safe">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-5xl w-full max-h-[92dvh] min-h-0 overflow-y-auto shadow-2xl border flex flex-col pb-24 sm:pb-8 ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-black/10 text-black'}`}>
             <h3 className="text-3xl font-black mb-6 text-center uppercase tracking-tighter" style={{ color: BRAND_COLOR }}>Abstandsverlauf</h3>
             <div ref={statsAreaRef} className={`relative p-8 rounded-2xl border ${darkMode ? 'border-white/20 bg-black/20' : 'border-black/10 bg-black/5'} flex-1 min-h-[350px]`}>
               {gameState === GameState.SPEED_RESULT ? (
@@ -12286,8 +12323,8 @@ const App: React.FC = () => {
 
       {/* 👑 Admin Panel Modal */}
       {showAdminPanel && (
-        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-in fade-in">
-          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto overscroll-contain pb-safe animate-in fade-in">
+          <div className={`rounded-3xl p-6 md:p-8 max-w-lg w-full max-h-[92dvh] min-h-0 overflow-y-auto shadow-2xl space-y-6 pb-24 sm:pb-8 ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'}`}>
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-black uppercase tracking-tight flex items-center space-x-2 text-red-500">
                 <i className="fas fa-shield-alt"></i>
@@ -12677,7 +12714,7 @@ const App: React.FC = () => {
 
       {/* 👁️ LIVE ZUSCHAUER VOLLBILD-ANSICHT */}
       {spectatingGame && (
-        <div className="fixed inset-0 z-[1000] overflow-y-auto">
+        <div className="fixed inset-0 z-[1000] overflow-y-auto overscroll-contain pb-safe">
           <SpectatorView
             initialGame={spectatingGame}
             currentUser={{

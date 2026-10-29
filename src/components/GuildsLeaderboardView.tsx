@@ -496,7 +496,7 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
   }
 
   return (
-    <div id="guilds-leaderboard-view" className="space-y-5">
+    <div id="guilds-leaderboard-view" className="space-y-5 pb-16">
       {/* Header Info Banner */}
       <div className={`p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${darkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-teal-50/70 border-teal-100'}`}>
         <div className="flex items-center space-x-3">
@@ -1160,9 +1160,13 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
         const logoUrl = isVirtual ? FREE_PLAYERS_LOGO_URL : (logoPreviewGuild.logo_url || '🏰');
         const isHttp = logoUrl && logoUrl.startsWith('http');
         const cosmetics = isVirtual ? null : (logoPreviewGuild.cosmetics || getGuildCosmetics(logoPreviewGuild.level || 1));
-        const levelInfo = isVirtual ? null : calculateGuildLevelAndXP(logoPreviewGuild.rawXP || logoPreviewGuild.xp || 0);
         const membersList = logoPreviewGuild.members || [];
         const memberCount = logoPreviewGuild.memberCount || membersList.length || 0;
+        const levelInfo = isVirtual 
+          ? null 
+          : (membersList.length > 0 
+              ? calculateGuildLevelAndXP(membersList) 
+              : { level: logoPreviewGuild.level || 1, xp: logoPreviewGuild.xp || 0 } as any);
 
         return (
           <div

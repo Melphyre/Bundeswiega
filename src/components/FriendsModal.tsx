@@ -207,7 +207,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div
-        className={`w-full max-w-2xl rounded-3xl shadow-2xl border flex flex-col max-h-[90vh] overflow-hidden ${
+        className={`w-full max-w-2xl rounded-3xl shadow-2xl border flex flex-col max-h-[92dvh] min-h-0 overflow-hidden ${
           darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'
         }`}
       >
@@ -239,7 +239,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 md:p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
+        <div className="p-5 md:p-6 pb-36 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
           {/* 1. Freund suchen / Anfrage senden */}
           <div
             className={`p-4 md:p-5 rounded-2xl border ${

@@ -497,6 +497,17 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l3_pattern_gold_glitter', level: 3, title: 'Nimm an 8 Teamwiegen teil', xpReward: 25, metric: 'teamwiegen_count', targetValue: 8, targetCount: 8, colorReward: 'pattern_gold_glitter', rewardDescription: 'Hintergrund Goldener Glitter' },
   { id: 'l3_pattern_matrix', level: 3, title: 'Spiele 10 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 10, targetCount: 10, gameMode: 'Speedwiegen', colorReward: 'pattern_matrix', rewardDescription: 'Hintergrund Matrix-Digital' },
   { id: 'l3_pattern_tartan', level: 3, title: 'Sammle 50 Achievements', xpReward: 25, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pattern_tartan', rewardDescription: 'Hintergrund Tartan / Karo' },
+  { 
+    id: 'l3_flag_animation_quest', 
+    level: 3, 
+    title: 'Nimm an 5 Teamwiegen teil', 
+    xpReward: 20, 
+    metric: 'teamwiegen_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'flag', 
+    rewardDescription: 'Animation: Flagge im Wind' 
+  },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -504,6 +515,50 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l4_tournament_5', level: 4, title: 'Nimm an 5 Turnieren teil', xpReward: 25, metric: 'tournament_count', targetValue: 5, targetCount: 5 },
   { id: 'l4_5x_total_sub5', level: 4, title: 'Erreiche 5x ein Total unter 5 Gramm', xpReward: 20, metric: 'total_less_than', targetValue: 5.0, threshold: 5.0, targetCount: 5 },
   { id: 'l4_zero_schnaepse_speed', level: 4, title: 'Speedwiegen ohne einzigen Schnaps', xpReward: 25, titleReward: 'Blitzsauber', metric: 'max_schnaepse', targetValue: 0, threshold: 0, targetCount: 1, gameMode: 'Speedwiegen' },
+  { 
+    id: 'l4_fire_animation_quest', 
+    level: 4, 
+    title: 'Lande 10 Volltreffer', 
+    xpReward: 25, 
+    metric: 'perfect_hits_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'fire', 
+    rewardDescription: 'Animation: Feuer' 
+  },
+  { 
+    id: 'l4_lightning_animation_quest', 
+    level: 4, 
+    title: 'Triff 10 mal eine Schnapszahl', 
+    xpReward: 25, 
+    metric: 'schnapszahl_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'lightning', 
+    rewardDescription: 'Animation: Blitze (vertikal)' 
+  },
+  { 
+    id: 'l4_snow_animation_quest', 
+    level: 4, 
+    title: 'Erziele 10 mal das selbe Gewicht wie ein anderer Spieler', 
+    xpReward: 25, 
+    metric: 'same_weight_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'snow', 
+    rewardDescription: 'Animation: Schneeflocken' 
+  },
+  { 
+    id: 'l4_waves_animation_quest', 
+    level: 4, 
+    title: 'Lande 10 mal auf einer vollen Hunderterzahl', 
+    xpReward: 25, 
+    metric: 'hundreds_count', 
+    targetValue: 10, 
+    targetCount: 10, 
+    animationReward: 'waves', 
+    rewardDescription: 'Animation: Wasser & Wellen' 
+  },
 
   // --- LEVEL 5 ---
   { id: 'l5_50_games_total', level: 5, title: 'Absolviere 50 Spiele', xpReward: 30, titleReward: 'Stammgast', metric: 'games_count', targetValue: 50, targetCount: 50 },
@@ -602,13 +657,16 @@ function getCanonicalTournamentKey(r: any): string | null {
 async function serverEvaluateQuestsForUser(userId: string) {
   if (!userId || !supabaseAdmin) return;
   try {
-    const [profRes, resultsRes, teamPlayersRes, qpRes, titlesRes] = await Promise.all([
+    const [profRes, resultsRes, teamPlayersRes, qpRes, titlesRes, achRes] = await Promise.all([
       supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
       supabaseAdmin.from('game_results').select('*').eq('user_id', userId),
       supabaseAdmin.from('teamwiegen_players').select('game_id').eq('user_id', userId),
       supabaseAdmin.from('user_quest_progress').select('*').eq('user_id', userId),
-      supabaseAdmin.from('user_titles').select('title').eq('user_id', userId)
+      supabaseAdmin.from('user_titles').select('title').eq('user_id', userId),
+      supabaseAdmin.from('achievements').select('name, achievement_id').eq('user_id', userId)
     ]);
+
+    const userAchievementIds = new Set((achRes?.data || []).map((a: any) => a.achievement_id || a.name));
 
     const profile = profRes?.data;
     const userLevel = profile ? Number(profile.level) || 1 : 1;
@@ -795,6 +853,38 @@ async function serverEvaluateQuestsForUser(userId: string) {
           progress = Math.max(wins, profileWins);
           break;
         }
+
+        case 'perfect_hits_count': {
+          let count = 0;
+          if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
+          if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
+          if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'schnapszahl_count': {
+          let count = 0;
+          if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
+          if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'same_weight_count': {
+          let count = 0;
+          if (userAchievementIds.has('twins')) count = Math.max(count, 3);
+          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 3);
+          progress = count;
+          break;
+        }
+
+        case 'hundreds_count': {
+          let count = 0;
+          if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
       }
 
       const isCompleted = progress >= targetCount;
@@ -835,17 +925,7 @@ async function serverEvaluateQuestsForUser(userId: string) {
       try {
         const currentXp = Number(profile.xp) || 0;
         const newXp = currentXp + bonusXpEarned;
-        let lvl = 1;
-        let cumulative = 0;
-        const requirements = [20, 30, 40, 50, 60, 75, 90, 110, 130];
-        for (let i = 0; i < requirements.length; i++) {
-          cumulative += requirements[i];
-          if (newXp >= cumulative) {
-            lvl = i + 2;
-          } else {
-            break;
-          }
-        }
+        const lvl = calculateLevelFromXp(newXp).level;
         await supabaseAdmin.from('profiles').update({ xp: newXp, level: lvl }).eq('id', userId);
       } catch (profErr) {
         console.warn('Backend profile xp update warning:', profErr);

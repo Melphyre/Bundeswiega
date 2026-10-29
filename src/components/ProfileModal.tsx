@@ -19,6 +19,7 @@ import {
 } from '../constants/nameTagConfig';
 import NameBgSelector from './NameBgSelector';
 import NameBorderSelector from './NameBorderSelector';
+import AvatarFrameSelector from './AvatarFrameSelector';
 import {
   hasUnlockedAnyAvatarFrame,
   hasUnlockedAnyColumnTheme,
@@ -1128,6 +1129,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
               <PlayerAvatar
                 url={currentAvatarUrl}
                 name={supabaseUser?.user_metadata?.username || 'Avatar'}
+                avatar_frame={selectedAvatarFrame}
                 className="w-10 h-10 border-2 shadow-sm"
                 style={{ borderColor: BRAND_COLOR }}
               />
@@ -1189,7 +1191,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
           </div>
 
           {/* Modal Body */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-40 space-y-6">
             {/* TAB 1: PROFIL */}
             {profileTab === 'profil' && (
               <div className="space-y-6">
@@ -1228,6 +1230,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     <PlayerAvatar
                       url={currentAvatarUrl}
                       name={profileUsername || 'Avatar'}
+                      avatar_frame={selectedAvatarFrame}
                       className="w-20 h-20 border-2 shadow"
                       style={{ borderColor: BRAND_COLOR }}
                     />
@@ -1467,7 +1470,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
 
                         {/* Kategorie 3: Avatar-Rahmen (ERST ab Level 5 sichtbar!) */}
                         {showAvatarFrames && (
-                          <div className="space-y-2 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 animate-in fade-in">
+                          <div className="space-y-3 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 animate-in fade-in">
                             <div className="flex items-center justify-between flex-wrap gap-1">
                               <label className="block text-xs font-black uppercase tracking-wider text-amber-500 dark:text-amber-400 flex items-center space-x-1.5">
                                 <i className="fas fa-circle-notch"></i>
@@ -1479,37 +1482,21 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             </div>
 
                             <p className="text-[11px] opacity-70">
-                              Präsentiere dein Profilbild mit einem exklusiven Schmuckrahmen in Spiel & Bestenlisten:
+                              Wähle ein Rahmenmuster und passe die Leuchtfarbe über die Farbfelder unabhängig an:
                             </p>
 
-                            <select
-                              value={selectedAvatarFrame || 'none'}
-                              onChange={(e) => handleAvatarFrameChange(e.target.value)}
+                            <AvatarFrameSelector
+                              currentValue={selectedAvatarFrame}
+                              userLevel={extractProfileStats(profileStats).level}
+                              avatarUrl={currentAvatarUrl}
+                              playerName={profileUsername || supabaseUser?.user_metadata?.username || 'Spieler'}
                               disabled={avatarFrameLoading}
-                              className={`w-full p-3 rounded-xl border-2 font-bold text-sm cursor-pointer transition-all ${
-                                darkMode ? 'border-amber-500/40 bg-slate-900 text-white' : 'border-amber-300 bg-white text-black'
-                              }`}
-                            >
-                              {unlockedAvatarFrames.map((opt) => (
-                                <option key={opt.id} value={opt.id}>
-                                  {opt.icon} {opt.label} {opt.requiredLevel > 0 ? `(Level ${opt.requiredLevel})` : ''}
-                                </option>
-                              ))}
-                            </select>
-
-                            {/* Info zum ausgewählten Rahmen */}
-                            {selectedAvatarFrame && selectedAvatarFrame !== 'none' && (
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1 flex items-center space-x-1">
-                                <span>ℹ️</span>
-                                <span>{getAvatarFrameOption(selectedAvatarFrame).description}</span>
-                              </div>
-                            )}
-
-                            {avatarFrameMessage && (
-                              <p className={`text-xs font-bold animate-in fade-in ${avatarFrameMessage.startsWith('✅') ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {avatarFrameMessage}
-                              </p>
-                            )}
+                              onSave={async (newVal) => {
+                                await handleAvatarFrameChange(newVal);
+                              }}
+                              message={avatarFrameMessage}
+                              darkMode={darkMode}
+                            />
                           </div>
                         )}
 

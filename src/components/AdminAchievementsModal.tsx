@@ -351,7 +351,7 @@ export const AdminAchievementsModal: React.FC<AdminAchievementsModalProps> = ({
         </div>
 
         {/* Content: Table & Cards */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-36 space-y-3">
           <div className="flex items-center justify-between text-xs opacity-60 font-semibold px-1 pb-1">
             <span>Zeige {filteredAchievements.length} von {achievements.length} Achievements</span>
             {filteredAchievements.some(a => a.isCustomized) && (

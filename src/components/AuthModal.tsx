@@ -85,7 +85,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           darkMode
             ? 'bg-slate-900 border-slate-700 text-white'
             : 'bg-white border-slate-200 text-gray-900'
-        } max-h-[92vh] flex flex-col`}
+        } max-h-[92dvh] min-h-0 flex flex-col`}
       >
         {/* Modal Header */}
         <div className="flex justify-between items-center border-b pb-4 border-gray-500/20 flex-shrink-0">
@@ -147,7 +147,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1">
+        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1 pb-16">
           {/* Error Message */}
           {authError && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs flex items-start space-x-2.5 animate-in fade-in">

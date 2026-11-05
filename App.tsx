@@ -62,6 +62,7 @@ import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
+import { LeaderboardCard } from './src/components/LeaderboardCard';
 import { recordQuestStat, processQuestsForUser } from './src/utils/questEvaluator';
 import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
@@ -387,6 +388,7 @@ const App: React.FC = () => {
   const [accountResultsSaved, setAccountResultsSaved] = useState<string[]>([]);
   const [userTitle, setUserTitle] = useState<string>('');
   const [userNameBgColor, setUserNameBgColor] = useState<string>('none');
+  const [userNameGlow, setUserNameGlow] = useState<string>('none');
   const [userAvatarFrame, setUserAvatarFrame] = useState<string>('none');
   const [userColumnTheme, setUserColumnTheme] = useState<string>('none');
   const [userRowTheme, setUserRowTheme] = useState<string>('none');
@@ -483,10 +485,10 @@ const App: React.FC = () => {
     if (foundInPlayers?.name_bg_color && foundInPlayers.name_bg_color !== 'none') return foundInPlayers.name_bg_color;
 
     // 1. Eingeloggter Benutzer
-    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentName = (profileUsername || supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
     const currentId = supabaseUser?.id;
     if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
-      const userBg = userNameBgColor || supabaseUser?.user_metadata?.name_bg_color;
+      const userBg = (userNameBgColor && userNameBgColor !== 'none' ? userNameBgColor : undefined) || supabaseUser?.user_metadata?.name_bg_color;
       if (userBg && userBg !== 'none') return userBg;
     }
 
@@ -547,10 +549,10 @@ const App: React.FC = () => {
     if ((foundInPlayers as any)?.name_glow && (foundInPlayers as any).name_glow !== 'none') return (foundInPlayers as any).name_glow;
 
     // 1. Eingeloggter Benutzer
-    const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
+    const currentName = (profileUsername || supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
     const currentId = supabaseUser?.id;
     if ((currentName && currentName === target) || (currentId && currentId === playerNameOrId)) {
-      const glow = supabaseUser?.user_metadata?.name_glow;
+      const glow = (userNameGlow && userNameGlow !== 'none' ? userNameGlow : undefined) || supabaseUser?.user_metadata?.name_glow;
       if (glow && glow !== 'none') return glow;
     }
 
@@ -1158,6 +1160,8 @@ const App: React.FC = () => {
         setUserTitle(activeTitle);
         const activeNameBg = prof.name_bg_color || supabaseUser?.user_metadata?.name_bg_color || localStorage.getItem(`bundeswiega_user_name_bg_${currentUserId}`) || 'none';
         setUserNameBgColor(activeNameBg);
+        const activeNameGlow = prof.name_glow || supabaseUser?.user_metadata?.name_glow || localStorage.getItem(`bundeswiega_user_name_glow_${currentUserId}`) || 'none';
+        setUserNameGlow(activeNameGlow);
         const activeFrame = prof.avatar_frame || supabaseUser?.user_metadata?.avatar_frame || localStorage.getItem(`bundeswiega_user_avatar_frame_${currentUserId}`) || 'none';
         setUserAvatarFrame(activeFrame);
         const activeColTheme = prof.ingame_column_theme || supabaseUser?.user_metadata?.ingame_column_theme || localStorage.getItem(`bundeswiega_user_col_theme_${currentUserId}`) || 'none';
@@ -2302,7 +2306,7 @@ const App: React.FC = () => {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, username, email, avatar_url, title, level, xp, name_bg_color')
+          .select('id, username, email, avatar_url, title, level, xp, name_bg_color, name_glow, avatar_frame, ingame_column_theme, leaderboard_row_theme')
           .order('username', { ascending: true });
         if (!error && data && data.length > 0) {
           setClerkUsers(data.map((p: any) => ({
@@ -2316,7 +2320,10 @@ const App: React.FC = () => {
             level: p.level || 1,
             xp: p.xp || 0,
             name_bg_color: p.name_bg_color || 'none',
-            name_glow: (p as any).name_glow || 'none'
+            name_glow: p.name_glow || 'none',
+            avatar_frame: p.avatar_frame || 'none',
+            ingame_column_theme: p.ingame_column_theme || 'none',
+            leaderboard_row_theme: p.leaderboard_row_theme || 'none'
           })));
         }
       } catch (e) {
@@ -2669,7 +2676,9 @@ const App: React.FC = () => {
         imageUrl: avatar,
         avatar_url: avatar,
         title: match.title,
-        name_bg_color: match.name_bg_color
+        name_bg_color: (match as any).name_bg_color || p.name_bg_color,
+        name_glow: (match as any).name_glow || (p as any).name_glow,
+        avatar_frame: (match as any).avatar_frame || (p as any).avatar_frame
       } : p));
       setPlayerAccountLinks(prev => ({
         ...prev,
@@ -2678,7 +2687,9 @@ const App: React.FC = () => {
           userName: match.name,
           imageUrl: avatar,
           avatar_url: avatar,
-          name_bg_color: match.name_bg_color
+          name_bg_color: (match as any).name_bg_color || null,
+          name_glow: (match as any).name_glow || null,
+          avatar_frame: (match as any).avatar_frame || null
         }
       }));
     }
@@ -2705,7 +2716,9 @@ const App: React.FC = () => {
         imageUrl: avatar,
         avatar_url: avatar,
         title: match.title,
-        name_bg_color: match.name_bg_color
+        name_bg_color: (match as any).name_bg_color || p.name_bg_color,
+        name_glow: (match as any).name_glow || (p as any).name_glow,
+        avatar_frame: (match as any).avatar_frame || (p as any).avatar_frame
       } : p));
       setTeamMemberAccountLinks(prev => ({
         ...prev,
@@ -2714,7 +2727,9 @@ const App: React.FC = () => {
           userName: match.name,
           imageUrl: avatar,
           avatar_url: avatar,
-          name_bg_color: match.name_bg_color
+          name_bg_color: (match as any).name_bg_color || null,
+          name_glow: (match as any).name_glow || null,
+          avatar_frame: (match as any).avatar_frame || null
         }
       }));
     }
@@ -3943,7 +3958,10 @@ const App: React.FC = () => {
       isDisqualified: false,
       userId: i === 0 && isSignedIn && supabaseUser ? supabaseUser.id : undefined,
       avatar_url: i === 0 ? hostAvatar : null,
-      imageUrl: i === 0 ? hostAvatar : null
+      imageUrl: i === 0 ? hostAvatar : null,
+      name_bg_color: i === 0 ? userNameBgColor : undefined,
+      name_glow: i === 0 ? userNameGlow : undefined,
+      avatar_frame: i === 0 ? userAvatarFrame : undefined
     }));
     setPlayers(initialPlayers);
     if (isSignedIn && supabaseUser && initialPlayers.length > 0) {
@@ -3953,7 +3971,10 @@ const App: React.FC = () => {
           userId: supabaseUser.id,
           userName: username,
           imageUrl: hostAvatar,
-          avatar_url: hostAvatar
+          avatar_url: hostAvatar,
+          name_bg_color: userNameBgColor,
+          name_glow: userNameGlow,
+          avatar_frame: userAvatarFrame
         }
       }));
     }
@@ -4230,6 +4251,29 @@ const App: React.FC = () => {
           // 4. Volle Hunderterzahl (l4_waves_animation_quest: 100, 200, 300, etc.)
           if (weight > 0 && weight % 100 === 0) {
             recordQuestStat(targetUserId, 'hundreds_count', 1);
+          }
+          // 5. Exakt 5g Abstand zum Ziel (Quest: Präzisions-Schuss)
+          if (dist !== null && Math.abs(dist - 5) < 0.05) {
+            recordQuestStat(targetUserId, 'exact_five_g_count', 1);
+          }
+          // 6. Stratege (Quest: Taktischer Stratege) - Zielgewicht vorgegeben & Mitspieler landet Volltreffer
+          const someoneElseBullseye = activeInRound.some(other => {
+            if (other.id === p.id) return false;
+            const ow = currentRound.results[other.id];
+            if (typeof ow !== 'number' || isNaN(ow)) return false;
+            const ot = (currentRound.isFinal && currentRound.individualTargets) ? currentRound.individualTargets[other.id] : currentRound.targetWeight;
+            return typeof ot === 'number' && Math.abs(ow - ot) === 0;
+          });
+          if (someoneElseBullseye && !currentRound.isFinal) {
+            recordQuestStat(targetUserId, 'strategist_count', 1);
+          }
+          // 7. Achievement 67 (Quest: Herzchen-Regen)
+          if (Math.round(weight) === 67) {
+            recordQuestStat(targetUserId, 'ach_67_count', 1);
+          }
+          // 8. Knapp daneben (Quest: Schwapp-Welle - exakt 1g Abstand)
+          if (dist !== null && Math.abs(dist - 1) < 0.05) {
+            recordQuestStat(targetUserId, 'ach_knapp_daneben_count', 1);
           }
         }
       });
@@ -5467,22 +5511,27 @@ const App: React.FC = () => {
 
           supabaseRows = safeResults
             .filter(r => {
-              if (!r || !r.user_id) return false;
-              const profile = profileMap[r.user_id];
-              if (!profile) return false;
-              if (profile.show_records === false) return false;
-              if (r.game_mode?.includes('Standardspiel') && profile.show_standardspiel === false) return false;
-              if (r.game_mode?.includes('Speedwiegen') && profile.show_speedwiegen === false) return false;
-              if (r.game_mode?.includes('Teamwiegen') && profile.show_teamwiegen === false) return false;
+              if (!r) return false;
+              if (r.user_id) {
+                const profile = profileMap[r.user_id];
+                if (!profile) return false;
+                if (profile.show_records === false) return false;
+                if (r.game_mode?.includes('Standardspiel') && profile.show_standardspiel === false) return false;
+                if (r.game_mode?.includes('Speedwiegen') && profile.show_speedwiegen === false) return false;
+                if (r.game_mode?.includes('Teamwiegen') && profile.show_teamwiegen === false) return false;
+                return true;
+              }
+              // Gast-Spieler (is_guest = true oder ohne user_id) werden immer in der Bestenliste / Historie berücksichtigt
               return true;
             })
             .map(r => {
-              const profile = profileMap[r.user_id];
+              const profile = r.user_id ? profileMap[r.user_id] : null;
               const canonicalMode = normalizeGameMode(r.game_mode);
+              const isSpeed = canonicalMode.includes('Speedwiegen');
               const entryAchs = safeAchs
                 .filter(a =>
                   a &&
-                  a.user_id === r.user_id &&
+                  ((r.user_id && a.user_id === r.user_id) || (!r.user_id && a.player_name && a.player_name === r.player_name)) &&
                   a.date === r.date &&
                   matchesGameMode(a.game_mode, canonicalMode)
                 )
@@ -5495,15 +5544,20 @@ const App: React.FC = () => {
                   earnedTogether: a.earned_together
                 }));
 
-              const isSpeed = canonicalMode.includes('Speedwiegen');
               const avgVal = Number(r.avg) || 0;
+              const schnaepseVal = Number(r.schnaepse !== undefined && r.schnaepse !== null
+                ? r.schnaepse
+                : (r.schnapse !== undefined && r.schnapse !== null
+                    ? r.schnapse
+                    : (r.schnaps !== undefined && r.schnaps !== null ? r.schnaps : 0))) || 0;
+
               const timeSec = r.time_seconds !== undefined && r.time_seconds !== null && !isNaN(Number(r.time_seconds))
                 ? Number(r.time_seconds)
                 : (r.time !== undefined && r.time !== null && !isNaN(Number(r.time))
                     ? Number(r.time)
                     : (r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
                         ? Number(r.Time)
-                        : (isSpeed && r.schnaepse ? Number(r.schnaepse) : 0)));
+                        : (isSpeed && schnaepseVal > 0 ? schnaepseVal : 0)));
 
               const levelsVal = r.levels !== undefined && r.levels !== null && !isNaN(Number(r.levels))
                 ? Number(r.levels)
@@ -5513,20 +5567,23 @@ const App: React.FC = () => {
 
               const totalVal = r.total !== undefined && r.total !== null && !isNaN(Number(r.total))
                 ? Number(r.total)
-                : (isSpeed ? Math.round((avgVal + timeSec) * 100) / 100 : Math.round((avgVal + (Number(r.schnaepse) || 0)) * 100) / 100);
+                : (isSpeed ? Math.round((avgVal + timeSec) * 100) / 100 : Math.round((avgVal + schnaepseVal) * 100) / 100);
+
+              const pName = r.team_name || profile?.username || r.player_name || r.playerName || r.name || (r.is_guest ? 'Gast' : 'Unbekannt');
 
               return [
                 r.date || '',
                 canonicalMode,
-                profile?.username || r.player_name || '',
+                pName,
                 avgVal.toString(),
-                (isSpeed ? 0 : (Number(r.schnaepse) || 0)).toString(),
+                (isSpeed ? 0 : schnaepseVal).toString(),
                 totalVal.toString(),
                 entryAchs.length > 0 ? JSON.stringify(entryAchs) : '',
                 r.tournament_name || '',
                 r.tournament_table || '',
                 timeSec.toString(),
-                levelsVal !== undefined ? levelsVal.toString() : ''
+                levelsVal !== undefined ? levelsVal.toString() : '',
+                r.id ? String(r.id) : ''
               ];
             });
         } catch (supaErr: any) {
@@ -5534,25 +5591,31 @@ const App: React.FC = () => {
         }
       }
 
-      // 3. Duplikate zwischen CSV und Supabase vermeiden
-      const supabaseUsernames = new Set(
-        Object.values(profileMap).map((p: any) => p.username?.toLowerCase()?.trim()).filter(Boolean)
-      );
-      const filteredCsvRows = csvRows.filter(row =>
-        !supabaseUsernames.has(row[2]?.toLowerCase()?.trim())
-      );
+      // 3. Duplikate zwischen CSV / API und Supabase vollständig anhand ID / Composite-Key deduplizieren
+      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements", "Turnier", "Tisch", "TimeSeconds", "Levels", "ID"];
+      
+      const allCandidateRows = [...supabaseRows, ...csvRows];
+      const seenRowKeys = new Set<string>();
+      const deduplicatedRows: string[][] = [];
 
-      const headerRow = ["Datum", "Modus", "Name", "Avg", "Schnaepse", "Total", "Achievements", "Turnier", "Tisch", "TimeSeconds", "Levels"];
-      const combinedData = [headerRow, ...filteredCsvRows, ...supabaseRows];
+      for (const row of allCandidateRows) {
+        if (!row || row.length < 3) continue;
+        const rowId = row[11]?.trim();
+        const key = rowId
+          ? `id:${rowId}`
+          : `comp:${row[0]?.trim()}_${row[1]?.trim()}_${row[2]?.toLowerCase()?.trim()}_${Number(row[3] || 0).toFixed(2)}_${row[4]?.trim()}_${row[7]?.trim() || ''}_${row[8]?.trim() || ''}`;
+        
+        if (!seenRowKeys.has(key)) {
+          seenRowKeys.add(key);
+          deduplicatedRows.push(row);
+        }
+      }
+
+      const combinedData = [headerRow, ...deduplicatedRows];
       setRecordsData(combinedData);
 
       const namesSet = new Set<string>();
-      filteredCsvRows.forEach((row: string[]) => {
-        if (row && row[2] && row[2].trim()) {
-          namesSet.add(row[2].trim());
-        }
-      });
-      supabaseRows.forEach((row: string[]) => {
+      deduplicatedRows.forEach((row: string[]) => {
         if (row && row[2] && row[2].trim()) {
           namesSet.add(row[2].trim());
         }
@@ -7777,7 +7840,7 @@ const App: React.FC = () => {
               <div>
                 {/* Haupt-Tabs: Wiegschaft | Spiele | Achievements */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-gray-500/10 pb-4">
-                  <div className="flex space-x-2 overflow-x-auto pb-1 sm:pb-0">
+                  <div className="flex space-x-2 overflow-x-auto no-scrollbar scroll-smooth pb-1 sm:pb-0">
                     {([
                       { id: 'Wiegschaften', label: 'Wiegschaft', icon: 'fas fa-shield-alt' },
                       { id: 'Spiele', label: 'Spiele', icon: 'fas fa-gamepad' },
@@ -7790,7 +7853,7 @@ const App: React.FC = () => {
                           playGlobalClickSound();
                           setActiveRecordsTab(tab.id);
                         }}
-                        className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-2 ${
+                        className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-2 shrink-0 ${
                           activeRecordsTab === tab.id 
                             ? 'text-white shadow-md' 
                             : 'opacity-50 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
@@ -7808,9 +7871,9 @@ const App: React.FC = () => {
                 {activeRecordsTab === 'Spiele' && (
                   <div
                     id="records-games-subtabs-container"
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 p-2 rounded-2xl bg-black/5 dark:bg-white/5 border border-gray-500/10"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 mb-5 p-2 sm:p-2.5 rounded-2xl bg-black/5 dark:bg-white/5 border border-gray-500/10"
                   >
-                    <div className="flex space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar scroll-smooth pb-0.5 sm:pb-0">
                       {([
                         { id: 'Standardspiel', label: 'Standard', icon: 'fas fa-balance-scale' },
                         { id: 'Speedwiegen', label: 'Speedwiegen', icon: 'fas fa-stopwatch' },
@@ -7823,7 +7886,7 @@ const App: React.FC = () => {
                             playGlobalClickSound();
                             setRecordsGamesSubTab(sub.id);
                           }}
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                          className={`px-3 sm:px-3.5 py-1.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap cursor-pointer flex items-center space-x-1.5 shrink-0 ${
                             recordsGamesSubTab === sub.id
                               ? 'bg-[#238183] text-white shadow-sm'
                               : 'opacity-65 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
@@ -7839,7 +7902,7 @@ const App: React.FC = () => {
                     {(recordsGamesSubTab === 'Standardspiel' || recordsGamesSubTab === 'Speedwiegen') && (
                       <div
                         id="records-volume-toggle-container"
-                        className="flex items-center self-end sm:self-auto gap-2 bg-white/70 dark:bg-slate-800/80 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs"
+                        className="flex items-center self-start sm:self-auto gap-2 bg-white/70 dark:bg-slate-800/80 border border-gray-500/20 px-3 py-1.5 rounded-xl shadow-xs shrink-0"
                       >
                         <button
                           type="button"
@@ -7873,7 +7936,7 @@ const App: React.FC = () => {
                               setSpeedwiegenSizeTab(prev => prev === '500ml' ? '0,33L' : '500ml');
                             }
                           }}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none shrink-0 ${
                             (recordsGamesSubTab === 'Standardspiel' ? standardspielSizeTab : speedwiegenSizeTab) === '0,33L'
                               ? 'bg-[#238183]'
                               : (darkMode ? 'bg-slate-700' : 'bg-gray-300')
@@ -8496,10 +8559,10 @@ const App: React.FC = () => {
                     return (
                       <div className="space-y-6 max-h-[55vh] overflow-y-auto pr-2">
                         {/* Statistikreiter selector */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-500/5 pb-4">
-                          <div className="flex flex-col space-y-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-gray-500/10 pb-3">
+                          <div className="flex flex-col space-y-1 w-full sm:w-auto">
                             <span className="text-[10px] uppercase font-bold opacity-50 tracking-wider">Statistikreiter</span>
-                            <div className={`flex flex-wrap gap-1 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} w-fit`}>
+                            <div className={`flex items-center space-x-1.5 p-1 rounded-xl ${darkMode ? 'bg-slate-900/60' : 'bg-black/5'} overflow-x-auto no-scrollbar scroll-smooth w-full sm:w-fit`}>
                               {(['all', 'highest_schnaepse', 'best_avg', 'best_total'] as const).map(subTab => {
                                 let label = "";
                                 if (subTab === 'all') label = "Spieler";
@@ -8513,7 +8576,7 @@ const App: React.FC = () => {
                                       playGlobalClickSound();
                                       setActiveStandardSubTab(subTab);
                                     }}
-                                    className={`py-1 px-3 rounded-lg font-black text-xs transition-all cursor-pointer ${
+                                    className={`py-1.5 px-3 rounded-lg font-black text-xs transition-all whitespace-nowrap cursor-pointer shrink-0 ${
                                       activeStandardSubTab === subTab
                                         ? (darkMode ? 'bg-slate-700 text-white shadow' : 'bg-white text-gray-950 shadow')
                                         : 'opacity-60 hover:opacity-100'
@@ -8640,17 +8703,25 @@ const App: React.FC = () => {
                                       return isNaN(t) ? 0 : t;
                                     };
 
-                                    const playerGames = [...rawGames].sort((a, b) => {
+                                    const dedupedRawGames = rawGames.filter((item, index, self) =>
+                                      index === self.findIndex(t => (t.id && item.id ? t.id === item.id : `${t.date}_${t.game_mode || t.gameMode}_${Number(t.avg || 0).toFixed(2)}_${t.schnaepse}_${t.tournament_name || ''}` === `${item.date}_${item.game_mode || item.gameMode}_${Number(item.avg || 0).toFixed(2)}_${item.schnaepse}_${item.tournament_name || ''}`))
+                                    );
+
+                                    const playerGames = [...dedupedRawGames].sort((a, b) => {
                                       let cmp = 0;
                                       if (playerGamesSortKey === 'date') {
                                         cmp = parseGermanDate(a.date) - parseGermanDate(b.date);
                                       } else if (playerGamesSortKey === 'avg') {
                                         cmp = Number(a.avg || 0) - Number(b.avg || 0);
                                       } else if (playerGamesSortKey === 'schnaepse') {
-                                        cmp = Number(a.schnaepse || 0) - Number(b.schnaepse || 0);
+                                        const sA = Number(a.schnaepse !== undefined && a.schnaepse !== null ? a.schnaepse : (a.schnapse ?? a.schnaps ?? 0));
+                                        const sB = Number(b.schnaepse !== undefined && b.schnaepse !== null ? b.schnaepse : (b.schnapse ?? b.schnaps ?? 0));
+                                        cmp = sA - sB;
                                       } else if (playerGamesSortKey === 'total') {
-                                        const totA = Number(a.avg || 0) + Number(a.schnaepse || 0);
-                                        const totB = Number(b.avg || 0) + Number(b.schnaepse || 0);
+                                        const sA = Number(a.schnaepse !== undefined && a.schnaepse !== null ? a.schnaepse : (a.schnapse ?? a.schnaps ?? 0));
+                                        const sB = Number(b.schnaepse !== undefined && b.schnaepse !== null ? b.schnaepse : (b.schnapse ?? b.schnaps ?? 0));
+                                        const totA = Number(a.total) || (Number(a.avg || 0) + sA);
+                                        const totB = Number(b.total) || (Number(b.avg || 0) + sB);
                                         cmp = totA - totB;
                                       }
                                       if (cmp === 0) {
@@ -8872,7 +8943,8 @@ const App: React.FC = () => {
                                             </thead>
                                             <tbody>
                                               {playerGames.map((item, idx) => {
-                                                const totalScore = item.avg + item.schnaepse;
+                                                const sVal = Number(item.schnaepse !== undefined && item.schnaepse !== null ? item.schnaepse : (item.schnapse ?? item.schnaps ?? 0));
+                                                const totalScore = Number(item.total) || (Number(item.avg || 0) + sVal);
                                                 return (
                                                   <tr key={idx} className="border-b border-gray-500/5 hover:bg-black/10">
                                                     <td className="py-3 font-semibold text-gray-400">
@@ -8886,7 +8958,7 @@ const App: React.FC = () => {
                                                       )}
                                                     </td>
                                                     <td className="py-3 text-center text-emerald-500 font-bold pr-4">{item.avg.toFixed(2)}g</td>
-                                                    <td className="py-3 text-center text-indigo-400 font-bold pr-4">{item.schnaepse}</td>
+                                                    <td className="py-3 text-center text-indigo-400 font-bold pr-4">{sVal}</td>
                                                     <td className="py-3 text-right font-black" style={{ color: BRAND_COLOR }}>
                                                       {totalScore.toFixed(2)}
                                                     </td>
@@ -9059,87 +9131,47 @@ const App: React.FC = () => {
                                 <div className="space-y-2">
                                   {schnaepseSortMode === 'gesamt' ? (
                                     sortedByAvgSchnaepse.slice(0, 10).map((p, idx) => (
-                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.name);
-                                            }}
-                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                            title={`Profilbild von ${p.name} in groß ansehen`}
-                                          >
-                                            <PlayerAvatar
-                                              url={getPlayerAvatarUrl(p.name)}
-                                              avatar_frame={getPlayerAvatarFrame(p.name)}
-                                              name={p.name}
-                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                            />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.name);
-                                            }}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                          >
-                                            <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-                                            {getPlayerTitle(p.name) && (
-                                              <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
-                                            )}
-                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                          </button>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <span className="font-black text-sm text-yellow-500">{p.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Spiel</span>
-                                          <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
-                                        </div>
-                                      </div>
+                                      <LeaderboardCard
+                                        key={`schnaepse-gesamt-${p.name}-${idx}`}
+                                        rank={idx + 1}
+                                        playerName={p.name}
+                                        avatarUrl={getPlayerAvatarUrl(p.name)}
+                                        avatarFrame={getPlayerAvatarFrame(p.name)}
+                                        nameBgColor={getPlayerNameBgColor(p.name)}
+                                        playerLevel={getPlayerLevel(p.name)}
+                                        playerTitle={getPlayerTitle(p.name)}
+                                        isGuest={isPlayerGuest(p.name)}
+                                        primaryValue={`${p.avgSchnaepsePerGame.toFixed(2)} Schnäpse/Sp.`}
+                                        primaryValueColor="text-yellow-400"
+                                        subValue={`${p.gamesPlayed} Spiele`}
+                                        onClickPlayer={() => {
+                                          playGlobalClickSound();
+                                          setSelectedPlayerForDetails(p.name);
+                                        }}
+                                        darkMode={darkMode}
+                                      />
                                     ))
                                   ) : (
                                     sortedBySingleSchnaepse.slice(0, 10).map((p, idx) => (
-                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
-                                          >
-                                            <PlayerAvatar
-                                              url={getPlayerAvatarUrl(p.playerName)}
-                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
-                                              name={p.playerName}
-                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                            />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                          >
-                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-                                            {getPlayerTitle(p.playerName) && (
-                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
-                                            )}
-                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                          </button>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <span className="font-black text-sm text-yellow-500">{p.schnaepse} Schnäpse</span>
-                                          <span className="block text-[8px] opacity-40">{p.date} • Ø {p.avg.toFixed(2)}g</span>
-                                        </div>
-                                      </div>
+                                      <LeaderboardCard
+                                        key={`schnaepse-single-${p.playerName}-${idx}`}
+                                        rank={idx + 1}
+                                        playerName={p.playerName}
+                                        avatarUrl={getPlayerAvatarUrl(p.playerName)}
+                                        avatarFrame={getPlayerAvatarFrame(p.playerName)}
+                                        nameBgColor={getPlayerNameBgColor(p.playerName)}
+                                        playerLevel={getPlayerLevel(p.playerName)}
+                                        playerTitle={getPlayerTitle(p.playerName)}
+                                        isGuest={isPlayerGuest(p.playerName)}
+                                        primaryValue={`${p.schnaepse} Schnäpse`}
+                                        primaryValueColor="text-yellow-400"
+                                        subValue={`${p.date} • Ø ${p.avg.toFixed(2)}g`}
+                                        onClickPlayer={() => {
+                                          playGlobalClickSound();
+                                          setSelectedPlayerForDetails(p.playerName);
+                                        }}
+                                        darkMode={darkMode}
+                                      />
                                     ))
                                   )}
                                 </div>
@@ -9290,87 +9322,47 @@ const App: React.FC = () => {
                                 <div className="space-y-2">
                                   {avgSortMode === 'gesamt' ? (
                                     sortedByCareerAverage.slice(0, 10).map((p, idx) => (
-                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.name);
-                                            }}
-                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                            title={`Profilbild von ${p.name} in groß ansehen`}
-                                          >
-                                            <PlayerAvatar
-                                              url={getPlayerAvatarUrl(p.name)}
-                                              avatar_frame={getPlayerAvatarFrame(p.name)}
-                                              name={p.name}
-                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                            />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.name);
-                                            }}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                          >
-                                            <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-                                            {getPlayerTitle(p.name) && (
-                                              <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
-                                            )}
-                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                          </button>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <span className="font-black text-sm text-emerald-500">{p.careerAverage.toFixed(2)}g</span>
-                                          <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
-                                        </div>
-                                      </div>
+                                      <LeaderboardCard
+                                        key={`avg-gesamt-${p.name}-${idx}`}
+                                        rank={idx + 1}
+                                        playerName={p.name}
+                                        avatarUrl={getPlayerAvatarUrl(p.name)}
+                                        avatarFrame={getPlayerAvatarFrame(p.name)}
+                                        nameBgColor={getPlayerNameBgColor(p.name)}
+                                        playerLevel={getPlayerLevel(p.name)}
+                                        playerTitle={getPlayerTitle(p.name)}
+                                        isGuest={isPlayerGuest(p.name)}
+                                        primaryValue={`${p.careerAverage.toFixed(2)}g`}
+                                        primaryValueColor="text-emerald-400"
+                                        subValue={`${p.gamesPlayed} Spiele`}
+                                        onClickPlayer={() => {
+                                          playGlobalClickSound();
+                                          setSelectedPlayerForDetails(p.name);
+                                        }}
+                                        darkMode={darkMode}
+                                      />
                                     ))
                                   ) : (
                                     sortedBySingleAverage.slice(0, 10).map((p, idx) => (
-                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
-                                          >
-                                            <PlayerAvatar
-                                              url={getPlayerAvatarUrl(p.playerName)}
-                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
-                                              name={p.playerName}
-                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                            />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                          >
-                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-                                            {getPlayerTitle(p.playerName) && (
-                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
-                                            )}
-                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                          </button>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
-                                          <span className="block text-[8px] opacity-40">{p.date} • {p.schnaepse} Pkt</span>
-                                        </div>
-                                      </div>
+                                      <LeaderboardCard
+                                        key={`avg-single-${p.playerName}-${idx}`}
+                                        rank={idx + 1}
+                                        playerName={p.playerName}
+                                        avatarUrl={getPlayerAvatarUrl(p.playerName)}
+                                        avatarFrame={getPlayerAvatarFrame(p.playerName)}
+                                        nameBgColor={getPlayerNameBgColor(p.playerName)}
+                                        playerLevel={getPlayerLevel(p.playerName)}
+                                        playerTitle={getPlayerTitle(p.playerName)}
+                                        isGuest={isPlayerGuest(p.playerName)}
+                                        primaryValue={`${p.avg.toFixed(2)}g`}
+                                        primaryValueColor="text-emerald-400"
+                                        subValue={`${p.date} • ${p.schnaepse} Pkt`}
+                                        onClickPlayer={() => {
+                                          playGlobalClickSound();
+                                          setSelectedPlayerForDetails(p.playerName);
+                                        }}
+                                        darkMode={darkMode}
+                                      />
                                     ))
                                   )}
                                 </div>
@@ -9528,88 +9520,48 @@ const App: React.FC = () => {
                                     sortedByCareerAverageTotal.slice(0, 10).map((p, idx) => {
                                       const careerTotalAvg = p.scores.reduce((sum, s) => sum + (s.avg + s.schnaepse), 0) / p.gamesPlayed;
                                       return (
-                                        <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                          <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                            <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                playGlobalClickSound();
-                                                setSelectedPlayerForDetails(p.name);
-                                              }}
-                                              className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                              title={`Profilbild von ${p.name} in groß ansehen`}
-                                            >
-                                              <PlayerAvatar
-                                                url={getPlayerAvatarUrl(p.name)}
-                                                avatar_frame={getPlayerAvatarFrame(p.name)}
-                                                name={p.name}
-                                                className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                              />
-                                            </button>
-                                            <button 
-                                              onClick={() => {
-                                                playGlobalClickSound();
-                                                setSelectedPlayerForDetails(p.name);
-                                              }}
-                                              className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                            >
-                                              <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                              <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-                                              {getPlayerTitle(p.name) && (
-                                                <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
-                                              )}
-                                              <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                            </button>
-                                          </div>
-                                          <div className="text-right shrink-0">
-                                            <span className="font-black text-sm text-purple-400">{careerTotalAvg.toFixed(2)}</span>
-                                            <span className="block text-[8px] opacity-40">{p.gamesPlayed} Spiele</span>
-                                          </div>
-                                        </div>
+                                        <LeaderboardCard
+                                          key={`total-gesamt-${p.name}-${idx}`}
+                                          rank={idx + 1}
+                                          playerName={p.name}
+                                          avatarUrl={getPlayerAvatarUrl(p.name)}
+                                          avatarFrame={getPlayerAvatarFrame(p.name)}
+                                          nameBgColor={getPlayerNameBgColor(p.name)}
+                                          playerLevel={getPlayerLevel(p.name)}
+                                          playerTitle={getPlayerTitle(p.name)}
+                                          isGuest={isPlayerGuest(p.name)}
+                                          primaryValue={careerTotalAvg.toFixed(2)}
+                                          primaryValueColor="text-purple-400"
+                                          subValue={`${p.gamesPlayed} Spiele`}
+                                          onClickPlayer={() => {
+                                            playGlobalClickSound();
+                                            setSelectedPlayerForDetails(p.name);
+                                          }}
+                                          darkMode={darkMode}
+                                        />
                                       );
                                     })
                                   ) : (
                                     sortedBySingleTotal.slice(0, 10).map((p, idx) => (
-                                      <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                        <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                          <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                            title={`Profilbild von ${p.playerName} in groß ansehen`}
-                                          >
-                                            <PlayerAvatar
-                                              url={getPlayerAvatarUrl(p.playerName)}
-                                              avatar_frame={getPlayerAvatarFrame(p.playerName)}
-                                              name={p.playerName}
-                                              className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                            />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              playGlobalClickSound();
-                                              setSelectedPlayerForDetails(p.playerName);
-                                            }}
-                                            className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                          >
-                                            <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                            <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-                                            {getPlayerTitle(p.playerName) && (
-                                              <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
-                                            )}
-                                            <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                          </button>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <span className="font-black text-sm text-purple-400">{(p.avg + p.schnaepse).toFixed(2)}</span>
-                                          <span className="block text-[8px] opacity-40">{p.avg.toFixed(2)}g Avg + {p.schnaepse} Pkt ({p.date})</span>
-                                        </div>
-                                      </div>
+                                      <LeaderboardCard
+                                        key={`total-single-${p.playerName}-${idx}`}
+                                        rank={idx + 1}
+                                        playerName={p.playerName}
+                                        avatarUrl={getPlayerAvatarUrl(p.playerName)}
+                                        avatarFrame={getPlayerAvatarFrame(p.playerName)}
+                                        nameBgColor={getPlayerNameBgColor(p.playerName)}
+                                        playerLevel={getPlayerLevel(p.playerName)}
+                                        playerTitle={getPlayerTitle(p.playerName)}
+                                        isGuest={isPlayerGuest(p.playerName)}
+                                        primaryValue={(p.avg + p.schnaepse).toFixed(2)}
+                                        primaryValueColor="text-purple-400"
+                                        subValue={`${p.avg.toFixed(2)}g Avg + ${p.schnaepse} Pkt (${p.date})`}
+                                        onClickPlayer={() => {
+                                          playGlobalClickSound();
+                                          setSelectedPlayerForDetails(p.playerName);
+                                        }}
+                                        darkMode={darkMode}
+                                      />
                                     ))
                                   )}
                                 </div>
@@ -9755,55 +9707,31 @@ const App: React.FC = () => {
                                 : 1;
                               const avgDist = getSpeedAvgDistance(p);
                               const avgTime = timeVal / levelsCount;
+                              const tourneyTag = p.tournament_name
+                                ? `[${p.tournament_name}${p.tournament_table ? ` - ${p.tournament_table}` : ''}]`
+                                : null;
 
                               return (
-                                <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                  <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                    <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        playGlobalClickSound();
-                                        setSelectedPlayerForDetails(p.playerName);
-                                      }}
-                                      className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                      title={`Profilbild von ${p.playerName} in groß ansehen`}
-                                    >
-                                      <PlayerAvatar
-                                        url={getPlayerAvatarUrl(p.playerName)}
-                                        avatar_frame={getPlayerAvatarFrame(p.playerName)}
-                                        name={p.playerName}
-                                        className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                      />
-                                    </button>
-                                    <button 
-                                      type="button"
-                                      onClick={() => {
-                                        playGlobalClickSound();
-                                        setSelectedPlayerForDetails(p.playerName);
-                                      }}
-                                      className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                    >
-                                      <PlayerNameTag name={p.playerName} colorKey={getPlayerNameBgColor(p.playerName)} />
-                                      <PlayerLevelBadge level={getPlayerLevel(p.playerName)} isGuest={isPlayerGuest(p.playerName)} size="sm" />
-                                      {getPlayerTitle(p.playerName) && (
-                                        <PlayerTitleBadge title={getPlayerTitle(p.playerName)} size="sm" />
-                                      )}
-                                      <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                    </button>
-                                  </div>
-                                  <div className="text-right shrink-0">
-                                    <span className="font-black text-sm text-amber-400">Score: {score}</span>
-                                    <span className="block text-[10px] opacity-60" title={`Normierter Score: (Ø Abstand ${avgDist.toFixed(1)}g) + (Ø Zeit ${avgTime.toFixed(1)}s) = ${score}`}>
-                                      (Ø {avgDist.toFixed(1)}g + {avgTime.toFixed(1)}s • {levelsCount} Stufen{p.date ? ` • ${p.date}` : ''})
-                                    </span>
-                                    {p.tournament_name && (
-                                      <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                        [{p.tournament_name}{p.tournament_table ? ` - ${p.tournament_table}` : ''}]
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
+                                <LeaderboardCard
+                                  key={`speedmeister-${p.playerName}-${idx}`}
+                                  rank={idx + 1}
+                                  playerName={p.playerName}
+                                  avatarUrl={getPlayerAvatarUrl(p.playerName)}
+                                  avatarFrame={getPlayerAvatarFrame(p.playerName)}
+                                  nameBgColor={getPlayerNameBgColor(p.playerName)}
+                                  playerLevel={getPlayerLevel(p.playerName)}
+                                  playerTitle={getPlayerTitle(p.playerName)}
+                                  isGuest={isPlayerGuest(p.playerName)}
+                                  primaryValue={`Score: ${score}`}
+                                  primaryValueColor="text-amber-400"
+                                  subValue={`Ø ${avgDist.toFixed(1)}g + ${avgTime.toFixed(1)}s • ${levelsCount} St.${p.date ? ` • ${p.date}` : ''}`}
+                                  tournamentTag={tourneyTag}
+                                  onClickPlayer={() => {
+                                    playGlobalClickSound();
+                                    setSelectedPlayerForDetails(p.playerName);
+                                  }}
+                                  darkMode={darkMode}
+                                />
                               );
                             })}
                           </div>
@@ -9846,55 +9774,33 @@ const App: React.FC = () => {
                             </div>
 
                             <div className="space-y-2">
-                              {leaderboardAverages.slice(0, 10).map((p, idx) => (
-                                <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-black/10 border border-white/5 text-xs">
-                                  <div className="flex items-center space-x-2.5 pb-0.5 min-w-0">
-                                    <span className="font-black text-xs opacity-50 w-5 text-center shrink-0">#{idx + 1}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        playGlobalClickSound();
-                                        setSelectedPlayerForDetails(p.name);
-                                      }}
-                                      className="relative group shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none"
-                                      title={`Profilbild von ${p.name} in groß ansehen`}
-                                    >
-                                      <PlayerAvatar
-                                        url={getPlayerAvatarUrl(p.name)}
-                                        avatar_frame={getPlayerAvatarFrame(p.name)}
-                                        name={p.name}
-                                        className="w-8 h-8 rounded-full border border-white/10 shadow-xs object-cover"
-                                      />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        playGlobalClickSound();
-                                        setSelectedPlayerForDetails(p.name);
-                                      }}
-                                      className="hover:underline text-left cursor-pointer font-black hover:text-indigo-400 transition-colors inline-flex items-center space-x-1.5 group flex-wrap truncate min-w-0"
-                                    >
-                                      <PlayerNameTag name={p.name} colorKey={getPlayerNameBgColor(p.name)} />
-                                      <PlayerLevelBadge level={getPlayerLevel(p.name)} isGuest={isPlayerGuest(p.name)} size="sm" />
-                                      {getPlayerTitle(p.name) && (
-                                        <PlayerTitleBadge title={getPlayerTitle(p.name)} size="sm" />
-                                      )}
-                                      <i className="fas fa-search-plus ml-1 text-[9px] opacity-0 group-hover:opacity-60 transition-opacity"></i>
-                                    </button>
-                                  </div>
-                                  <div className="text-right shrink-0">
-                                    <span className="font-black text-sm text-emerald-500">{p.avg.toFixed(2)}g</span>
-                                    <span className="block text-[8px] opacity-40">
-                                      {p.date}{effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}
-                                    </span>
-                                    {p.tournament_name && (
-                                      <span className="inline-block mt-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                        [{p.tournament_name}{p.tournament_table ? ` - ${p.tournament_table}` : ''}]
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
+                              {leaderboardAverages.slice(0, 10).map((p, idx) => {
+                                const tourneyTag = p.tournament_name
+                                  ? `[${p.tournament_name}${p.tournament_table ? ` - ${p.tournament_table}` : ''}]`
+                                  : null;
+                                return (
+                                  <LeaderboardCard
+                                    key={`avg-speed-team-${p.name}-${idx}`}
+                                    rank={idx + 1}
+                                    playerName={p.name}
+                                    avatarUrl={getPlayerAvatarUrl(p.name)}
+                                    avatarFrame={getPlayerAvatarFrame(p.name)}
+                                    nameBgColor={getPlayerNameBgColor(p.name)}
+                                    playerLevel={getPlayerLevel(p.name)}
+                                    playerTitle={getPlayerTitle(p.name)}
+                                    isGuest={isPlayerGuest(p.name)}
+                                    primaryValue={`${p.avg.toFixed(2)}g`}
+                                    primaryValueColor="text-emerald-400"
+                                    subValue={`${p.date}${effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? ` • ${p.levels} Stufen` : ''}`}
+                                    tournamentTag={tourneyTag}
+                                    onClickPlayer={() => {
+                                      playGlobalClickSound();
+                                      setSelectedPlayerForDetails(p.name);
+                                    }}
+                                    darkMode={darkMode}
+                                  />
+                                );
+                              })}
                             </div>
                           </div>
 
@@ -10360,7 +10266,7 @@ const App: React.FC = () => {
                                       </td>
                                     )}
                                     <td className="py-2.5 text-right font-black text-indigo-400 pr-3">
-                                      {effectiveGameTab === 'Speedwiegen' ? `${(item.time_seconds ?? item.time ?? item.Time ?? 0).toFixed(1)}s` : item.schnaepse}
+                                      {effectiveGameTab === 'Speedwiegen' ? `${(item.time_seconds ?? item.time ?? item.Time ?? 0).toFixed(1)}s` : (item.schnaepse ?? item.schnapse ?? item.schnaps ?? 0)}
                                     </td>
                                     {effectiveGameTab === 'Speedwiegen' && (
                                       <td className="py-2.5 text-right font-black text-purple-400">

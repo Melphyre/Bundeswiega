@@ -85,21 +85,21 @@ export const LEVEL_PROGRESSION_TABLE: LevelProgressionEntry[] = [
     level: 3,
     xpRequiredForLevel: 200,
     cumulativeXp: 300,
-    rewardTitle: 'Titel "geübter Wieger" & Farben Schwarz/Weiß',
-    rewardDescription: 'Titel "geübter Wieger" + Namenshintergründe Schwarz & Weiß + Detaillierte Statistiken',
+    rewardTitle: 'Titel "geübter Wieger" & Namensschild-Rahmen',
+    rewardDescription: 'Titel "geübter Wieger" + Namensschild-Rahmen & Neon-Glow (Grundfarben Rot, Gelb, Grün, Blau) + Farben Schwarz/Weiß',
     rewardType: 'feature',
-    icon: '🍺',
-    badgeText: 'Titel & Farben'
+    icon: '✨',
+    badgeText: 'Rahmen & Neon-Glow'
   },
   {
     level: 4,
     xpRequiredForLevel: 300,
     cumulativeXp: 600,
-    rewardTitle: 'Titel "App-Meister" & "Wiegemeister" + Pulsierender Neon-Glow',
-    rewardDescription: 'Titel "App-Meister" & "Wiegemeister" + Pulsierender Neon-Glow Rahmen um den Namen (Blau, Rot, Grün, Gelb)',
+    rewardTitle: 'Titel "App-Meister" & "Wiegemeister" + Quest-Rahmenfarben',
+    rewardDescription: 'Titel "App-Meister" & "Wiegemeister" + Gestaffelte Quest-Rahmenfarben (Orange, Lila, Cyan/Mint)',
     rewardType: 'cosmetic',
-    icon: '✨',
-    badgeText: '2 Titel & Neon-Glow'
+    icon: '🏆',
+    badgeText: '2 Titel & Quests'
   },
   {
     level: 5,

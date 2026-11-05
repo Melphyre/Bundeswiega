@@ -3,22 +3,26 @@ import {
   NameBorderPatternId,
   NameBgColorId,
   NAME_BORDER_PATTERNS,
-  NAME_BG_COLORS,
   parseNameBorder,
-  getUnlockedColors,
-  NameBgColorOption,
   NameBorderPatternOption
 } from '../constants/nameTagConfig';
 import { PlayerNameTag } from './PlayerNameTag';
+import { getUserQuestCounters, UserQuestCounters } from '../utils/questEvaluator';
 
 export interface NameBorderSelectorProps {
   currentValue?: string | null;
   userLevel: number;
+  userQuests?: UserQuestCounters;
+  userId?: string;
   unlockedContext?: {
     completedQuestIds?: string[];
     achievementsCount?: number;
     standardWins?: number;
     unlockedColors?: string[];
+    userQuests?: UserQuestCounters;
+    questProgresses?: any[];
+    myGameData?: any[];
+    myAchievementsData?: any[];
   };
   playerName?: string;
   activeBg?: string | null;
@@ -31,6 +35,8 @@ export interface NameBorderSelectorProps {
 export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
   currentValue,
   userLevel,
+  userQuests,
+  userId,
   unlockedContext,
   playerName = 'Spieler',
   activeBg,
@@ -42,41 +48,302 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
   // Parsen des initialen Werts
   const initialParsed = parseNameBorder(currentValue);
   const [borderPattern, setBorderPattern] = useState<NameBorderPatternId>(initialParsed.patternId);
-  const [selectedColor, setSelectedColor] = useState<NameBgColorId>(initialParsed.colorId);
+  const [selectedColor, setSelectedColor] = useState<string>(initialParsed.colorId);
 
-  // Synchronisation bei externen Prop-Änderungen
+
+  // Kumulierte Zähler über alle Spiele für die gestaffelten Quests
+  const effectiveQuests: UserQuestCounters =
+    userQuests ||
+    unlockedContext?.userQuests ||
+    getUserQuestCounters(
+      userId,
+      unlockedContext?.questProgresses,
+      unlockedContext?.myGameData,
+      unlockedContext?.myAchievementsData
+    );
+
+  // 11 Rahmen-Muster: Level 3 Basis + Level 5 Quest-Rahmen
+  const borderPatterns = [
+    // Level 3 Standard (ohne Quest)
+    {
+      id: 'none' as NameBorderPatternId,
+      name: 'Kein Rahmen',
+      icon: '🚫',
+      minLevel: 0,
+      unlocked: true,
+      description: 'Kein zusätzlicher Rahmen um das Namensschild'
+    },
+    {
+      id: 'simple' as NameBorderPatternId,
+      name: 'Einfacher Rahmen',
+      icon: '🔲',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      description: 'Einfacher Balkenrahmen um dein Namenskärtchen in der gewählten Farbe ohne Animation'
+    },
+    {
+      id: 'neon-glow' as NameBorderPatternId,
+      name: 'Pulsierender Neon-Glow',
+      icon: '✨',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      description: 'Sanft pulsierender, leuchtender Box-Shadow und Rahmen in deiner gewählten Farbe'
+    },
+
+    // Level 5 Quest-Rahmen
+    {
+      id: 'hearts' as NameBorderPatternId,
+      name: 'Herzchen-Regen',
+      icon: '💖',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.ach_67 || 0) >= 3),
+      progress: Math.min(3, effectiveQuests.ach_67 || 0),
+      target: 3,
+      questTitle: '3x Achievement "67"',
+      description: 'Rieselnder Herzchen-Regen in deiner gewählten Rahmen-Farbe um das Namensschild'
+    },
+    {
+      id: 'flame' as NameBorderPatternId,
+      name: 'Wandernde Flamme',
+      icon: '🔥',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.speed_avg_sub5 || 0) >= 3),
+      progress: Math.min(3, effectiveQuests.speed_avg_sub5 || 0),
+      target: 3,
+      questTitle: 'Speedwiegen: 3x Avg < 5g',
+      description: 'Wandernder Glutpunkt mit dynamischer Funkenspur in deiner gewählten Rahmen-Farbe'
+    },
+    {
+      id: 'lightning' as NameBorderPatternId,
+      name: 'Elektrischer Blitz',
+      icon: '⚡',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.speed_time_sub100 || 0) >= 3),
+      progress: Math.min(3, effectiveQuests.speed_time_sub100 || 0),
+      target: 3,
+      questTitle: 'Speedwiegen: 3x Zeit < 100s',
+      description: 'Hochenergetischer Lichtbogen zischt als Ring-Animation um die Kanten'
+    },
+    {
+      id: 'wave' as NameBorderPatternId,
+      name: 'Schwapp-Welle',
+      icon: '🌊',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.ach_knapp_daneben || 0) >= 5),
+      progress: Math.min(5, effectiveQuests.ach_knapp_daneben || 0),
+      target: 5,
+      questTitle: '5x "Knapp daneben"',
+      description: 'Fließende Meereswelle läuft als Kontur-Animation um den äußeren Rand'
+    },
+    {
+      id: 'cyber' as NameBorderPatternId,
+      name: 'Doppelter Cyber-Rahmen',
+      icon: '💠',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.ach_kopfrechner || 0) >= 5),
+      progress: Math.min(5, effectiveQuests.ach_kopfrechner || 0),
+      target: 5,
+      questTitle: '5x "Kopfrechner"',
+      description: 'Zweistufiger Hightech-Rahmen mit kraftvollem Cyber-Lauflicht'
+    },
+    {
+      id: 'laser' as NameBorderPatternId,
+      name: 'Laufender Laser-Rahmen',
+      icon: '🎯',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.ach_scharfschuetze || 0) >= 5),
+      progress: Math.min(5, effectiveQuests.ach_scharfschuetze || 0),
+      target: 5,
+      questTitle: '5x "Scharfschütze"',
+      description: 'Präziser Laser-Lichtstrahl kreist als Border-Light exakt auf der Außenkante'
+    },
+    {
+      id: 'snow-frame' as NameBorderPatternId,
+      name: 'Eiszapfen / Schnee',
+      icon: '❄️',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.zwilling || 0) >= 5),
+      progress: Math.min(5, effectiveQuests.zwilling || 0),
+      target: 5,
+      questTitle: '5x Wiegezwilling',
+      description: 'Eiskristall-Frostschimmer wandert kontinuierlich um den Rahmen'
+    },
+    {
+      id: 'matrix-frame' as NameBorderPatternId,
+      name: 'Matrix-Code-Rahmen',
+      icon: '💻',
+      minLevel: 5,
+      unlocked: userLevel >= 5 && ((effectiveQuests.stratege || 0) >= 5),
+      progress: Math.min(5, effectiveQuests.stratege || 0),
+      target: 5,
+      questTitle: '5x Achievement Stratege',
+      description: 'Digitaler grüner Matrix-Datenstrom läuft ausschließlich auf der Kante'
+    }
+  ];
+
+  // 10 Farb-Swatches:
+  // 1x Deaktiviert ("Keine Farbe") + 4 Basis (Level 3) + 2 Quest (Level 3) + 3 Quest (Level 4)
+  const swatches = [
+    // 0. Keine Farbe (deaktiviert den Rahmen)
+    {
+      id: 'none',
+      label: 'Keine Farbe (Deaktiviert)',
+      hex: 'transparent',
+      minLevel: 0,
+      unlocked: true,
+      aliases: ['none', 'keine', 'transparent', '']
+    },
+
+    // Level 3 Basis-Farben
+    {
+      id: 'red',
+      label: 'Rot',
+      hex: '#ef4444',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      aliases: ['red', 'rot', '#ef4444', '#dc2626']
+    },
+    {
+      id: 'yellow',
+      label: 'Gelb',
+      hex: '#eab308',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      aliases: ['yellow', 'gelb', '#eab308', '#facc15']
+    },
+    {
+      id: 'blue',
+      label: 'Blau',
+      hex: '#3b82f6',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      aliases: ['blue', 'blau', '#3b82f6', '#2563eb']
+    },
+    {
+      id: 'green',
+      label: 'Grün',
+      hex: '#22c55e',
+      minLevel: 3,
+      unlocked: userLevel >= 3,
+      aliases: ['green', 'gruen', 'grün', '#22c55e', '#16a34a']
+    },
+
+    // Level 3 Quest-Farben
+    {
+      id: 'pink',
+      label: 'Pink',
+      hex: '#ec4899',
+      minLevel: 3,
+      unlocked: userLevel >= 3 && (effectiveQuests.schnapszahl >= 5),
+      questTitle: '5x Schnapszahl treffen',
+      questName: 'Schnapszahl-Künstler',
+      progress: Math.min(5, effectiveQuests.schnapszahl || 0),
+      target: 5,
+      aliases: ['pink', 'rosa', '#ec4899']
+    },
+    {
+      id: 'teal',
+      label: 'Türkis',
+      hex: '#14b8a6',
+      minLevel: 3,
+      unlocked: userLevel >= 3 && (effectiveQuests.hunderter >= 5),
+      questTitle: '5x glatte Hunderterzahl',
+      questName: 'Hunderter-Profi',
+      progress: Math.min(5, effectiveQuests.hunderter || 0),
+      target: 5,
+      aliases: ['teal', 'turquoise', 'tuerkis', 'türkis', '#14b8a6', '#0d9488']
+    },
+
+    // Level 4 Quest-Farben
+    {
+      id: 'orange',
+      label: 'Orange',
+      hex: '#f97316',
+      minLevel: 4,
+      unlocked: userLevel >= 4 && (effectiveQuests.stratege >= 5),
+      questTitle: '5x Achievement "Stratege"',
+      questName: 'Taktischer Stratege',
+      progress: Math.min(5, effectiveQuests.stratege || 0),
+      target: 5,
+      aliases: ['orange', 'neon_orange', '#f97316', '#ff5e00']
+    },
+    {
+      id: 'purple',
+      label: 'Dunkelblau / Lila',
+      hex: '#a855f7',
+      minLevel: 4,
+      unlocked: userLevel >= 4 && (effectiveQuests.zwilling >= 5),
+      questTitle: '5x Wiegezwilling werden',
+      questName: 'Wiegezwilling',
+      progress: Math.min(5, effectiveQuests.zwilling || 0),
+      target: 5,
+      aliases: ['purple', 'deep_purple', 'purpur', 'lila', 'violett', '#a855f7', '#4c1d95']
+    },
+    {
+      id: 'cyan',
+      label: 'Cyan / Mint',
+      hex: '#06b6d4',
+      minLevel: 4,
+      unlocked: userLevel >= 4 && (effectiveQuests.exactFiveG >= 5),
+      questTitle: '5x exakt 5g Abstand (gesamt über Spiele)',
+      questName: 'Präzisions-Schuss',
+      progress: Math.min(5, effectiveQuests.exactFiveG || 0),
+      target: 5,
+      aliases: ['cyan', 'mint', 'neon_mint', '#06b6d4', '#00ffa3']
+    }
+  ];
+
+  // Gesperrte Rahmen-Muster vollständig ausblenden: Nur freigeschaltete Muster sind auswählbar
+  const availablePatterns = borderPatterns.filter(p => p.unlocked);
+
+  // Synchronisation bei externen Prop-Änderungen oder wenn das gewählte Muster noch nicht freigeschaltet ist
   useEffect(() => {
     const parsed = parseNameBorder(currentValue);
-    setBorderPattern(parsed.patternId);
+    const isValid = availablePatterns.some(p => p.id === parsed.patternId);
+    const chosenPattern = isValid ? parsed.patternId : (availablePatterns[0]?.id || 'none');
+    setBorderPattern(chosenPattern);
     setSelectedColor(parsed.colorId);
-  }, [currentValue]);
+  }, [currentValue, userLevel, availablePatterns.length]);
 
-  // Freigeschaltete Farben für die Rahmen-Swatches
-  const unlockedColors: NameBgColorOption[] = getUnlockedColors(userLevel, unlockedContext);
-  // Keine "none" Option in der Farbpalette (da "Kein Rahmen" über das linke Dropdown gesteuert wird)
-  const swatchColors = unlockedColors.filter(c => c.id !== 'none');
+  const activePattern =
+    availablePatterns.find(p => p.id === borderPattern) || availablePatterns[0] || borderPatterns[0];
 
-  const activePattern: NameBorderPatternOption =
-    NAME_BORDER_PATTERNS.find(p => p.id === borderPattern) || NAME_BORDER_PATTERNS[0];
-  const activeColorMatch: NameBgColorOption =
-    swatchColors.find(c => c.id === selectedColor) || swatchColors[0] || NAME_BG_COLORS[1];
+  const activeColorMatch =
+    swatches.find(s =>
+      selectedColor === s.id ||
+      selectedColor === s.hex ||
+      (s.aliases && s.aliases.includes(String(selectedColor).toLowerCase()))
+    ) || swatches[0];
 
-  const handlePatternChange = (newPattern: NameBorderPatternId) => {
+  const isColorDeactivated = selectedColor === 'none' || selectedColor === 'transparent' || selectedColor === '';
+
+  const handlePatternChange = (newPatternId: NameBorderPatternId) => {
     if (disabled) return;
-    setBorderPattern(newPattern);
-    const colorToUse = newPattern === 'none' ? 'none' : selectedColor;
-    const serialized = `${newPattern}:${colorToUse}`;
-    onSave(newPattern, colorToUse as NameBgColorId, serialized);
+    const targetPattern = availablePatterns.find(p => p.id === newPatternId);
+    if (!targetPattern) return;
+
+    setBorderPattern(newPatternId);
+
+    const colorToUse = selectedColor || 'none';
+    const serialized = `${newPatternId}:${colorToUse}`;
+    onSave(newPatternId, colorToUse as NameBgColorId, serialized);
   };
 
-  const handleColorChange = (newColorId: NameBgColorId) => {
-    if (disabled || borderPattern === 'none') return;
-    setSelectedColor(newColorId);
-    const serialized = `${borderPattern}:${newColorId}`;
-    onSave(borderPattern, newColorId, serialized);
+  const handleColorChange = (swatch: typeof swatches[0]) => {
+    if (disabled || !swatch.unlocked) return;
+    setSelectedColor(swatch.id);
+    
+    // Nur speichern, wenn auch das gewählte Rahmenmuster freigeschaltet ist
+    if (activePattern.unlocked) {
+      const serialized = `${borderPattern}:${swatch.id}`;
+      onSave(borderPattern, swatch.id as NameBgColorId, serialized);
+    }
   };
 
-  const previewSerialized = borderPattern === 'none' ? 'none' : `${borderPattern}:${selectedColor}`;
+  // Wenn keine Farbe gewählt ist oder kein Rahmen aktiv ist, wird der Rahmen deaktiviert
+  const previewSerialized = activePattern.id === 'none' || isColorDeactivated ? `${borderPattern}:none` : `${borderPattern}:${selectedColor}`;
+  const unlockedPatternsCount = borderPatterns.filter(p => p.id !== 'none' && p.unlocked).length;
+  const unlockedColorsCount = swatches.filter(s => s.id !== 'none' && s.unlocked).length;
 
   return (
     <div className="space-y-4">
@@ -99,13 +366,23 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
-          <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30">
-            Rahmen: {activePattern.label}
+          <span className={`px-2 py-0.5 rounded-md border ${
+            !activePattern.unlocked
+              ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+              : 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+          }`}>
+            {!activePattern.unlocked && '🔒 '}Rahmen: {activePattern.name}
           </span>
-          {borderPattern !== 'none' && (
-            <span className="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-400 border border-teal-500/30">
-              Leuchtfarbe: {activeColorMatch.label}
-            </span>
+          {activePattern.id !== 'none' && (
+            isColorDeactivated ? (
+              <span className="px-2 py-0.5 rounded-md bg-slate-500/15 text-slate-400 border border-slate-500/30">
+                Status: Deaktiviert (Keine Farbe)
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-400 border border-teal-500/30">
+                Farbe: {activeColorMatch.label}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -118,10 +395,10 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
         }`}>
           <div className="flex items-center justify-between">
             <label className="text-xs font-black uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
-              <span>✨ RAHMEN-ANIMATION / MUSTER:</span>
+              <span>🔲 RAHMEN-STIL / MUSTER:</span>
             </label>
             <span className="text-[10px] font-bold opacity-60">
-              {NAME_BORDER_PATTERNS.length - 1} Effekte verfügbar
+              {availablePatterns.filter(p => p.id !== 'none').length} / {borderPatterns.length - 1} freigeschaltet
             </span>
           </div>
 
@@ -135,21 +412,31 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
                 : 'border-purple-300 bg-white text-slate-900 focus:border-purple-500'
             }`}
           >
-            {NAME_BORDER_PATTERNS.map((pattern) => (
-              <option key={pattern.id} value={pattern.id}>
-                {pattern.icon} {pattern.label}
+            {availablePatterns.map((pattern) => (
+              <option
+                key={pattern.id}
+                value={pattern.id}
+              >
+                {pattern.icon} {pattern.name}
               </option>
             ))}
           </select>
 
-          {/* Erklärungstext zum aktuell gewählten Rahmen-Muster */}
-          <div className="text-[11px] leading-relaxed opacity-75 min-h-[36px] p-2 rounded-lg bg-black/20">
-            <span className="font-semibold text-purple-300">{activePattern.icon} {activePattern.label}: </span>
-            {activePattern.description}
+          {/* Status- / Erklärungskarte zum gewählten Rahmen */}
+          <div className="text-[11px] leading-relaxed opacity-85 p-2.5 rounded-lg bg-black/20 border border-purple-500/20">
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-purple-300 flex items-center space-x-1.5">
+                <span>{activePattern.icon} {activePattern.name}</span>
+              </span>
+              <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                Aktiv
+              </span>
+            </div>
+            <p className="text-[11px] opacity-75">{activePattern.description}</p>
           </div>
         </div>
 
-        {/* SPALTE RECHTS: Wählbare Rahmen-Farben (Swatches) */}
+        {/* SPALTE RECHTS: Wählbare Rahmen-Farben (inklusive "Keine Farbe" Kachel) */}
         <div className={`p-3.5 rounded-xl border space-y-2.5 ${
           darkMode ? 'bg-slate-900/40 border-teal-500/30' : 'bg-teal-50/50 border-teal-200'
         }`}>
@@ -158,66 +445,95 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
               <span>🎨 RAHMEN-FARBE (SWATCHES):</span>
             </label>
             <span className="text-[10px] font-bold opacity-60">
-              {swatchColors.length} frei
+              {unlockedColorsCount} / {swatches.length - 1} Farben frei
             </span>
           </div>
 
-          {/* Grid der Farbkätchen */}
-          <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-5 lg:grid-cols-8 gap-2 p-1 max-h-[170px] overflow-y-auto">
-            {swatchColors.map((col) => {
-              const isSelected = selectedColor === col.id;
-              const isInactive = borderPattern === 'none';
+          {/* Grid der Farbkärtchen (5 Spalten x 2 Reihen = 10 Kacheln) */}
+          <div className="grid grid-cols-5 gap-2 p-1">
+            {swatches.map((swatch) => {
+              const levelOk = userLevel >= swatch.minLevel;
+              const isClickable = swatch.unlocked && !disabled;
+              const isSelected =
+                swatch.id === 'none'
+                  ? isColorDeactivated
+                  : selectedColor === swatch.id ||
+                    selectedColor === swatch.hex ||
+                    (swatch.aliases && swatch.aliases.includes(String(selectedColor).toLowerCase()));
+
+              const tooltipText = swatch.id === 'none'
+                ? 'Keine Farbe (Deaktiviert den Rahmen)'
+                : !levelOk
+                ? (swatch.questTitle
+                    ? `Erfordert Level ${swatch.minLevel} • ${swatch.questName || 'Quest'}: ${swatch.questTitle} (${swatch.progress}/${swatch.target})`
+                    : `Erfordert Level ${swatch.minLevel}`)
+                : !swatch.unlocked
+                ? `${swatch.questName ? `${swatch.questName}: ` : ''}${swatch.questTitle} (${swatch.progress}/${swatch.target})`
+                : `${swatch.label} (Freigeschaltet)`;
 
               return (
                 <button
-                  key={col.id}
+                  key={swatch.id}
                   type="button"
-                  onClick={() => handleColorChange(col.id)}
-                  disabled={disabled || isInactive}
-                  title={isInactive ? 'Wähle zuerst einen Rahmen-Stil' : col.label}
-                  className={`group relative h-9 w-9 rounded-xl flex items-center justify-center transition-all transform ${
-                    isInactive
-                      ? 'opacity-30 cursor-not-allowed'
-                      : 'hover:scale-110 active:scale-95 cursor-pointer opacity-85 hover:opacity-100'
+                  disabled={!isClickable}
+                  style={swatch.id === 'none' ? undefined : { backgroundColor: swatch.hex }}
+                  className={`relative h-11 rounded-lg transition-transform flex items-center justify-center ${
+                    !swatch.unlocked
+                      ? 'opacity-40 cursor-not-allowed grayscale'
+                      : 'hover:scale-105 shadow-md cursor-pointer'
                   } ${
-                    isSelected && !isInactive
+                    swatch.id === 'none'
+                      ? (darkMode ? 'bg-slate-800/80 border-2 border-dashed border-slate-600' : 'bg-slate-100 border-2 border-dashed border-slate-300')
+                      : ''
+                  } ${
+                    isSelected
                       ? 'ring-3 ring-offset-2 ring-teal-400 scale-105 z-10 shadow-lg'
                       : ''
                   } ${
                     darkMode ? 'ring-offset-slate-900' : 'ring-offset-white'
                   }`}
-                  style={{
-                    backgroundColor: col.bgHex,
-                    border: `2px solid ${col.borderHex || 'rgba(255,255,255,0.2)'}`
-                  }}
+                  title={tooltipText}
+                  onClick={() => isClickable && handleColorChange(swatch)}
                 >
-                  {isSelected && !isInactive && (
-                    <span
-                      className="font-black text-xs leading-none drop-shadow-md"
-                      style={{ color: col.textHex }}
-                    >
-                      ✓
+                  {/* Kachel für "Keine Farbe" */}
+                  {swatch.id === 'none' && (
+                    <div className="flex flex-col items-center justify-center select-none pointer-events-none">
+                      <span className="text-sm">🚫</span>
+                      <span className="text-[8px] font-black uppercase tracking-tight opacity-75">Keine</span>
+                    </div>
+                  )}
+
+                  {/* Schloss-Icon bei gesperrten Farben */}
+                  {!swatch.unlocked && (
+                    <span className="absolute inset-0 flex items-center justify-center text-xs bg-black/60 rounded-lg text-white font-bold select-none pointer-events-none">
+                      🔒
                     </span>
                   )}
 
-                  {/* Tooltip on hover */}
-                  <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 z-30">
-                    {col.label}
-                  </span>
+                  {/* Häkchen bei ausgewählter Farbe */}
+                  {isSelected && swatch.unlocked && (
+                    <span className={`font-black text-xs leading-none select-none pointer-events-none ${
+                      swatch.id === 'none'
+                        ? 'absolute top-1 right-1 text-teal-400 font-extrabold'
+                        : 'drop-shadow-md text-white'
+                    }`}>
+                      ✓
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
 
-          <p className="text-[11px] opacity-65 pt-0.5 flex items-center justify-between">
+          <p className="text-[11px] opacity-75 pt-0.5 flex items-center justify-between">
             <span>
-              {borderPattern === 'none'
-                ? 'Wähle links ein Rahmen-Muster, um Farben zu aktivieren'
-                : 'Klicke auf ein Kästchen, um die Leuchtfarbe zu ändern'}
+              {isColorDeactivated
+                ? 'Rahmen ist deaktiviert. Wähle eine Farbe, um ihn einzuschalten.'
+                : 'Klicke auf "Keine", um den Rahmen zu deaktivieren, oder wähle eine Farbe.'}
             </span>
-            {borderPattern !== 'none' && (
-              <span className="text-teal-400 font-bold">{activeColorMatch.label}</span>
-            )}
+            <span className={`font-bold ${isColorDeactivated ? 'text-slate-400' : 'text-teal-400'}`}>
+              {isColorDeactivated ? 'Deaktiviert' : activeColorMatch.label}
+            </span>
           </p>
         </div>
       </div>

@@ -255,7 +255,7 @@ function parseBody(req: VercelRequest): any {
 // ─── 1. RECORDS HANDLER (GET /api/records) ───
 async function handleRecords(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
-  const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch', 'TimeSeconds', 'Levels'];
+  const header = ['Datum', 'Modus', 'Name', 'Avg', 'Schnaepse', 'Total', 'Achievements', 'Turnier', 'Tisch', 'TimeSeconds', 'Levels', 'ID'];
 
   if (!supabaseAdmin) {
     return res.status(200).json({ data: [header] });
@@ -299,12 +299,18 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
         return true;
       })
       .map((r: any) => {
-        const playerName = r.team_name || r.player_name || (r.user_id && profileMap[r.user_id]?.username) || (r.is_guest ? 'Gast' : 'Unbekannt');
+        const playerName = r.team_name || r.player_name || r.playerName || (r.user_id && profileMap[r.user_id]?.username) || (r.is_guest ? 'Gast' : 'Unbekannt');
         const canonicalMode = r.game_mode || 'Standardspiel';
-        const isSpeed = canonicalMode.toLowerCase().includes('speed') || r.is_speed_mode || r.time_seconds !== undefined;
+        const isSpeed = canonicalMode.toLowerCase().includes('speed') || !!r.is_speed_mode || (r.time_seconds !== undefined && r.time_seconds !== null && Number(r.time_seconds) > 0);
         const k = r.id || `${r.user_id || r.player_name || ''}_${r.date || ''}`;
         const achievementsList = achByGame[k] || [];
         const achievementsParam = achievementsList.length > 0 ? encodeURIComponent(JSON.stringify(achievementsList)) : '';
+
+        const schnaepseVal = Number(r.schnaepse !== undefined && r.schnaepse !== null
+          ? r.schnaepse
+          : (r.schnapse !== undefined && r.schnapse !== null
+              ? r.schnapse
+              : (r.schnaps !== undefined && r.schnaps !== null ? r.schnaps : 0))) || 0;
 
         const timeVal = r.time_seconds !== undefined && r.time_seconds !== null && !isNaN(Number(r.time_seconds))
           ? Number(r.time_seconds)
@@ -312,7 +318,7 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
               ? Number(r.time)
               : (r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
                   ? Number(r.Time)
-                  : (isSpeed && r.schnaepse ? Number(r.schnaepse) : null)));
+                  : (isSpeed && schnaepseVal > 0 ? schnaepseVal : null)));
 
         const levelsVal = r.levels !== undefined && r.levels !== null && !isNaN(Number(r.levels))
           ? Number(r.levels)
@@ -322,20 +328,21 @@ async function handleRecords(req: VercelRequest, res: VercelResponse) {
           ? Number(r.total)
           : (isSpeed
               ? Math.round(Number(r.avg || 0) * (levelsVal || 1) * 100) / 100
-              : Math.round((Number(r.avg || 0) + Number(r.schnaepse || 0)) * 100) / 100);
+              : Math.round((Number(r.avg || 0) + schnaepseVal) * 100) / 100);
 
         return [
           r.date || '',
           canonicalMode,
           playerName,
           String(r.avg ?? 0),
-          String(isSpeed ? 0 : (r.schnaepse ?? 0)),
+          String(isSpeed ? 0 : schnaepseVal),
           String(totalVal),
           achievementsParam,
           r.tournament_name || '',
           r.tournament_table || '',
           timeVal !== null ? String(timeVal) : '',
-          levelsVal !== null ? String(levelsVal) : ''
+          levelsVal !== null ? String(levelsVal) : '',
+          r.id ? String(r.id) : ''
         ];
       });
 
@@ -361,8 +368,12 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
     if (Array.isArray(results) && results.length > 0) {
       const inserts = results.map((r: any) => {
         const avg = Number(r.avg) || 0;
-        const schnaepse = Number(r.schnaepse) || 0;
-        const isSpeed = String(gameMode || '').toLowerCase().includes('speed') || r.time !== undefined || r.Time !== undefined || r.time_seconds !== undefined;
+        const schnaepse = Number(r.schnaepse !== undefined && r.schnaepse !== null
+          ? r.schnaepse
+          : (r.schnapse !== undefined && r.schnapse !== null
+              ? r.schnapse
+              : (r.schnaps !== undefined && r.schnaps !== null ? r.schnaps : 0))) || 0;
+        const isSpeed = String(gameMode || '').toLowerCase().includes('speed') || (r.time !== undefined && r.time !== null && Number(r.time) > 0) || (r.time_seconds !== undefined && r.time_seconds !== null && Number(r.time_seconds) > 0);
         const timeVal = r.Time !== undefined && r.Time !== null && !isNaN(Number(r.Time))
           ? Number(r.Time)
           : (r.time !== undefined && r.time !== null && !isNaN(Number(r.time))
@@ -508,6 +519,29 @@ const SERVER_LEVEL_QUESTS = [
     animationReward: 'flag', 
     rewardDescription: 'Animation: Flagge im Wind' 
   },
+  // Level-3 Quests für Namensschild-Rahmenfarben (Swatches)
+  { 
+    id: 'l3_border_pink', 
+    level: 3, 
+    title: 'Schnapszahl-Künstler: 5x Schnapszahl treffen', 
+    xpReward: 20, 
+    metric: 'schnapszahl_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'pink', 
+    rewardDescription: 'Rahmenfarbe Pink' 
+  },
+  { 
+    id: 'l3_border_teal', 
+    level: 3, 
+    title: 'Hunderter-Profi: 5x glatte Hunderterzahl treffen', 
+    xpReward: 20, 
+    metric: 'hundreds_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'teal', 
+    rewardDescription: 'Rahmenfarbe Türkis' 
+  },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -559,6 +593,40 @@ const SERVER_LEVEL_QUESTS = [
     animationReward: 'waves', 
     rewardDescription: 'Animation: Wasser & Wellen' 
   },
+  // Level-4 Quests für gestaffelte Namensschild-Rahmenfarben (Swatches)
+  { 
+    id: 'l4_border_orange', 
+    level: 4, 
+    title: 'Taktischer Stratege: 5x Achievement "Stratege"', 
+    xpReward: 25, 
+    metric: 'strategist_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'orange', 
+    rewardDescription: 'Rahmenfarbe Orange' 
+  },
+  { 
+    id: 'l4_border_purple', 
+    level: 4, 
+    title: 'Wiegezwilling: 5x selbes Gewicht wie ein Mitspieler', 
+    xpReward: 25, 
+    metric: 'same_weight_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'purple', 
+    rewardDescription: 'Rahmenfarbe Dunkelblau / Lila' 
+  },
+  { 
+    id: 'l4_border_cyan', 
+    level: 4, 
+    title: 'Präzisions-Schuss: 5x exakt 5g Abstand (gesamt über Spiele)', 
+    xpReward: 25, 
+    metric: 'exact_five_g_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'cyan', 
+    rewardDescription: 'Rahmenfarbe Cyan / Mint' 
+  },
 
   // --- LEVEL 5 ---
   { id: 'l5_50_games_total', level: 5, title: 'Absolviere 50 Spiele', xpReward: 30, titleReward: 'Stammgast', metric: 'games_count', targetValue: 50, targetCount: 50 },
@@ -566,6 +634,95 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l5_tournament_7', level: 5, title: 'Nimm an 7 Turnieren teil', xpReward: 30, titleReward: 'Turnier-Stammgast', metric: 'tournament_count', targetValue: 7, targetCount: 7 },
   { id: 'l5_avg_sub15', level: 5, title: 'Fabelzeit: Durchschnitt unter 1,5 Gramm', xpReward: 30, titleReward: 'Chirurg', metric: 'avg_less_than', targetValue: 1.5, threshold: 1.5, targetCount: 1 },
   { id: 'l5_10x_avg_sub4', level: 5, title: 'Erreiche 10x einen Durchschnitt unter 4 Gramm', xpReward: 25, metric: 'avg_less_than', targetValue: 4.0, threshold: 4.0, targetCount: 10 },
+  // Level-5 Quests für Namensschild-Rahmen (Animationen/Muster)
+  { 
+    id: 'l5_border_hearts', 
+    level: 5, 
+    title: 'Herzchen-Regen: 3x Achievement "67" erhalten', 
+    xpReward: 30, 
+    metric: 'ach_67_count', 
+    targetValue: 3, 
+    targetCount: 3, 
+    animationReward: 'hearts', 
+    rewardDescription: 'Rahmen: Herzchen-Regen' 
+  },
+  { 
+    id: 'l5_border_flame', 
+    level: 5, 
+    title: 'Wandernde Flamme: Speedwiegen 3x Avg unter 5g', 
+    xpReward: 30, 
+    metric: 'speed_avg_sub5_count', 
+    targetValue: 3, 
+    targetCount: 3, 
+    animationReward: 'flame', 
+    rewardDescription: 'Rahmen: Wandernde Flamme' 
+  },
+  { 
+    id: 'l5_border_lightning', 
+    level: 5, 
+    title: 'Elektrischer Blitz: Speedwiegen 3x Zeit unter 100s', 
+    xpReward: 30, 
+    metric: 'speed_time_sub100_count', 
+    targetValue: 3, 
+    targetCount: 3, 
+    animationReward: 'lightning', 
+    rewardDescription: 'Rahmen: Elektrischer Blitz' 
+  },
+  { 
+    id: 'l5_border_wave', 
+    level: 5, 
+    title: 'Schwapp-Welle: 5x Achievement "Knapp daneben"', 
+    xpReward: 30, 
+    metric: 'ach_knapp_daneben_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'wave', 
+    rewardDescription: 'Rahmen: Schwapp-Welle' 
+  },
+  { 
+    id: 'l5_border_cyber', 
+    level: 5, 
+    title: 'Doppelter Cyber-Rahmen: 5x Achievement "Kopfrechner"', 
+    xpReward: 30, 
+    metric: 'ach_kopfrechner_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'cyber', 
+    rewardDescription: 'Rahmen: Doppelter Cyber-Rahmen' 
+  },
+  { 
+    id: 'l5_border_laser', 
+    level: 5, 
+    title: 'Laufender Laser-Rahmen: 5x Achievement "Scharfschütze"', 
+    xpReward: 30, 
+    metric: 'ach_scharfschuetze_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'laser', 
+    rewardDescription: 'Rahmen: Laufender Laser-Rahmen' 
+  },
+  { 
+    id: 'l5_border_snow', 
+    level: 5, 
+    title: 'Eiszapfen / Schnee: 5x Wiegezwilling werden', 
+    xpReward: 30, 
+    metric: 'same_weight_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'snow-frame', 
+    rewardDescription: 'Rahmen: Eiszapfen / Schnee' 
+  },
+  { 
+    id: 'l5_border_matrix', 
+    level: 5, 
+    title: 'Matrix-Code-Rahmen: 5x Achievement "Stratege"', 
+    xpReward: 30, 
+    metric: 'strategist_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    animationReward: 'matrix-frame', 
+    rewardDescription: 'Rahmen: Matrix-Code-Rahmen' 
+  },
 
   // --- LEVEL 6 ---
   { id: 'l6_20_speed', level: 6, title: 'Spiele 20 Speedwiegen', xpReward: 30, metric: 'games_count', targetValue: 20, targetCount: 20, gameMode: 'Speedwiegen' },
@@ -885,6 +1042,94 @@ async function serverEvaluateQuestsForUser(userId: string) {
           progress = count;
           break;
         }
+
+        case 'exact_five_g_count': {
+          let count = 0;
+          for (const r of safeResults) {
+            if (Array.isArray(r.rounds)) {
+              for (const rd of r.rounds) {
+                const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
+                if (dist !== null && Math.abs(dist - 5) < 0.05) {
+                  count++;
+                }
+              }
+            }
+          }
+          progress = count;
+          break;
+        }
+
+        case 'strategist_count': {
+          let count = 0;
+          if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'ach_67_count': {
+          let count = 0;
+          if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
+          for (const r of safeResults) {
+            if (Array.isArray(r.rounds)) {
+              for (const rd of r.rounds) {
+                const w = typeof rd.weight === 'number' ? rd.weight : (typeof rd.user_weight === 'number' ? rd.user_weight : null);
+                if (w !== null && Math.round(w) === 67) count++;
+              }
+            }
+          }
+          progress = count;
+          break;
+        }
+
+        case 'speed_avg_sub5_count': {
+          const sub5 = safeResults.filter(r => {
+            const mode = (r.game_mode || '').toLowerCase();
+            const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
+            return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
+          }).length;
+          progress = sub5;
+          break;
+        }
+
+        case 'speed_time_sub100_count': {
+          const sub100 = safeResults.filter(r => {
+            const mode = (r.game_mode || '').toLowerCase();
+            const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
+            const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
+            return isSpeed && t !== null && t > 0 && t < 100;
+          }).length;
+          progress = sub100;
+          break;
+        }
+
+        case 'ach_knapp_daneben_count': {
+          let count = 0;
+          if (userAchievementIds.has('so_close')) count = Math.max(count, 1);
+          for (const r of safeResults) {
+            if (Array.isArray(r.rounds)) {
+              for (const rd of r.rounds) {
+                const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
+                if (dist !== null && Math.abs(dist - 1) < 0.05) count++;
+              }
+            }
+          }
+          progress = count;
+          break;
+        }
+
+        case 'ach_kopfrechner_count': {
+          let count = 0;
+          if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'ach_scharfschuetze_count': {
+          let count = 0;
+          if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
       }
 
       const isCompleted = progress >= targetCount;
@@ -1005,7 +1250,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     }
     const { data: profiles, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color')
+      .select('id, username, email, role, avatar_url, title, level, xp, name_bg_color, name_glow, avatar_frame, ingame_column_theme, leaderboard_row_theme')
       .order('username', { ascending: true });
 
     if (error || !profiles) {
@@ -1024,7 +1269,10 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
       level: p.level || 1,
       xp: p.xp || 0,
       name_bg_color: p.name_bg_color || 'none',
-      name_glow: (p as any).name_glow || 'none'
+      name_glow: p.name_glow || 'none',
+      avatar_frame: p.avatar_frame || 'none',
+      ingame_column_theme: p.ingame_column_theme || 'none',
+      leaderboard_row_theme: p.leaderboard_row_theme || 'none'
     }));
 
     return res.status(200).json({ users });
@@ -1049,10 +1297,14 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     const memberUserIds = payload.memberUserIds || gameResultData.memberUserIds;
     const isTeamFlag = payload.isTeamGame || gameResultData.isTeamGame;
     const isTeamGame = isTeamFlag || (gameResultData.game_mode && String(gameResultData.game_mode).includes('Team'));
-    const isSpeedGame = (gameResultData.game_mode && String(gameResultData.game_mode).toLowerCase().includes('speed')) || gameResultData.isSpeedMode || gameResultData.time_seconds !== undefined;
+    const isSpeedGame = (gameResultData.game_mode && String(gameResultData.game_mode).toLowerCase().includes('speed')) || !!gameResultData.isSpeedMode || (gameResultData.time_seconds !== undefined && gameResultData.time_seconds !== null && Number(gameResultData.time_seconds) > 0);
 
     const avgVal = Number(gameResultData.avg) || 0;
-    const schnapsVal = Number(gameResultData.schnaepse) || 0;
+    const schnapsVal = Number(gameResultData.schnaepse !== undefined && gameResultData.schnaepse !== null
+      ? gameResultData.schnaepse
+      : (gameResultData.schnapse !== undefined && gameResultData.schnapse !== null
+          ? gameResultData.schnapse
+          : (gameResultData.schnaps !== undefined && gameResultData.schnaps !== null ? gameResultData.schnaps : 0))) || 0;
     const timeVal = gameResultData.time_seconds !== undefined && gameResultData.time_seconds !== null
       ? Number(gameResultData.time_seconds)
       : (gameResultData.time !== undefined && gameResultData.time !== null

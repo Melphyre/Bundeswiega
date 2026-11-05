@@ -2,6 +2,7 @@ import React from 'react';
 import { Player, Round } from '../../types';
 import { PLAYER_COLORS } from '../constants';
 import VerticalText from './VerticalText';
+import { PlayerNameTag } from './PlayerNameTag';
 import PlayerTitleBadge from './PlayerTitleBadge';
 import PlayerAvatar from './PlayerAvatar';
 import { getColumnThemeClass } from '../constants/cosmeticsConfig';
@@ -90,25 +91,26 @@ export const GameTable: React.FC<GameTableProps> = ({
             <th className="py-2 px-1 align-bottom">RND</th>
             {players.map((p, idx) => {
               const accountLink = playerAccountLinks?.[p.id];
+              const pUserId = p.userId || accountLink?.userId;
               const avatarUrl = p.avatar_url || p.imageUrl || accountLink?.imageUrl || (accountLink as any)?.avatar_url;
-              const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || undefined;
-              const resolvedNameBg = (getPlayerNameBgColor ? (getPlayerNameBgColor(p.id, p) || getPlayerNameBgColor(p.name, p)) : undefined) || p.name_bg_color || accountLink?.name_bg_color;
-              const resolvedNameGlow = (getPlayerNameGlow ? (getPlayerNameGlow(p.id, p) || getPlayerNameGlow(p.name, p)) : undefined) || p.name_glow || accountLink?.name_glow;
-              const resolvedAvatarFrame = (getPlayerAvatarFrame ? (getPlayerAvatarFrame(p.id, p) || getPlayerAvatarFrame(p.name, p)) : undefined) || (p as any).avatar_frame || accountLink?.avatar_frame;
-              const resolvedColumnTheme = (getPlayerColumnTheme ? (getPlayerColumnTheme(p.id, p) || getPlayerColumnTheme(p.name, p)) : undefined) || (p as any).ingame_column_theme || accountLink?.ingame_column_theme;
+              const resolvedTitle = (getPlayerTitle ? (getPlayerTitle(pUserId || p.id, p) || getPlayerTitle(p.name, p)) : undefined) || p.title || undefined;
+              const resolvedNameBg = (getPlayerNameBgColor ? (getPlayerNameBgColor(pUserId || p.id, p) || getPlayerNameBgColor(p.name, p)) : undefined) || p.name_bg_color || accountLink?.name_bg_color;
+              const resolvedNameGlow = (getPlayerNameGlow ? (getPlayerNameGlow(pUserId || p.id, p) || getPlayerNameGlow(p.name, p)) : undefined) || p.name_glow || accountLink?.name_glow;
+              const resolvedAvatarFrame = (getPlayerAvatarFrame ? (getPlayerAvatarFrame(pUserId || p.id, p) || getPlayerAvatarFrame(p.name, p)) : undefined) || (p as any).avatar_frame || accountLink?.avatar_frame;
+              const resolvedColumnTheme = (getPlayerColumnTheme ? (getPlayerColumnTheme(pUserId || p.id, p) || getPlayerColumnTheme(p.name, p)) : undefined) || (p as any).ingame_column_theme || accountLink?.ingame_column_theme;
               const colThemeClass = getColumnThemeClass(resolvedColumnTheme);
 
               return (
                 <th key={p.id} className={`text-center p-1 align-top transition-all ${colThemeClass}`}>
-                  <div className="flex flex-col items-center space-y-1.5 min-w-[56px] max-w-[96px] mx-auto">
+                  <div className="flex flex-col items-center space-y-1.5 min-w-[38px] max-w-[58px] mx-auto overflow-visible">
                     {/* Spielertitel über dem Profilbild (nur wenn belegt) */}
                     {resolvedTitle && (
-                      <div className="flex justify-center w-full min-h-[20px] items-center">
+                      <div className="flex justify-center w-full min-h-[18px] items-center">
                         <PlayerTitleBadge
                           title={resolvedTitle}
                           size="sm"
                           showIcon={true}
-                          className="text-[9px] py-0.5 px-1.5 max-w-[85px] justify-center shadow-xs"
+                          className="text-[9px] py-0.5 px-1 max-w-[54px] justify-center shadow-xs"
                         />
                       </div>
                     )}
@@ -129,7 +131,17 @@ export const GameTable: React.FC<GameTableProps> = ({
                       className="w-8 h-8 border-2 flex-shrink-0 shadow-sm"
                       style={{ borderColor: PLAYER_COLORS[idx % PLAYER_COLORS.length] }}
                     />
-                    <VerticalText text={p.name} colorKey={resolvedNameBg} glowKey={resolvedNameGlow} />
+
+                    {/* Namenskärtchen mit individuellem Hintergrund-Design und Rahmen aus dem SQL-Profil (vertikal / hochkant) */}
+                    <div className="flex justify-center w-full my-0.5 px-0.5 overflow-visible">
+                      <PlayerNameTag
+                        name={p.name}
+                        colorKey={resolvedNameBg}
+                        glowKey={resolvedNameGlow}
+                        vertical={true}
+                        className="text-[10px] md:text-xs font-black shadow-xs tracking-tight"
+                      />
+                    </div>
 
                     {/* World of Wiegen Quest Badge */}
                     {worldOfWiegenActive && (() => {
@@ -142,13 +154,13 @@ export const GameTable: React.FC<GameTableProps> = ({
                           type="button"
                           onClick={onOpenQuestlog}
                           title={`Quest: ${qDef?.name || activeQ.questId} [${isChamp ? '👑 Championswieg' : '🤝 Kreiswiega'}] • ${activeQ.progressText}`}
-                          className={`mt-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border hover:scale-105 active:scale-95 transition-all flex items-center space-x-1 max-w-[90px] cursor-pointer ${
+                          className={`mt-1 px-1 py-0.5 rounded-full text-[8px] font-bold border hover:scale-105 active:scale-95 transition-all flex items-center space-x-0.5 max-w-[56px] cursor-pointer ${
                             isChamp
                               ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40'
                               : 'bg-teal-500/20 text-teal-600 dark:text-teal-400 border-teal-500/40'
                           }`}
                         >
-                          <span className="text-[10px]">{isChamp ? '👑' : '🤝'}</span>
+                          <span className="text-[9px]">{isChamp ? '👑' : '🤝'}</span>
                           <span className="truncate">{qDef?.shortTitle || 'Quest'}</span>
                         </button>
                       );

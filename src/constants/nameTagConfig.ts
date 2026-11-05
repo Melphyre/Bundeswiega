@@ -844,50 +844,173 @@ export const getUnlockedAnimations = (
   return NAME_BG_ANIMATIONS.filter(a => isAnimationUnlocked(a.id, userLevel, context).unlocked);
 };
 
-// ─── 6. RAHMEN- & GLOW-KONFIGURATION (LEVEL 4+) ───
-export type NameBorderPatternId = 'none' | 'neon-glow' | 'laser-pulse' | 'double-border';
+// ─── 6. RAHMEN- & GLOW-KONFIGURATION (LEVEL 3 & LEVEL 5+) ───
+export type NameBorderPatternId =
+  | 'none'
+  | 'simple'
+  | 'neon-glow'
+  | 'hearts'
+  | 'flame'
+  | 'lightning'
+  | 'wave'
+  | 'cyber'
+  | 'double-border'
+  | 'laser'
+  | 'laser-pulse'
+  | 'snow-frame'
+  | 'matrix-frame';
 
 export interface NameBorderPatternOption {
   id: NameBorderPatternId;
+  name: string;
   label: string;
   icon: string;
   description: string;
   cssClass: string;
+  minLevel: number;
   requiredLevel: number;
+  questTitle?: string;
+  questMetric?: string;
+  target?: number;
 }
 
 export const NAME_BORDER_PATTERNS: NameBorderPatternOption[] = [
+  // Level 3 Standard (ohne Quest)
   {
     id: 'none',
+    name: 'Kein Rahmen',
     label: 'Kein Rahmen',
     icon: '🚫',
-    description: 'Kein zusätzlicher Leuchtrahmen um das Namensschild',
+    description: 'Kein zusätzlicher Rahmen um das Namensschild',
     cssClass: '',
-    requiredLevel: 4
+    minLevel: 3,
+    requiredLevel: 3
+  },
+  {
+    id: 'simple',
+    name: 'Einfacher Rahmen',
+    label: 'Einfacher Rahmen',
+    icon: '🔲',
+    description: 'Einfacher Balkenrahmen um dein Namenskärtchen in der gewählten Farbe ohne Animation',
+    cssClass: 'name-frame-simple-border',
+    minLevel: 3,
+    requiredLevel: 3
   },
   {
     id: 'neon-glow',
+    name: 'Pulsierender Neon-Glow',
     label: 'Pulsierender Neon-Glow',
     icon: '✨',
     description: 'Sanft pulsierender, leuchtender Box-Shadow und Rahmen in deiner gewählten Farbe',
     cssClass: 'name-frame-neon-glow',
-    requiredLevel: 4
+    minLevel: 3,
+    requiredLevel: 3
+  },
+
+  // Level 5 Quest-Rahmen
+  {
+    id: 'hearts',
+    name: 'Herzchen-Regen',
+    label: 'Herzchen-Regen',
+    icon: '💖',
+    description: 'Rieselnder Herzchen-Regen in deiner gewählten Rahmen-Farbe um das Namensschild',
+    cssClass: 'name-frame-hearts',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '3x Achievement "67"',
+    questMetric: 'ach_67',
+    target: 3
   },
   {
-    id: 'laser-pulse',
-    label: 'Laufender Laser-Rahmen',
+    id: 'flame',
+    name: 'Wandernde Flamme',
+    label: 'Wandernde Flamme',
+    icon: '🔥',
+    description: 'Wandernder Glutpunkt mit dynamischer Funkenspur in deiner gewählten Rahmen-Farbe',
+    cssClass: 'name-frame-flame',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: 'Speedwiegen: 3x Avg < 5g',
+    questMetric: 'speed_avg_sub5',
+    target: 3
+  },
+  {
+    id: 'lightning',
+    name: 'Elektrischer Blitz',
+    label: 'Elektrischer Blitz',
     icon: '⚡',
-    description: 'Dynamisch pulsierender Laser-Lichtstrahl entlang des Namensschildes',
-    cssClass: 'name-frame-laser-pulse',
-    requiredLevel: 4
+    description: 'Hochenergetischer Zickzack-Blitz mit knisternder Funken- und Lichtbogenspur um die Kanten',
+    cssClass: 'name-frame-lightning',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: 'Speedwiegen: 3x Zeit < 100s',
+    questMetric: 'speed_time_sub100',
+    target: 3
   },
   {
-    id: 'double-border',
+    id: 'wave',
+    name: 'Schwapp-Welle',
+    label: 'Schwapp-Welle',
+    icon: '🌊',
+    description: 'Organisch ausschwappende und zurückweichende Welle in deiner gewählten Rahmen-Farbe',
+    cssClass: 'name-frame-wave',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '5x "Knapp daneben"',
+    questMetric: 'ach_knapp_daneben',
+    target: 5
+  },
+  {
+    id: 'cyber',
+    name: 'Doppelter Cyber-Rahmen',
     label: 'Doppelter Cyber-Rahmen',
     icon: '💠',
-    description: 'Zweistufiger Hightech-Rahmen mit kraftvoller Leucht-Aura',
+    description: 'Zweistufiger Hightech-Rahmen mit kraftvollem Cyber-Lauflicht',
     cssClass: 'name-frame-double-border',
-    requiredLevel: 4
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '5x "Kopfrechner"',
+    questMetric: 'ach_kopfrechner',
+    target: 5
+  },
+  {
+    id: 'laser',
+    name: 'Laufender Laser-Rahmen',
+    label: 'Laufender Laser-Rahmen',
+    icon: '🎯',
+    description: 'Präziser Laser-Lichtstrahl kreist als Border-Light exakt auf der Außenkante',
+    cssClass: 'name-frame-laser-pulse',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '5x "Scharfschütze"',
+    questMetric: 'ach_scharfschuetze',
+    target: 5
+  },
+  {
+    id: 'snow-frame',
+    name: 'Eiszapfen / Schnee',
+    label: 'Eiszapfen / Schnee',
+    icon: '❄️',
+    description: 'Eiskristall-Frostschimmer wandert kontinuierlich um den Rahmen',
+    cssClass: 'name-frame-snow',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '5x Wiegezwilling',
+    questMetric: 'zwilling',
+    target: 5
+  },
+  {
+    id: 'matrix-frame',
+    name: 'Matrix-Code-Rahmen',
+    label: 'Matrix-Code-Rahmen',
+    icon: '💻',
+    description: 'Digitaler grüner Matrix-Datenstrom läuft ausschließlich auf der Kante',
+    cssClass: 'name-frame-matrix',
+    minLevel: 5,
+    requiredLevel: 5,
+    questTitle: '5x Achievement Stratege',
+    questMetric: 'stratege',
+    target: 5
   }
 ];
 
@@ -903,7 +1026,49 @@ export interface ParsedNameBorder {
   style: React.CSSProperties;
 }
 
+export const SWATCH_BORDER_MAP: Record<string, { label: string; hex: string; id: NameBgColorId }> = {
+  none: { label: 'Keine Farbe', hex: 'transparent', id: 'none' },
+  keine: { label: 'Keine Farbe', hex: 'transparent', id: 'none' },
+  transparent: { label: 'Keine Farbe', hex: 'transparent', id: 'none' },
+  red: { label: 'Rot', hex: '#ef4444', id: 'red' },
+  rot: { label: 'Rot', hex: '#ef4444', id: 'red' },
+  '#ef4444': { label: 'Rot', hex: '#ef4444', id: 'red' },
+  yellow: { label: 'Gelb', hex: '#eab308', id: 'yellow' },
+  gelb: { label: 'Gelb', hex: '#eab308', id: 'yellow' },
+  '#eab308': { label: 'Gelb', hex: '#eab308', id: 'yellow' },
+  blue: { label: 'Blau', hex: '#3b82f6', id: 'blue' },
+  blau: { label: 'Blau', hex: '#3b82f6', id: 'blue' },
+  '#3b82f6': { label: 'Blau', hex: '#3b82f6', id: 'blue' },
+  green: { label: 'Grün', hex: '#22c55e', id: 'green' },
+  gruen: { label: 'Grün', hex: '#22c55e', id: 'green' },
+  grün: { label: 'Grün', hex: '#22c55e', id: 'green' },
+  '#22c55e': { label: 'Grün', hex: '#22c55e', id: 'green' },
+  pink: { label: 'Pink', hex: '#ec4899', id: 'pink' },
+  rosa: { label: 'Pink', hex: '#ec4899', id: 'pink' },
+  '#ec4899': { label: 'Pink', hex: '#ec4899', id: 'pink' },
+  teal: { label: 'Türkis', hex: '#14b8a6', id: 'turquoise' },
+  turquoise: { label: 'Türkis', hex: '#14b8a6', id: 'turquoise' },
+  tuerkis: { label: 'Türkis', hex: '#14b8a6', id: 'turquoise' },
+  türkis: { label: 'Türkis', hex: '#14b8a6', id: 'turquoise' },
+  '#14b8a6': { label: 'Türkis', hex: '#14b8a6', id: 'turquoise' },
+  orange: { label: 'Orange', hex: '#f97316', id: 'neon_orange' },
+  neon_orange: { label: 'Orange', hex: '#f97316', id: 'neon_orange' },
+  '#f97316': { label: 'Orange', hex: '#f97316', id: 'neon_orange' },
+  purple: { label: 'Dunkelblau / Lila', hex: '#a855f7', id: 'deep_purple' },
+  deep_purple: { label: 'Dunkelblau / Lila', hex: '#a855f7', id: 'deep_purple' },
+  lila: { label: 'Dunkelblau / Lila', hex: '#a855f7', id: 'deep_purple' },
+  purpur: { label: 'Dunkelblau / Lila', hex: '#a855f7', id: 'deep_purple' },
+  '#a855f7': { label: 'Dunkelblau / Lila', hex: '#a855f7', id: 'deep_purple' },
+  cyan: { label: 'Cyan / Mint', hex: '#06b6d4', id: 'neon_mint' },
+  neon_mint: { label: 'Cyan / Mint', hex: '#06b6d4', id: 'neon_mint' },
+  mint: { label: 'Cyan / Mint', hex: '#06b6d4', id: 'neon_mint' },
+  '#06b6d4': { label: 'Cyan / Mint', hex: '#06b6d4', id: 'neon_mint' }
+};
+
 const GLOW_ALIAS_MAP: Record<string, NameBgColorId> = {
+  none: 'none',
+  keine: 'none',
+  transparent: 'none',
   blau: 'blue',
   blue: 'blue',
   rot: 'red',
@@ -912,11 +1077,52 @@ const GLOW_ALIAS_MAP: Record<string, NameBgColorId> = {
   grün: 'green',
   green: 'green',
   gelb: 'yellow',
-  yellow: 'yellow'
+  yellow: 'yellow',
+  teal: 'turquoise',
+  tuerkis: 'turquoise',
+  türkis: 'turquoise',
+  pink: 'pink',
+  orange: 'neon_orange',
+  purple: 'deep_purple',
+  lila: 'deep_purple',
+  cyan: 'neon_mint',
+  mint: 'neon_mint'
+};
+
+const PATTERN_ALIAS_MAP: Record<string, NameBorderPatternId> = {
+  none: 'none',
+  kein: 'none',
+  keine: 'none',
+  simple: 'simple',
+  einfach: 'simple',
+  'neon-glow': 'neon-glow',
+  neonglow: 'neon-glow',
+  glow: 'neon-glow',
+  hearts: 'hearts',
+  herzen: 'hearts',
+  herzchen: 'hearts',
+  flame: 'flame',
+  feuer: 'flame',
+  flamme: 'flame',
+  lightning: 'lightning',
+  blitz: 'lightning',
+  blitze: 'lightning',
+  wave: 'wave',
+  welle: 'wave',
+  wellen: 'wave',
+  cyber: 'cyber',
+  'double-border': 'cyber',
+  laser: 'laser',
+  'laser-pulse': 'laser',
+  snow: 'snow-frame',
+  'snow-frame': 'snow-frame',
+  schnee: 'snow-frame',
+  matrix: 'matrix-frame',
+  'matrix-frame': 'matrix-frame'
 };
 
 export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
-  if (!raw || raw === 'none' || raw === 'transparent') {
+  if (!raw || raw === 'none' || raw === 'transparent' || raw === 'none:none') {
     return {
       patternId: 'none',
       colorId: 'none',
@@ -931,14 +1137,31 @@ export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
   }
 
   const clean = raw.trim().toLowerCase();
-  let resolvedPattern: NameBorderPatternId = 'neon-glow';
-  let resolvedColorId: NameBgColorId = 'blue';
+  let resolvedPattern: NameBorderPatternId = 'simple';
+  let resolvedColorId: NameBgColorId = 'none';
+  let explicitHex: string | null = null;
+  let explicitLabel: string | null = null;
 
   if (clean.includes(':')) {
     const [pPart, cPart] = clean.split(':');
-    const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === pPart);
-    resolvedPattern = patternMatch ? patternMatch.id : (pPart === 'none' ? 'none' : 'neon-glow');
-    resolvedColorId = (cPart as NameBgColorId) || 'blue';
+    const mappedPattern = PATTERN_ALIAS_MAP[pPart] || pPart;
+    const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === mappedPattern);
+    resolvedPattern = patternMatch ? patternMatch.id : 'simple';
+    
+    if (cPart === 'none' || cPart === 'transparent' || cPart === 'keine') {
+      resolvedColorId = 'none';
+      explicitHex = 'transparent';
+      explicitLabel = 'Keine Farbe';
+    } else if (SWATCH_BORDER_MAP[cPart]) {
+      resolvedColorId = SWATCH_BORDER_MAP[cPart].id;
+      explicitHex = SWATCH_BORDER_MAP[cPart].hex;
+      explicitLabel = SWATCH_BORDER_MAP[cPart].label;
+    } else if (cPart.startsWith('#')) {
+      explicitHex = cPart;
+      resolvedColorId = 'blue';
+    } else {
+      resolvedColorId = (cPart as NameBgColorId) || 'blue';
+    }
   } else {
     // Migration von Legacy Keys wie 'blue', 'red', 'green', 'yellow', 'neon-glow-blue'
     if (clean === 'blue' || clean === 'neon-glow-blue' || clean === 'blau') {
@@ -953,21 +1176,31 @@ export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
     } else if (clean === 'yellow' || clean === 'neon-glow-yellow' || clean === 'gelb') {
       resolvedPattern = 'neon-glow';
       resolvedColorId = 'yellow';
+    } else if (SWATCH_BORDER_MAP[clean]) {
+      resolvedPattern = 'neon-glow';
+      resolvedColorId = SWATCH_BORDER_MAP[clean].id;
+      explicitHex = SWATCH_BORDER_MAP[clean].hex;
+      explicitLabel = SWATCH_BORDER_MAP[clean].label;
     } else {
-      const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === clean);
+      const mappedPattern = PATTERN_ALIAS_MAP[clean] || clean;
+      const patternMatch = NAME_BORDER_PATTERNS.find(p => p.id === mappedPattern);
       if (patternMatch) {
         resolvedPattern = patternMatch.id;
-        resolvedColorId = 'blue';
+        resolvedColorId = 'none';
       }
     }
   }
 
   const patternOption = NAME_BORDER_PATTERNS.find(p => p.id === resolvedPattern) || NAME_BORDER_PATTERNS[0];
-  const colorOption = NAME_BG_COLORS.find(c => c.id === resolvedColorId) || NAME_BG_COLORS.find(c => c.id === 'blue') || NAME_BG_COLORS[1];
+  const colorOption = NAME_BG_COLORS.find(c => c.id === resolvedColorId) || NAME_BG_COLORS[0];
 
-  const colorHex = patternOption.id === 'none' ? 'transparent' : colorOption.bgHex;
-  const glowClass = patternOption.cssClass;
-  const label = patternOption.id === 'none' ? 'Kein Rahmen' : `${patternOption.label} (${colorOption.label})`;
+  const isColorNone = patternOption.id === 'none' || resolvedColorId === 'none' || explicitHex === 'transparent';
+  const colorHex = isColorNone ? 'transparent' : (explicitHex || colorOption.bgHex);
+  const glowClass = isColorNone ? '' : patternOption.cssClass;
+  const colorLabel = isColorNone ? 'Keine Farbe' : (explicitLabel || colorOption.label);
+  const label = isColorNone
+    ? (patternOption.id === 'none' ? 'Kein Rahmen' : `${patternOption.label} (Deaktiviert)`)
+    : `${patternOption.label} (${colorLabel})`;
 
   return {
     patternId: patternOption.id,
@@ -978,8 +1211,9 @@ export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
     colorHex,
     glowClass,
     compositeKey: `${patternOption.id}:${colorOption.id}`,
-    style: patternOption.id === 'none' ? {} : {
-      ['--glow-color' as any]: colorHex
+    style: isColorNone ? {} : {
+      ['--glow-color' as any]: colorHex,
+      borderColor: colorHex
     }
   };
 };
@@ -1015,13 +1249,13 @@ export const getNameGlowOption = (glowId?: string | null): NameGlowOption => {
     label: parsed.label,
     colorHex: parsed.colorHex,
     glowClass: parsed.glowClass,
-    requiredLevel: 4,
+    requiredLevel: 3,
     style: parsed.style
   };
 };
 
 export const hasActiveNameGlow = (glowId?: string | null): boolean => {
-  if (!glowId || glowId === 'none') return false;
+  if (!glowId || glowId === 'none' || glowId === 'none:none' || glowId === 'transparent') return false;
   const parsed = parseNameBorder(glowId);
-  return parsed.patternId !== 'none';
+  return parsed.colorId !== 'none' && parsed.colorHex !== 'transparent' && Boolean(parsed.glowClass);
 };

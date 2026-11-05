@@ -315,6 +315,13 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
                     ? Number(obj.schnaepse)
                     : undefined)));
 
+      const rawSchnaepse = obj.schnaepse !== undefined && obj.schnaepse !== null
+        ? obj.schnaepse
+        : (obj.schnapse !== undefined && obj.schnapse !== null
+            ? obj.schnapse
+            : (obj.schnaps !== undefined && obj.schnaps !== null ? obj.schnaps : 0));
+      const schnaepseVal = Number(rawSchnaepse) || 0;
+
       const avgVal = Number(obj.avg) || 0;
       const levelsVal = obj.levels !== undefined && obj.levels !== null && !isNaN(Number(obj.levels))
         ? Number(obj.levels)
@@ -326,15 +333,16 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
         ? Number(obj.total)
         : (isSpeed && timeVal !== undefined
             ? Math.round((avgVal + timeVal) * 100) / 100
-            : Math.round((avgVal + (Number(obj.schnaepse) || 0)) * 100) / 100);
+            : Math.round((avgVal + schnaepseVal) * 100) / 100);
 
       list.push({
+        id: obj.id ? String(obj.id) : undefined,
         game_mode: canonicalMode,
         gameMode: canonicalMode,
-        playerName: String(obj.playerName || obj.name || obj.player_name || ''),
+        playerName: String(obj.playerName || obj.player_name || obj.name || (obj.is_guest ? 'Gast' : '')),
         date: String(obj.date || ''),
         avg: avgVal,
-        schnaepse: isSpeed ? 0 : (Number(obj.schnaepse) || 0),
+        schnaepse: isSpeed ? 0 : schnaepseVal,
         time: timeVal,
         Time: timeVal,
         time_seconds: timeVal,
@@ -426,9 +434,13 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
     const tourneyTable = (row[8] !== undefined && row[8] !== null && String(row[8]).trim() !== '')
       ? String(row[8]).trim()
       : undefined;
+    const idVal = (row[11] !== undefined && row[11] !== null && String(row[11]).trim() !== '')
+      ? String(row[11]).trim()
+      : undefined;
 
     if (dateVal && playerName) {
       list.push({
+        id: idVal,
         game_mode: canonicalMode,
         gameMode: canonicalMode,
         playerName: String(playerName),
@@ -446,7 +458,20 @@ export const parseRecords = (data: any[][]): ParsedRecord[] => {
       });
     }
   }
-  return list;
+
+  // Dedupliziere die Liste: Bevorzuge eindeutige ID, sonst Datum + Modus + Name + Avg + Schnäpse
+  const seenRecordKeys = new Set<string>();
+  const deduplicatedList: ParsedRecord[] = [];
+  for (const item of list) {
+    const key = item.id
+      ? `id:${item.id}`
+      : `comp:${item.date}_${item.game_mode}_${item.playerName.toLowerCase().trim()}_${item.avg.toFixed(2)}_${item.schnaepse}_${item.tournament_name || ''}`;
+    if (!seenRecordKeys.has(key)) {
+      seenRecordKeys.add(key);
+      deduplicatedList.push(item);
+    }
+  }
+  return deduplicatedList;
 };
 
 // Offizielles Profilbild / Wappen für die fiktive Wiegschaft "Freie Spieler"

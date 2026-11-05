@@ -115,6 +115,7 @@ export interface Achievement {
 }
 
 export interface ParsedRecord {
+  id?: string;
   game_mode: string;
   gameMode: string;
   playerName: string;

@@ -8,6 +8,7 @@ interface PlayerNameTagProps {
   className?: string;
   style?: React.CSSProperties;
   asBadge?: boolean;
+  vertical?: boolean;
 }
 
 const MATRIX_COLUMNS = [
@@ -33,11 +34,23 @@ const SNOWFLAKES = [
   { char: '❆', left: '94%', size: '15px', dur: '3.9s', delay: '-0.2s', swayClass: 'snow-sway-3', opacity: 0.9 },
 ];
 
+const HEART_PARTICLES = [
+  { left: '4%', delay: '0s', dur: '2.1s', size: '10px', char: '♥' },
+  { left: '16%', delay: '0.6s', dur: '2.8s', size: '13px', char: '♥' },
+  { left: '28%', delay: '1.3s', dur: '2.3s', size: '11px', char: '♥' },
+  { left: '42%', delay: '0.2s', dur: '3.0s', size: '14px', char: '♥' },
+  { left: '56%', delay: '1.8s', dur: '2.2s', size: '11px', char: '♥' },
+  { left: '70%', delay: '0.9s', dur: '2.7s', size: '13px', char: '♥' },
+  { left: '84%', delay: '1.5s', dur: '2.5s', size: '10px', char: '♥' },
+  { left: '95%', delay: '0.4s', dur: '2.9s', size: '12px', char: '♥' },
+];
+
 /**
  * PlayerNameTag:
  * Stellt den Spielernamen entweder standardmäßig oder mit dem freigeschalteten
- * farbigen Namenshintergrund (Rot, Blau, Grün, Gelb, Schwarz, Weiß, Rosa, Türkis) dar.
- * Ab Level 4 kann zusätzlich ein pulsierender Neon-Glow Rahmen (Blau, Rot, Grün, Gelb) aktiv sein.
+ * farbigen Namenshintergrund dar.
+ * Zudem können verschiedene Namensschild-Rahmen aktiv sein (z. B. Einfacher Rahmen,
+ * Pulsierender Neon-Glow, Laufender Laser-Rahmen, Cyber-Rahmen).
  */
 export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
   name,
@@ -45,14 +58,29 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
   glowKey,
   className = '',
   style,
-  asBadge = false
+  asBadge = false,
+  vertical = false
 }) => {
   const bgOption = getNameTagOption(colorKey);
   const glowOption = getNameGlowOption(glowKey);
   const hasBg = bgOption.id !== 'none';
-  const hasGlow = glowOption.id !== 'none';
+  const hasGlow = hasActiveNameGlow(glowKey);
 
   if (!hasBg && !hasGlow) {
+    if (vertical) {
+      return (
+        <span
+          className={`inline-flex flex-col items-center justify-center leading-none select-none font-black text-center ${className}`}
+          style={style}
+        >
+          {name.split('').map((char, i) => (
+            <span key={i} className="block leading-[1.05] tracking-tight">
+              {char === ' ' ? '\u00A0' : char}
+            </span>
+          ))}
+        </span>
+      );
+    }
     return (
       <span className={className} style={style}>
         {name}
@@ -61,43 +89,19 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
   }
 
   const glowClass = hasGlow ? glowOption.glowClass : '';
+  const isLaser = hasGlow && glowOption.patternId === 'laser-pulse';
+  const isSpecialBg = bgOption.cssClasses.includes('name-bg-') || bgOption.cssClasses.includes('bg-gradient');
+
   const tooltipText = [
     hasBg ? `Hintergrund: ${bgOption.label}` : '',
-    hasGlow ? `Neon-Glow: ${glowOption.label}` : ''
+    hasGlow ? `Rahmen: ${glowOption.label}` : ''
   ]
     .filter(Boolean)
     .join(' | ');
 
-  if (!hasBg && hasGlow) {
-    return (
-      <span
-        className={`inline-flex items-center px-2.5 py-0.5 my-0.5 mx-0.5 rounded-lg font-black tracking-wide transition-all border-2 bg-slate-900/40 dark:bg-slate-900/60 backdrop-blur-xs ${glowClass} ${className}`}
-        style={{
-          ['--glow-color' as any]: glowOption.colorHex,
-          ...style
-        }}
-        title={tooltipText}
-      >
-        <span className="truncate">{name}</span>
-      </span>
-    );
-  }
-
-  const isSpecialBg = bgOption.cssClasses.includes('name-bg-') || bgOption.cssClasses.includes('bg-gradient');
-
-  // Mit farbigem Hintergrund (& evtl. zusätzlichem Neon-Glow Rahmen)
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 ${hasGlow ? 'my-0.5 mx-0.5' : ''} rounded-lg font-black tracking-wide transition-all shadow-xs ${bgOption.cssClasses} ${glowClass} ${className}`}
-      style={{
-        backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
-        color: bgOption.textHex,
-        ...(bgOption.style || {}),
-        ...(hasGlow ? { borderColor: glowOption.colorHex, ['--glow-color' as any]: glowOption.colorHex } : {}),
-        ...style
-      }}
-      title={tooltipText}
-    >
+  // Interne Effekte (Matrix, Blitze, Wellen, Schnee, Glitzer, Carbon) und Text
+  const renderInnerContent = () => (
+    <>
       {bgOption.animationId === 'lightning' && (
         <>
           <div className="lightning-flash-overlay" />
@@ -106,7 +110,6 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             viewBox="0 0 200 60"
             preserveAspectRatio="none"
           >
-            {/* Gezackter Hauptblitz mit Aufgabelung */}
             <path
               className="lightning-svg-bolt"
               d="M 65,0 L 58,18 L 72,25 L 54,42 L 63,45 L 48,60"
@@ -116,7 +119,6 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
               d="M 72,25 L 90,36 L 84,50"
               style={{ animationDelay: '0.02s' }}
             />
-            {/* Sekundärer Blitz (zeitversetzt auf der rechten Seite) */}
             <path
               className="lightning-svg-bolt lightning-bolt-secondary"
               d="M 148,0 L 155,16 L 142,26 L 160,40 L 150,44 L 164,60"
@@ -131,7 +133,6 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
       )}
       {bgOption.animationId === 'waves' && (
         <>
-          {/* SVG Filter für feine, dichte Wasser-Verzerrung und Caustics */}
           <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
             <filter id="water-distortion" x="-20%" y="-20%" width="140%" height="140%">
               <feTurbulence
@@ -221,7 +222,11 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
         </div>
       )}
       <span
-        className="relative z-10 truncate"
+        className={`relative z-10 ${
+          vertical
+            ? 'flex flex-col items-center justify-center leading-[0.95] select-none text-center font-black'
+            : 'truncate'
+        }`}
         style={{
           textShadow: bgOption.animationId === 'matrix'
             ? '0 0 4px #000000, 0 0 8px #000000, 0 0 12px #000000, 0 2px 4px rgba(0, 0, 0, 0.95)'
@@ -236,8 +241,565 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             : undefined
         }}
       >
-        {name}
+        {vertical
+          ? name.split('').map((char, i) => (
+              <span key={i} className="block leading-[1.05] tracking-tight">
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))
+          : name}
       </span>
+    </>
+  );
+
+  // SPEZIALFALL: Herzchen-Regen (hearts)
+  // Sanft rieselnde Herz-Partikel in der gewählten Rahmen-Farbe um das Namensschild
+  const isHeartRain = hasGlow && (glowOption.patternId === 'hearts');
+
+  if (isHeartRain) {
+    const heartColor = glowOption.colorHex || '#ec4899';
+
+    return (
+      <span
+        className={`relative p-[2.5px] rounded-lg overflow-visible ${
+          vertical ? 'inline-flex flex-col items-center justify-center' : 'inline-flex items-center'
+        } my-0.5 mx-0.5 shadow-md ${className}`}
+        style={{
+          boxShadow: `0 0 14px ${heartColor}60`,
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* 1. Sanfter Hintergrund-Glow in Spielerfarbe */}
+        <div 
+          className="absolute inset-0 rounded-lg opacity-40 blur-xs animate-pulse pointer-events-none z-0"
+          style={{ backgroundColor: heartColor }}
+        />
+
+        {/* 2. Zarter leuchtender Rand */}
+        <div 
+          className="absolute inset-0 rounded-lg border-2 pointer-events-none z-0"
+          style={{
+            borderColor: heartColor,
+            boxShadow: `0 0 10px ${heartColor}80, inset 0 0 6px ${heartColor}40`
+          }}
+        />
+
+        {/* 3. Herzchen-Partikel Layer (rieselnder Partikel-Regen) */}
+        <div className="absolute -inset-2 pointer-events-none z-20 overflow-hidden rounded-xl">
+          {HEART_PARTICLES.map((p, i) => (
+            <span
+              key={i}
+              className="absolute animate-heart-fall font-bold select-none leading-none"
+              style={{
+                left: p.left,
+                fontSize: p.size,
+                animationDelay: p.delay,
+                animationDuration: p.dur,
+                color: heartColor,
+                textShadow: `0 0 6px ${heartColor}, 0 0 12px ${heartColor}90`
+              }}
+            >
+              {p.char}
+            </span>
+          ))}
+        </div>
+
+        {/* 4. Deckender innerer Name-Container (z-10, perfekt lesbar im Vordergrund) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-[6px] ${
+            vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Wandernde Flamme (flame)
+  // Reiner Glutpunkt auf der Außenkante (vollständig ohne rotierenden conic-gradient Schleier!)
+  const isFlame = hasGlow && glowOption.patternId === 'flame';
+
+  if (isFlame) {
+    const flameColor = glowOption.colorHex || '#f97316';
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center' : 'inline-flex items-center'
+        } p-[2.5px] rounded-lg overflow-visible my-0.5 mx-0.5 ${className}`}
+        style={{
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* Wandernder Glut- und Funkenpunkt auf der Außenkante mit langem, sanft ausfadendem Schweif */}
+        <div className="absolute inset-0 rounded-lg pointer-events-none overflow-visible z-20">
+          {/* Schweif 7: Ausklingendes Ende */}
+          <div className="absolute w-2 h-2 flex items-center justify-center animate-trace-border-trail-7 pointer-events-none opacity-15">
+            <div 
+              className="w-1 h-1 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 4px 1px ${flameColor}`
+              }}
+            />
+          </div>
+
+          {/* Schweif 6 */}
+          <div className="absolute w-2 h-2 flex items-center justify-center animate-trace-border-trail-6 pointer-events-none opacity-25">
+            <div 
+              className="w-1 h-1 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 5px 1.5px ${flameColor}`
+              }}
+            />
+          </div>
+
+          {/* Schweif 5 */}
+          <div className="absolute w-2.5 h-2.5 flex items-center justify-center animate-trace-border-trail-5 pointer-events-none opacity-38">
+            <div 
+              className="w-1.5 h-1.5 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 6px 2px ${flameColor}`
+              }}
+            />
+          </div>
+
+          {/* Schweif 4 */}
+          <div className="absolute w-2.5 h-2.5 flex items-center justify-center animate-trace-border-trail-4 pointer-events-none opacity-50">
+            <div 
+              className="w-1.5 h-1.5 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 7px 2px ${flameColor}`
+              }}
+            />
+          </div>
+
+          {/* Schweif 3 */}
+          <div className="absolute w-3 h-3 flex items-center justify-center animate-trace-border-trail-3 pointer-events-none opacity-65">
+            <div 
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 8px 2.5px ${flameColor}`
+              }}
+            />
+          </div>
+
+          {/* Schweif 2 */}
+          <div className="absolute w-3 h-3 flex items-center justify-center animate-trace-border-trail-2 pointer-events-none opacity-80">
+            <div 
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 9px 3px ${flameColor}, 0 0 2px #ffffff`
+              }}
+            />
+          </div>
+
+          {/* Schweif 1: Heißer Kernschweif direkt hinter dem Glutpunkt */}
+          <div className="absolute w-3.5 h-3.5 flex items-center justify-center animate-trace-border-trail-1 pointer-events-none opacity-92">
+            <div 
+              className="w-2.5 h-2.5 rounded-full"
+              style={{
+                backgroundColor: flameColor,
+                boxShadow: `0 0 10px 3.5px ${flameColor}, 0 0 4px #ffffff`
+              }}
+            />
+          </div>
+
+          {/* Führender Glutpunkt (weißer Kern mit kräftigem Schein in Spielerfarbe) */}
+          <div className="absolute w-4 h-4 flex items-center justify-center animate-trace-border pointer-events-none">
+            <div 
+              className="w-3 h-3 rounded-full bg-white animate-pulse"
+              style={{
+                boxShadow: `0 0 14px 4px ${flameColor}, 0 0 6px #ffffff`
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Deckender innerer Container für den Text (z-10, sauber lesbar im Vordergrund) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-[6px] ${
+            vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Elektrischer Blitz (lightning)
+  // Hochenergetischer Zickzack-Lichtbogen auf der Außenkante (vollständig OHNE rotierenden conic-gradient Schleier!)
+  const isLightning = hasGlow && glowOption.patternId === 'lightning';
+
+  if (isLightning) {
+    const lightningColor = glowOption.colorHex || '#38bdf8';
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center' : 'inline-flex items-center'
+        } p-[2.5px] rounded-lg overflow-visible my-0.5 mx-0.5 ${className}`}
+        style={{
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* Elektrische Entladungen & Zickzack-Lichtbogen auf der Außenkante */}
+        <div className="absolute inset-0 rounded-lg pointer-events-none overflow-visible z-20">
+          
+          {/* Zufällige Knister-Lichtbögen (Spannungs-Entladungen an den Außenkanten) */}
+          {/* Oben */}
+          <div className="absolute -top-1 left-2 right-2 h-1 overflow-visible animate-zap-1 pointer-events-none opacity-0">
+            <svg viewBox="0 0 100 8" preserveAspectRatio="none" className="w-full h-2 overflow-visible">
+              <polyline
+                points="0,4 12,1 25,7 40,0 55,6 72,2 85,7 100,3"
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  filter: `drop-shadow(0 0 4px ${lightningColor}) drop-shadow(0 0 1px #ffffff)`
+                }}
+              />
+            </svg>
+          </div>
+
+          {/* Unten */}
+          <div className="absolute -bottom-1 left-3 right-3 h-1 overflow-visible animate-zap-2 pointer-events-none opacity-0">
+            <svg viewBox="0 0 100 8" preserveAspectRatio="none" className="w-full h-2 overflow-visible">
+              <polyline
+                points="0,3 15,7 30,1 45,6 60,1 75,7 90,2 100,4"
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  filter: `drop-shadow(0 0 4px ${lightningColor}) drop-shadow(0 0 1px #ffffff)`
+                }}
+              />
+            </svg>
+          </div>
+
+          {/* Knisternder Schweif 4 (verblassendes Ende der elektrischen Entladung) */}
+          <div className="absolute w-2 h-2 flex items-center justify-center animate-lightning-trail-4 pointer-events-none opacity-30">
+            <div 
+              className="w-1 h-1 rounded-sm rotate-45"
+              style={{
+                backgroundColor: lightningColor,
+                boxShadow: `0 0 6px 1px ${lightningColor}`
+              }}
+            />
+          </div>
+
+          {/* Knisternder Schweif 3 */}
+          <div className="absolute w-2 h-2 flex items-center justify-center animate-lightning-trail-3 pointer-events-none opacity-55">
+            <div 
+              className="w-1.5 h-1.5 rounded-sm rotate-12"
+              style={{
+                backgroundColor: '#ffffff',
+                boxShadow: `0 0 7px 2px ${lightningColor}`
+              }}
+            />
+          </div>
+
+          {/* Knisternder Schweif 2 */}
+          <div className="absolute w-2.5 h-2.5 flex items-center justify-center animate-lightning-trail-2 pointer-events-none opacity-75">
+            <div 
+              className="w-2 h-2 rounded-sm -rotate-45"
+              style={{
+                backgroundColor: '#ffffff',
+                boxShadow: `0 0 9px 2.5px ${lightningColor}, 0 0 2px #ffffff`
+              }}
+            />
+          </div>
+
+          {/* Knisternder Schweif 1 (heißer Lichtbogen direkt hinter dem Kopf) */}
+          <div className="absolute w-3 h-3 flex items-center justify-center animate-lightning-trail-1 pointer-events-none opacity-90">
+            <div 
+              className="w-2.5 h-2.5 rounded-sm rotate-45"
+              style={{
+                backgroundColor: '#ffffff',
+                boxShadow: `0 0 11px 3px ${lightningColor}, 0 0 3px #ffffff`
+              }}
+            />
+          </div>
+
+          {/* Führender elektrischer Blitz / Zickzack-Funke (hochfrequenter Zickzack-Lauf) */}
+          <div className="absolute w-5 h-5 flex items-center justify-center animate-lightning-head pointer-events-none">
+            <svg 
+              viewBox="0 0 24 24" 
+              className="w-4 h-4 text-white animate-pulse"
+              style={{
+                filter: `drop-shadow(0 0 8px ${lightningColor}) drop-shadow(0 0 14px ${lightningColor}) drop-shadow(0 0 2px #ffffff)`
+              }}
+              fill="currentColor"
+            >
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Deckender innerer Container für den Text (z-10, absolut sauber lesbar auf schwarzem Hintergrund) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-[6px] ${
+            vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Schwapp-Welle (wave)
+  // Organisch ausschwappende und zurückziehende Wasserwelle (KEIN Standard-Lauflicht!)
+  const isWave = hasGlow && glowOption.patternId === 'wave';
+
+  if (isWave) {
+    const waveColor = glowOption.colorHex || '#06b6d4';
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center' : 'inline-flex items-center'
+        } p-[2.5px] rounded-lg overflow-visible my-0.5 mx-0.5 ${className}`}
+        style={{
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* Nach außen schwappender, organischer Wellen-Layer */}
+        <div className="absolute inset-0 rounded-lg pointer-events-none flex items-center justify-center overflow-visible z-0">
+          
+          {/* Wellen-Layer 1: Weicher, ausschwappender Wasserkörper */}
+          <div 
+            className="absolute -inset-1 animate-wave-splash-1 pointer-events-none"
+            style={{
+              backgroundColor: waveColor,
+              filter: `blur(6px) drop-shadow(0 0 10px ${waveColor})`,
+              boxShadow: `0 0 16px 2px ${waveColor}60`
+            }}
+          />
+
+          {/* Wellen-Layer 2: Zeitversetzter sekundärer Wellenschlag für kontinuierliches Wogen */}
+          <div 
+            className="absolute -inset-1.5 animate-wave-splash-2 pointer-events-none"
+            style={{
+              backgroundColor: waveColor,
+              filter: `blur(9px) drop-shadow(0 0 14px ${waveColor})`,
+              boxShadow: `0 0 20px 4px ${waveColor}40`
+            }}
+          />
+
+          {/* Wellenkamm (Crest): Organisch gewellte Kante, die nach außen bricht & verblasst */}
+          <div 
+            className="absolute -inset-0.5 animate-wave-crest pointer-events-none border-2"
+            style={{
+              borderColor: '#ffffff',
+              boxShadow: `0 0 12px 2px ${waveColor}, inset 0 0 6px ${waveColor}80`,
+              filter: `drop-shadow(0 0 4px ${waveColor})`
+            }}
+          />
+
+          {/* Sanfte Grund-Aura an den Rändern */}
+          <div 
+            className="absolute inset-0 rounded-lg pointer-events-none opacity-40 blur-xs"
+            style={{
+              backgroundColor: waveColor
+            }}
+          />
+        </div>
+
+        {/* Deckender innerer Container für den Text (z-10, absolut sauber lesbar auf schwarzem Hintergrund) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-[6px] ${
+            vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Kanten-Tracing Rahmen (Laser, Cyber, Schnee, Matrix)
+  // Der Lichtstrahl / Effekt kreist exakt auf der Außenkante des Containers und wird
+  // durch die inneren Deckfläche maskiert, sodass er NIEMALS den Text durchquert.
+  const isBorderTracing = hasGlow && [
+    'laser', 'laser-pulse',
+    'cyber', 'double-border',
+    'snow-frame',
+    'matrix-frame'
+  ].includes(glowOption.patternId);
+
+  if (isBorderTracing) {
+    let spinClass = 'animate-spin-laser';
+    let borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 270deg, ${glowOption.colorHex} 325deg, #ffffff 360deg)`;
+    let shadowColor = glowOption.colorHex;
+
+    switch (glowOption.patternId) {
+      case 'cyber':
+      case 'double-border':
+        spinClass = 'animate-spin-cyber';
+        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, ${glowOption.colorHex} 25deg, transparent 50deg, transparent 180deg, #ffffff 205deg, ${glowOption.colorHex} 220deg, transparent 240deg)`;
+        shadowColor = glowOption.colorHex;
+        break;
+      case 'snow-frame':
+        spinClass = 'animate-spin-snow';
+        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 250deg, #0284c7 290deg, #7dd3fc 330deg, #ffffff 355deg, #f0f9ff 360deg)`;
+        shadowColor = '#7dd3fc';
+        break;
+      case 'matrix-frame':
+        spinClass = 'animate-spin-matrix';
+        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 240deg, #14532d 280deg, #16a34a 320deg, #4ade80 350deg, #ffffff 360deg)`;
+        shadowColor = '#22c55e';
+        break;
+      default:
+        // laser
+        spinClass = 'animate-spin-laser';
+        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 270deg, ${glowOption.colorHex} 325deg, #ffffff 360deg)`;
+        shadowColor = glowOption.colorHex;
+        break;
+    }
+
+    return (
+      <span
+        className={`relative p-[2.5px] rounded-lg overflow-hidden ${
+          vertical ? 'inline-flex flex-col items-center justify-center' : 'inline-flex items-center'
+        } my-0.5 mx-0.5 shadow-md ${className}`}
+        style={{
+          boxShadow: `0 0 12px ${shadowColor}60`,
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* Umlaufende Kanten-Animation (Border-Tracing) */}
+        <div className="absolute inset-0 rounded-lg overflow-hidden pointer-events-none z-0">
+          <div
+            className={`absolute -inset-[180%] ${spinClass} pointer-events-none opacity-95`}
+            style={{
+              background: borderGradient
+            }}
+          />
+        </div>
+
+        {/* Innerer Container (Deckfläche, damit die Kanten-Animation nicht durch den Text läuft) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-[6px] ${
+            vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // Standard-Fall: Nur Glow ohne farbigen Hintergrund
+  if (!hasBg && hasGlow) {
+    return (
+      <span
+        className={`${
+          vertical
+            ? 'inline-flex flex-col items-center justify-center px-1.5 py-1.5 min-w-[24px]'
+            : 'inline-flex items-center px-2.5 py-0.5'
+        } my-0.5 mx-0.5 rounded-lg font-black tracking-wide transition-all border-2 bg-slate-900/40 dark:bg-slate-900/60 backdrop-blur-xs ${glowClass} ${className}`}
+        style={{
+          borderColor: glowOption.colorHex,
+          ['--glow-color' as any]: glowOption.colorHex,
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {vertical ? (
+          <span className="flex flex-col items-center justify-center leading-[0.95] select-none text-center font-black">
+            {name.split('').map((char, i) => (
+              <span key={i} className="block leading-[1.05] tracking-tight">
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="truncate">{name}</span>
+        )}
+      </span>
+    );
+  }
+
+  // Standard-Fall: Mit farbigem Hintergrund (& evtl. zusätzlichem Neon-Glow / Einfachem Rahmen)
+  return (
+    <span
+      className={`${
+        vertical
+          ? 'inline-flex flex-col items-center justify-center px-1.5 py-1.5 min-w-[24px]'
+          : 'inline-flex items-center px-2.5 py-0.5'
+      } ${hasGlow ? 'my-0.5 mx-0.5' : ''} rounded-lg font-black tracking-wide transition-all shadow-xs ${bgOption.cssClasses} ${glowClass} ${className}`}
+      style={{
+        backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
+        color: bgOption.textHex,
+        ...(bgOption.style || {}),
+        ...(hasGlow ? { borderColor: glowOption.colorHex, ['--glow-color' as any]: glowOption.colorHex } : {}),
+        ...style
+      }}
+      title={tooltipText}
+    >
+      {renderInnerContent()}
     </span>
   );
 };

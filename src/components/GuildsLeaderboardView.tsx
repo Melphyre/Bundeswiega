@@ -160,8 +160,8 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           let total = 0;
 
           if (gamesCount > 0) {
-            const sumAvg = guildGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
-            sumSchnaepse = guildGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+            const sumAvg = guildGames.reduce((acc, gm: any) => acc + (Number(gm.avg) || 0), 0);
+            sumSchnaepse = guildGames.reduce((acc, gm: any) => acc + (Number(gm.schnaepse !== undefined && gm.schnaepse !== null ? gm.schnaepse : (gm.schnapse ?? gm.schnaps ?? 0)) || 0), 0);
             avg = Math.round((sumAvg / gamesCount) * 100) / 100;
             schnaepse = Math.round((sumSchnaepse / gamesCount) * 100) / 100;
             total = Math.round((avg + schnaepse) * 100) / 100;
@@ -224,8 +224,8 @@ export const GuildsLeaderboardView: React.FC<GuildsLeaderboardViewProps> = ({
           let freeTotalSchnaepse = 0;
           let freeTotal = 0;
           if (freeGamesCount > 0) {
-            const sumAvg = freeGames.reduce((acc, gm) => acc + (Number(gm.avg) || 0), 0);
-            freeTotalSchnaepse = freeGames.reduce((acc, gm) => acc + (Number(gm.schnaepse) || 0), 0);
+            const sumAvg = freeGames.reduce((acc, gm: any) => acc + (Number(gm.avg) || 0), 0);
+            freeTotalSchnaepse = freeGames.reduce((acc, gm: any) => acc + (Number(gm.schnaepse !== undefined && gm.schnaepse !== null ? gm.schnaepse : ((gm as any).schnapse ?? (gm as any).schnaps ?? 0)) || 0), 0);
             freeAvg = Math.round((sumAvg / freeGamesCount) * 100) / 100;
             freeSchnaepse = Math.round((freeTotalSchnaepse / freeGamesCount) * 100) / 100;
             freeTotal = Math.round((freeAvg + freeSchnaepse) * 100) / 100;

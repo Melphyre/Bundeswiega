@@ -24,7 +24,15 @@ export interface QuestDefinition {
     | 'perfect_hits_count'
     | 'schnapszahl_count'
     | 'same_weight_count'
-    | 'hundreds_count';
+    | 'hundreds_count'
+    | 'exact_five_g_count'
+    | 'strategist_count'
+    | 'ach_67_count'
+    | 'speed_avg_sub5_count'
+    | 'speed_time_sub100_count'
+    | 'ach_knapp_daneben_count'
+    | 'ach_kopfrechner_count'
+    | 'ach_scharfschuetze_count';
   targetValue: number;
   gameMode?: string;
   threshold?: number;
@@ -83,6 +91,29 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
     animationReward: 'flag', 
     rewardDescription: 'Animation: Flagge im Wind' 
   },
+  // Level-3 Quests für Namensschild-Rahmenfarben (Swatches)
+  { 
+    id: 'l3_border_pink', 
+    level: 3, 
+    title: 'Schnapszahl-Künstler: 5x Schnapszahl treffen', 
+    xpReward: 20, 
+    metric: 'schnapszahl_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'pink',
+    rewardDescription: 'Rahmenfarbe Pink' 
+  },
+  { 
+    id: 'l3_border_teal', 
+    level: 3, 
+    title: 'Hunderter-Profi: 5x glatte Hunderterzahl treffen', 
+    xpReward: 20, 
+    metric: 'hundreds_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'teal',
+    rewardDescription: 'Rahmenfarbe Türkis' 
+  },
 
   // --- LEVEL 4 ---
   { id: 'l4_25_games_total', level: 4, title: 'Absolviere insgesamt 25 Spiele', xpReward: 20, metric: 'games_count', targetValue: 25, targetCount: 25 },
@@ -135,6 +166,40 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
     animationReward: 'waves', 
     rewardDescription: 'Animation: Wasser & Wellen' 
   },
+  // Level-4 Quests für gestaffelte Namensschild-Rahmenfarben (Swatches)
+  { 
+    id: 'l4_border_orange', 
+    level: 4, 
+    title: 'Taktischer Stratege: 5x Achievement "Stratege"', 
+    xpReward: 25, 
+    metric: 'strategist_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'orange',
+    rewardDescription: 'Rahmenfarbe Orange' 
+  },
+  { 
+    id: 'l4_border_purple', 
+    level: 4, 
+    title: 'Wiegezwilling: 5x selbes Gewicht wie ein Mitspieler', 
+    xpReward: 25, 
+    metric: 'same_weight_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'purple',
+    rewardDescription: 'Rahmenfarbe Dunkelblau / Lila' 
+  },
+  { 
+    id: 'l4_border_cyan', 
+    level: 4, 
+    title: 'Präzisions-Schuss: 5x exakt 5g Abstand (gesamt über Spiele)', 
+    xpReward: 25, 
+    metric: 'exact_five_g_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'cyan',
+    rewardDescription: 'Rahmenfarbe Cyan / Mint' 
+  },
 
   // --- LEVEL 5 ---
   { id: 'l5_50_games_total', level: 5, title: 'Absolviere 50 Spiele', xpReward: 30, titleReward: 'Stammgast', metric: 'games_count', targetValue: 50, targetCount: 50 },
@@ -142,6 +207,95 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l5_tournament_7', level: 5, title: 'Nimm an 7 Turnieren teil', xpReward: 30, titleReward: 'Turnier-Stammgast', metric: 'tournament_count', targetValue: 7, targetCount: 7 },
   { id: 'l5_avg_sub15', level: 5, title: 'Fabelzeit: Durchschnitt unter 1,5 Gramm', xpReward: 30, titleReward: 'Chirurg', metric: 'avg_less_than', targetValue: 1.5, threshold: 1.5, targetCount: 1 },
   { id: 'l5_10x_avg_sub4', level: 5, title: 'Erreiche 10x einen Durchschnitt unter 4 Gramm', xpReward: 25, metric: 'avg_less_than', targetValue: 4.0, threshold: 4.0, targetCount: 10 },
+  // Level-5 Quests für Namensschild-Rahmen (Animationen/Muster)
+  { 
+    id: 'l5_border_hearts', 
+    level: 5, 
+    title: 'Herzchen-Regen: 3x Achievement "67" erhalten', 
+    xpReward: 30, 
+    metric: 'ach_67_count', 
+    targetValue: 3, 
+    targetCount: 3,
+    animationReward: 'hearts',
+    rewardDescription: 'Rahmen: Herzchen-Regen' 
+  },
+  { 
+    id: 'l5_border_flame', 
+    level: 5, 
+    title: 'Wandernde Flamme: Speedwiegen 3x Avg unter 5g', 
+    xpReward: 30, 
+    metric: 'speed_avg_sub5_count', 
+    targetValue: 3, 
+    targetCount: 3,
+    animationReward: 'flame',
+    rewardDescription: 'Rahmen: Wandernde Flamme' 
+  },
+  { 
+    id: 'l5_border_lightning', 
+    level: 5, 
+    title: 'Elektrischer Blitz: Speedwiegen 3x Zeit unter 100s', 
+    xpReward: 30, 
+    metric: 'speed_time_sub100_count', 
+    targetValue: 3, 
+    targetCount: 3,
+    animationReward: 'lightning',
+    rewardDescription: 'Rahmen: Elektrischer Blitz' 
+  },
+  { 
+    id: 'l5_border_wave', 
+    level: 5, 
+    title: 'Schwapp-Welle: 5x Achievement "Knapp daneben"', 
+    xpReward: 30, 
+    metric: 'ach_knapp_daneben_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    animationReward: 'wave',
+    rewardDescription: 'Rahmen: Schwapp-Welle' 
+  },
+  { 
+    id: 'l5_border_cyber', 
+    level: 5, 
+    title: 'Doppelter Cyber-Rahmen: 5x Achievement "Kopfrechner"', 
+    xpReward: 30, 
+    metric: 'ach_kopfrechner_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    animationReward: 'cyber',
+    rewardDescription: 'Rahmen: Doppelter Cyber-Rahmen' 
+  },
+  { 
+    id: 'l5_border_laser', 
+    level: 5, 
+    title: 'Laufender Laser-Rahmen: 5x Achievement "Scharfschütze"', 
+    xpReward: 30, 
+    metric: 'ach_scharfschuetze_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    animationReward: 'laser',
+    rewardDescription: 'Rahmen: Laufender Laser-Rahmen' 
+  },
+  { 
+    id: 'l5_border_snow', 
+    level: 5, 
+    title: 'Eiszapfen / Schnee: 5x Wiegezwilling werden', 
+    xpReward: 30, 
+    metric: 'same_weight_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    animationReward: 'snow-frame',
+    rewardDescription: 'Rahmen: Eiszapfen / Schnee' 
+  },
+  { 
+    id: 'l5_border_matrix', 
+    level: 5, 
+    title: 'Matrix-Code-Rahmen: 5x Achievement "Stratege"', 
+    xpReward: 30, 
+    metric: 'strategist_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    animationReward: 'matrix-frame',
+    rewardDescription: 'Rahmen: Matrix-Code-Rahmen' 
+  },
 
   // --- LEVEL 6 ---
   { id: 'l6_20_speed', level: 6, title: 'Spiele 20 Speedwiegen', xpReward: 30, metric: 'games_count', targetValue: 20, targetCount: 20, gameMode: 'Speedwiegen' },
@@ -264,9 +418,24 @@ export function getStoredQuestStats(userId: string): Record<string, number> {
   return {};
 }
 
+export interface UserQuestCounters {
+  schnapszahl: number;
+  hunderter: number;
+  stratege: number;
+  zwilling: number;
+  exactFiveG: number;
+  // Level 5 Quest-Rahmen
+  ach_67: number;
+  speed_avg_sub5: number;
+  speed_time_sub100: number;
+  ach_knapp_daneben: number;
+  ach_kopfrechner: number;
+  ach_scharfschuetze: number;
+}
+
 export function recordQuestStat(
   userId: string,
-  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count',
+  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count' | 'exact_five_g_count' | 'strategist_count' | 'ach_67_count' | 'speed_avg_sub5_count' | 'speed_time_sub100_count' | 'ach_knapp_daneben_count' | 'ach_kopfrechner_count' | 'ach_scharfschuetze_count',
   amount: number = 1
 ): number {
   if (!userId) return 0;
@@ -279,6 +448,228 @@ export function recordQuestStat(
     return updated;
   } catch {}
   return 0;
+}
+
+/**
+ * Ermittelt kumulierte Zähler über mehrere Spiele für die Namensschild-Rahmenfarben und Level 5 Quest-Rahmen
+ */
+export function getUserQuestCounters(
+  userId?: string,
+  questProgresses?: any[],
+  myGameData?: any[],
+  myAchievementsData?: any[],
+  directUserQuests?: Partial<UserQuestCounters>
+): UserQuestCounters {
+  const stats = userId ? getStoredQuestStats(userId) : {};
+
+  // 1. Schnapszahl (target: 5)
+  let schnapszahl = Number(directUserQuests?.schnapszahl ?? stats.schnapszahl_count ?? stats.schnapszahl ?? 0);
+  const qpSchnaps = questProgresses?.find(qp => qp.quest_id === 'l4_lightning_animation_quest' || qp.quest_id === 'l3_border_pink');
+  if (qpSchnaps) {
+    schnapszahl = Math.max(schnapszahl, Number(qpSchnaps.current_progress) || (qpSchnaps.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    if (myAchievementsData.some(a => (a.achievement_id === 'schnapps_hunter' || a.id === 'schnapps_hunter') && (a.unlocked || a.is_unlocked))) {
+      schnapszahl = Math.max(schnapszahl, 2);
+    }
+    if (myAchievementsData.some(a => (a.achievement_id === 'triple_seven' || a.id === 'triple_seven') && (a.unlocked || a.is_unlocked))) {
+      schnapszahl = Math.max(schnapszahl, 1);
+    }
+  }
+
+  // 2. Hunderter (target: 5)
+  let hunderter = Number(directUserQuests?.hunderter ?? stats.hundreds_count ?? stats.hunderter ?? 0);
+  const qpHund = questProgresses?.find(qp => qp.quest_id === 'l4_waves_animation_quest' || qp.quest_id === 'l3_border_teal');
+  if (qpHund) {
+    hunderter = Math.max(hunderter, Number(qpHund.current_progress) || (qpHund.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    if (myAchievementsData.some(a => (a.achievement_id === 'round_number' || a.id === 'round_number') && (a.unlocked || a.is_unlocked))) {
+      hunderter = Math.max(hunderter, 1);
+    }
+  }
+
+  // 3. Stratege (target: 5)
+  let stratege = Number(directUserQuests?.stratege ?? stats.strategist_count ?? stats.stratege ?? 0);
+  if (myAchievementsData) {
+    const stratAchievements = myAchievementsData.filter(a => 
+      (a.achievement_id === 'strategist' || a.id === 'strategist' || a.title === 'Stratege') && 
+      (a.unlocked || a.is_unlocked)
+    );
+    if (stratAchievements.length > 0) {
+      stratege = Math.max(stratege, stratAchievements.length);
+    }
+  }
+  const qpStrat = questProgresses?.find(qp => qp.quest_id === 'l4_border_orange' || qp.quest_id === 'l5_border_matrix');
+  if (qpStrat) {
+    stratege = Math.max(stratege, Number(qpStrat.current_progress) || (qpStrat.is_completed ? 5 : 0));
+  }
+
+  // 4. Wiegezwilling (target: 5)
+  let zwilling = Number(directUserQuests?.zwilling ?? stats.same_weight_count ?? stats.zwilling ?? 0);
+  const qpZwill = questProgresses?.find(qp => qp.quest_id === 'l4_snow_animation_quest' || qp.quest_id === 'l4_border_purple' || qp.quest_id === 'l5_border_snow');
+  if (qpZwill) {
+    zwilling = Math.max(zwilling, Number(qpZwill.current_progress) || (qpZwill.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    if (myAchievementsData.some(a => (a.achievement_id === 'twins' || a.id === 'twins') && (a.unlocked || a.is_unlocked))) {
+      zwilling = Math.max(zwilling, 2);
+    }
+    if (myAchievementsData.some(a => (a.achievement_id === 'doppelganger' || a.id === 'doppelganger') && (a.unlocked || a.is_unlocked))) {
+      zwilling = Math.max(zwilling, 2);
+    }
+  }
+
+  // 5. Exakt 5g Abstand (target: 5)
+  let exactFiveG = Number(directUserQuests?.exactFiveG ?? stats.exact_five_g_count ?? stats.exactFiveG ?? 0);
+  const qpExactFive = questProgresses?.find(qp => qp.quest_id === 'l4_border_cyan');
+  if (qpExactFive) {
+    exactFiveG = Math.max(exactFiveG, Number(qpExactFive.current_progress) || (qpExactFive.is_completed ? 5 : 0));
+  }
+  if (Array.isArray(myGameData)) {
+    let fiveGCount = 0;
+    for (const g of myGameData) {
+      if (Array.isArray(g.rounds)) {
+        for (const r of g.rounds) {
+          const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+          if (dist !== null && Math.abs(dist - 5) < 0.05) {
+            fiveGCount++;
+          }
+        }
+      }
+    }
+    exactFiveG = Math.max(exactFiveG, fiveGCount);
+  }
+
+  // 6. ach_67: 3x Achievement 67 ("six_seven" / Six Seven)
+  let ach_67 = Number(directUserQuests?.ach_67 ?? stats.ach_67_count ?? stats.ach_67 ?? 0);
+  const qpHearts = questProgresses?.find(qp => qp.quest_id === 'l5_border_hearts');
+  if (qpHearts) {
+    ach_67 = Math.max(ach_67, Number(qpHearts.current_progress) || (qpHearts.is_completed ? 3 : 0));
+  }
+  if (myAchievementsData) {
+    const match67 = myAchievementsData.filter(a =>
+      (a.achievement_id === 'six_seven' || a.id === 'six_seven' || a.title === 'Six Seven' || a.title === '67') &&
+      (a.unlocked || a.is_unlocked)
+    ).length;
+    if (match67 > 0) ach_67 = Math.max(ach_67, match67);
+  }
+  if (Array.isArray(myGameData)) {
+    let count67 = 0;
+    for (const g of myGameData) {
+      if (Array.isArray(g.rounds)) {
+        for (const r of g.rounds) {
+          const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
+          if (w !== null && Math.round(w) === 67) {
+            count67++;
+          }
+        }
+      }
+    }
+    ach_67 = Math.max(ach_67, count67);
+  }
+
+  // 7. speed_avg_sub5: Speedwiegen 3x Avg unter 5g
+  let speed_avg_sub5 = Number(directUserQuests?.speed_avg_sub5 ?? stats.speed_avg_sub5_count ?? stats.speed_avg_sub5 ?? 0);
+  const qpFlame = questProgresses?.find(qp => qp.quest_id === 'l5_border_flame');
+  if (qpFlame) {
+    speed_avg_sub5 = Math.max(speed_avg_sub5, Number(qpFlame.current_progress) || (qpFlame.is_completed ? 3 : 0));
+  }
+  if (Array.isArray(myGameData)) {
+    const sub5Games = myGameData.filter(g => {
+      const mode = (g.game_mode || '').toLowerCase();
+      const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
+      const avg = typeof g.avg === 'number' ? g.avg : (typeof g.average === 'number' ? g.average : (typeof g.average_distance === 'number' ? g.average_distance : null));
+      return isSpeed && avg !== null && avg < 5.0;
+    }).length;
+    speed_avg_sub5 = Math.max(speed_avg_sub5, sub5Games);
+  }
+
+  // 8. speed_time_sub100: Speedwiegen 3x Zeit unter 100s
+  let speed_time_sub100 = Number(directUserQuests?.speed_time_sub100 ?? stats.speed_time_sub100_count ?? stats.speed_time_sub100 ?? 0);
+  const qpLightning = questProgresses?.find(qp => qp.quest_id === 'l5_border_lightning');
+  if (qpLightning) {
+    speed_time_sub100 = Math.max(speed_time_sub100, Number(qpLightning.current_progress) || (qpLightning.is_completed ? 3 : 0));
+  }
+  if (Array.isArray(myGameData)) {
+    const sub100Games = myGameData.filter(g => {
+      const mode = (g.game_mode || '').toLowerCase();
+      const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
+      const t = typeof g.total_time === 'number' ? g.total_time : (typeof g.time === 'number' ? g.time : (typeof g.time_seconds === 'number' ? g.time_seconds : null));
+      return isSpeed && t !== null && t > 0 && t < 100;
+    }).length;
+    speed_time_sub100 = Math.max(speed_time_sub100, sub100Games);
+  }
+
+  // 9. ach_knapp_daneben: 5x Achievement "Knapp daneben" ("so_close")
+  let ach_knapp_daneben = Number(directUserQuests?.ach_knapp_daneben ?? stats.ach_knapp_daneben_count ?? stats.ach_knapp_daneben ?? 0);
+  const qpWave = questProgresses?.find(qp => qp.quest_id === 'l5_border_wave');
+  if (qpWave) {
+    ach_knapp_daneben = Math.max(ach_knapp_daneben, Number(qpWave.current_progress) || (qpWave.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    const matchKnapp = myAchievementsData.filter(a =>
+      (a.achievement_id === 'so_close' || a.id === 'so_close' || a.title === 'Knapp daneben') &&
+      (a.unlocked || a.is_unlocked)
+    ).length;
+    if (matchKnapp > 0) ach_knapp_daneben = Math.max(ach_knapp_daneben, matchKnapp);
+  }
+  if (Array.isArray(myGameData)) {
+    let countClose = 0;
+    for (const g of myGameData) {
+      if (Array.isArray(g.rounds)) {
+        for (const r of g.rounds) {
+          const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+          if (dist !== null && Math.abs(dist - 1) < 0.05) {
+            countClose++;
+          }
+        }
+      }
+    }
+    ach_knapp_daneben = Math.max(ach_knapp_daneben, countClose);
+  }
+
+  // 10. ach_kopfrechner: 5x Achievement "Kopfrechner" ("calculator")
+  let ach_kopfrechner = Number(directUserQuests?.ach_kopfrechner ?? stats.ach_kopfrechner_count ?? stats.ach_kopfrechner ?? 0);
+  const qpCyber = questProgresses?.find(qp => qp.quest_id === 'l5_border_cyber');
+  if (qpCyber) {
+    ach_kopfrechner = Math.max(ach_kopfrechner, Number(qpCyber.current_progress) || (qpCyber.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    const matchCalc = myAchievementsData.filter(a =>
+      (a.achievement_id === 'calculator' || a.id === 'calculator' || a.title === 'Kopfrechner') &&
+      (a.unlocked || a.is_unlocked)
+    ).length;
+    if (matchCalc > 0) ach_kopfrechner = Math.max(ach_kopfrechner, matchCalc);
+  }
+
+  // 11. ach_scharfschuetze: 5x Achievement "Scharfschütze" ("sharpshooter")
+  let ach_scharfschuetze = Number(directUserQuests?.ach_scharfschuetze ?? stats.ach_scharfschuetze_count ?? stats.ach_scharfschuetze ?? 0);
+  const qpLaser = questProgresses?.find(qp => qp.quest_id === 'l5_border_laser');
+  if (qpLaser) {
+    ach_scharfschuetze = Math.max(ach_scharfschuetze, Number(qpLaser.current_progress) || (qpLaser.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    const matchSharp = myAchievementsData.filter(a =>
+      (a.achievement_id === 'sharpshooter' || a.id === 'sharpshooter' || a.title === 'Scharfschütze') &&
+      (a.unlocked || a.is_unlocked)
+    ).length;
+    if (matchSharp > 0) ach_scharfschuetze = Math.max(ach_scharfschuetze, matchSharp);
+  }
+
+  return {
+    schnapszahl,
+    hunderter,
+    stratege,
+    zwilling,
+    exactFiveG,
+    ach_67,
+    speed_avg_sub5,
+    speed_time_sub100,
+    ach_knapp_daneben,
+    ach_kopfrechner,
+    ach_scharfschuetze
+  };
 }
 
 export async function processQuestsForUser(userId: string, customClient?: any) {
@@ -617,6 +1008,102 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.hundreds_count) || 0;
           if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'exact_five_g_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.exact_five_g_count) || 0;
+          progress = count;
+          break;
+        }
+
+        case 'strategist_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.strategist_count) || 0;
+          if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'ach_67_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.ach_67_count) || 0;
+          if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
+          if (Array.isArray(safeResults)) {
+            let count67 = 0;
+            for (const g of safeResults) {
+              if (Array.isArray(g.rounds)) {
+                for (const r of g.rounds) {
+                  const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
+                  if (w !== null && Math.round(w) === 67) count67++;
+                }
+              }
+            }
+            count = Math.max(count, count67);
+          }
+          progress = count;
+          break;
+        }
+
+        case 'speed_avg_sub5_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.speed_avg_sub5_count) || 0;
+          const sub5 = safeResults.filter(r => {
+            const mode = (r.game_mode || '').toLowerCase();
+            const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
+            return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
+          }).length;
+          progress = Math.max(count, sub5);
+          break;
+        }
+
+        case 'speed_time_sub100_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.speed_time_sub100_count) || 0;
+          const sub100 = safeResults.filter(r => {
+            const mode = (r.game_mode || '').toLowerCase();
+            const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
+            const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
+            return isSpeed && t !== null && t > 0 && t < 100;
+          }).length;
+          progress = Math.max(count, sub100);
+          break;
+        }
+
+        case 'ach_knapp_daneben_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.ach_knapp_daneben_count) || 0;
+          if (userAchievementIds.has('so_close')) count = Math.max(count, 1);
+          if (Array.isArray(safeResults)) {
+            let closeCount = 0;
+            for (const g of safeResults) {
+              if (Array.isArray(g.rounds)) {
+                for (const r of g.rounds) {
+                  const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+                  if (dist !== null && Math.abs(dist - 1) < 0.05) closeCount++;
+                }
+              }
+            }
+            count = Math.max(count, closeCount);
+          }
+          progress = count;
+          break;
+        }
+
+        case 'ach_kopfrechner_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.ach_kopfrechner_count) || 0;
+          if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
+          progress = count;
+          break;
+        }
+
+        case 'ach_scharfschuetze_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.ach_scharfschuetze_count) || 0;
+          if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
           progress = count;
           break;
         }

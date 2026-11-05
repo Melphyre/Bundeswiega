@@ -127,6 +127,17 @@ html, body {
   }
 }
 
+/* 0. Einfacher Rahmen (Balkenrahmen ohne Animation) */
+.name-frame-simple-border {
+  border-width: 2.5px !important;
+  border-style: solid !important;
+  border-color: var(--glow-color, #3b82f6) !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.15) !important;
+  animation: none !important;
+  position: relative !important;
+  z-index: 2;
+}
+
 .name-frame-neon-glow {
   animation: dynamicNeonGlowPulse 1.8s infinite ease-in-out !important;
   border-width: 2px !important;
@@ -153,35 +164,397 @@ html, body {
   }
 }
 
-@keyframes laserSheenMove {
+/* 2. Laufender Laser-Rahmen (Kanten-Tracing) */
+@keyframes spinLaser {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-laser {
+  animation: spinLaser 2.2s linear infinite !important;
+}
+
+.animate-spin-slow {
+  animation: spinSlow 3.5s linear infinite !important;
+}
+
+.animate-spin-flame {
+  animation: spinSlow 3.2s linear infinite !important;
+}
+
+.animate-spin-lightning {
+  animation: spinLaser 1.2s linear infinite !important;
+}
+
+.animate-spin-wave {
+  animation: spinLaser 2.8s linear infinite !important;
+}
+
+.animate-spin-hearts {
+  animation: spinLaser 2.4s linear infinite !important;
+}
+
+.animate-spin-cyber {
+  animation: spinLaser 2.0s linear infinite !important;
+}
+
+.animate-spin-snow {
+  animation: spinLaser 2.6s linear infinite !important;
+}
+
+.animate-spin-matrix {
+  animation: spinLaser 1.9s linear infinite !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HERZCHEN-REGEN (HEARTS) RAHMEN-EFFEKT & PARTIKEL
+   ═══════════════════════════════════════════════════════════ */
+@keyframes heartFall {
   0% {
-    background-position: -200% 0;
+    transform: translateY(-100%) scale(0.6) rotate(-8deg);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.95;
   }
   100% {
-    background-position: 200% 0;
+    transform: translateY(220%) scale(1.15) rotate(12deg);
+    opacity: 0;
+  }
+}
+
+.animate-heart-fall {
+  top: 0;
+  animation: heartFall 2.4s linear infinite !important;
+  will-change: transform, opacity;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WANDERNDE FLAMME (FLAME) ZÜNDSCHNUR-EFFEKT
+   ═══════════════════════════════════════════════════════════ */
+@keyframes traceBorder {
+  0% {
+    top: 0%;
+    left: 0%;
+    transform: translate(-50%, -50%);
+  }
+  25% {
+    top: 0%;
+    left: 100%;
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    top: 100%;
+    left: 100%;
+    transform: translate(-50%, -50%);
+  }
+  75% {
+    top: 100%;
+    left: 0%;
+    transform: translate(-50%, -50%);
+  }
+  100% {
+    top: 0%;
+    left: 0%;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.animate-trace-border {
+  animation: traceBorder 3.5s linear infinite !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-1 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.06s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-2 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.13s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-3 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.21s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-4 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.31s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-5 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.43s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-6 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.57s !important;
+  will-change: top, left, transform;
+}
+
+.animate-trace-border-trail-7 {
+  animation: traceBorder 3.5s linear infinite !important;
+  animation-delay: -0.73s !important;
+  will-change: top, left, transform;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ELEKTRISCHER BLITZ (LIGHTNING) ZICKZACK-LICHTBOGEN & FUNKEN
+   ═══════════════════════════════════════════════════════════ */
+@keyframes traceLightningJagged {
+  0% {
+    top: 0%;
+    left: 0%;
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  6.25% {
+    top: -2px;
+    left: 25%;
+    transform: translate(-50%, -50%) rotate(15deg);
+  }
+  12.5% {
+    top: 2px;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-12deg);
+  }
+  18.75% {
+    top: -3px;
+    left: 75%;
+    transform: translate(-50%, -50%) rotate(14deg);
+  }
+  25% {
+    top: 0%;
+    left: 100%;
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+  31.25% {
+    top: 25%;
+    left: calc(100% + 2px);
+    transform: translate(-50%, -50%) rotate(65deg);
+  }
+  37.5% {
+    top: 50%;
+    left: calc(100% - 2px);
+    transform: translate(-50%, -50%) rotate(30deg);
+  }
+  43.75% {
+    top: 75%;
+    left: calc(100% + 3px);
+    transform: translate(-50%, -50%) rotate(60deg);
+  }
+  50% {
+    top: 100%;
+    left: 100%;
+    transform: translate(-50%, -50%) rotate(135deg);
+  }
+  56.25% {
+    top: calc(100% + 2px);
+    left: 75%;
+    transform: translate(-50%, -50%) rotate(150deg);
+  }
+  62.5% {
+    top: calc(100% - 2px);
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(120deg);
+  }
+  68.75% {
+    top: calc(100% + 3px);
+    left: 25%;
+    transform: translate(-50%, -50%) rotate(145deg);
+  }
+  75% {
+    top: 100%;
+    left: 0%;
+    transform: translate(-50%, -50%) rotate(225deg);
+  }
+  81.25% {
+    top: 75%;
+    left: -2px;
+    transform: translate(-50%, -50%) rotate(245deg);
+  }
+  87.5% {
+    top: 50%;
+    left: 2px;
+    transform: translate(-50%, -50%) rotate(210deg);
+  }
+  93.75% {
+    top: 25%;
+    left: -3px;
+    transform: translate(-50%, -50%) rotate(240deg);
+  }
+  100% {
+    top: 0%;
+    left: 0%;
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.animate-lightning-head {
+  animation: traceLightningJagged 1.4s linear infinite !important;
+  will-change: top, left, transform;
+}
+
+.animate-lightning-trail-1 {
+  animation: traceLightningJagged 1.4s linear infinite !important;
+  animation-delay: -0.04s !important;
+  will-change: top, left, transform;
+}
+
+.animate-lightning-trail-2 {
+  animation: traceLightningJagged 1.4s linear infinite !important;
+  animation-delay: -0.09s !important;
+  will-change: top, left, transform;
+}
+
+.animate-lightning-trail-3 {
+  animation: traceLightningJagged 1.4s linear infinite !important;
+  animation-delay: -0.15s !important;
+  will-change: top, left, transform;
+}
+
+.animate-lightning-trail-4 {
+  animation: traceLightningJagged 1.4s linear infinite !important;
+  animation-delay: -0.22s !important;
+  will-change: top, left, transform;
+}
+
+@keyframes zapFlash1 {
+  0%, 100%, 18%, 38%, 62%, 82% { opacity: 0; }
+  8%, 10% { opacity: 1; transform: scaleY(1.2) skewX(4deg); }
+  12% { opacity: 0.15; }
+  14% { opacity: 0.9; }
+  68%, 70% { opacity: 0.95; transform: scaleY(1.25) skewX(-5deg); }
+  72% { opacity: 0.25; }
+  74% { opacity: 0.85; }
+}
+
+@keyframes zapFlash2 {
+  0%, 100%, 22%, 48%, 72% { opacity: 0; }
+  32%, 34% { opacity: 1; transform: scaleX(1.2) skewY(-4deg); }
+  36% { opacity: 0.15; }
+  38% { opacity: 0.95; }
+  88%, 90% { opacity: 0.9; transform: scaleX(1.25) skewY(3deg); }
+  92% { opacity: 0.2; }
+}
+
+.animate-zap-1 {
+  animation: zapFlash1 1.7s infinite ease-in-out !important;
+}
+
+.animate-zap-2 {
+  animation: zapFlash2 2.1s infinite ease-in-out !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCHWAPP-WELLE (WAVE) AUSSCHWAPPENDE PULSIERENDE WELLE
+   ═══════════════════════════════════════════════════════════ */
+@keyframes waveSplashOrganic {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.85;
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+  30% {
+    border-radius: 50% 50% 40% 60% / 60% 40% 50% 50%;
+  }
+  50% {
+    transform: scale(1.26);
+    opacity: 0.12;
+    border-radius: 65% 35% 30% 70% / 45% 65% 35% 55%;
+  }
+  75% {
+    border-radius: 35% 65% 55% 45% / 55% 35% 65% 45%;
+  }
+  100% {
+    transform: scale(0.96);
+    opacity: 0.85;
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+}
+
+@keyframes waveCrestPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.95;
+    border-radius: 35% 65% 60% 40% / 50% 45% 55% 50%;
+  }
+  50% {
+    transform: scale(1.34);
+    opacity: 0;
+    border-radius: 55% 45% 35% 65% / 40% 60% 40% 60%;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.95;
+    border-radius: 35% 65% 60% 40% / 50% 45% 55% 50%;
+  }
+}
+
+.animate-wave-splash-1 {
+  animation: waveSplashOrganic 3.2s ease-in-out infinite !important;
+  will-change: transform, opacity, border-radius;
+}
+
+.animate-wave-splash-2 {
+  animation: waveSplashOrganic 3.2s ease-in-out infinite !important;
+  animation-delay: -1.6s !important;
+  will-change: transform, opacity, border-radius;
+}
+
+.animate-wave-crest {
+  animation: waveCrestPulse 3.2s cubic-bezier(0.25, 1, 0.5, 1) infinite !important;
+  animation-delay: -0.8s !important;
+  will-change: transform, opacity, border-radius;
+}
+
+
+
+@keyframes laserBorderGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 8px var(--glow-color, #3b82f6),
+      0 0 18px color-mix(in srgb, var(--glow-color, #3b82f6) 60%, transparent);
+    border-color: var(--glow-color, #3b82f6) !important;
+  }
+  50% {
+    box-shadow: 
+      0 0 16px var(--glow-color, #3b82f6),
+      0 0 28px var(--glow-color, #3b82f6);
+    border-color: #ffffff !important;
   }
 }
 
 .name-frame-laser-pulse {
-  animation: laserBorderGlow 1.6s infinite ease-in-out !important;
+  animation: laserBorderGlow 1.8s infinite ease-in-out !important;
   border-width: 2px !important;
   border-style: solid !important;
   position: relative !important;
   z-index: 2;
-}
-
-.name-frame-laser-pulse::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: laserSheenMove 2s linear infinite;
-  pointer-events: none;
-  opacity: 0.7;
-  mix-blend-mode: overlay;
-  z-index: 3;
 }
 
 /* 3. Doppelter Cyber-Rahmen */

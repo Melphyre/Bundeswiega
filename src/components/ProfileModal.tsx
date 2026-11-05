@@ -1031,7 +1031,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
   // Hilfsfunktionen für Speedwiegen: Score = Abstand (avg) + Zeit in Sekunden
   const isSpeedGame = (g: any): boolean => {
     const mode = String(g.game_mode || g.mode || '').toLowerCase();
-    return mode.includes('speed') || g.is_speed_mode === true || g.time_seconds !== undefined;
+    return mode.includes('speed') || g.is_speed_mode === true || (g.time_seconds !== undefined && g.time_seconds !== null && Number(g.time_seconds) > 0);
   };
 
   const getTimeSec = (g: any): number => {
@@ -1072,7 +1072,11 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     if (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0) {
       return Number(g.total);
     }
-    const schnapsVal = Number(g.schnaepse) || 0;
+    const schnapsVal = Number(g.schnaepse !== undefined && g.schnaepse !== null
+      ? g.schnaepse
+      : (g.schnapse !== undefined && g.schnapse !== null
+          ? g.schnapse
+          : (g.schnaps !== undefined && g.schnaps !== null ? g.schnaps : 0))) || 0;
     return Math.round((avgVal + schnapsVal) * 100) / 100;
   };
 
@@ -1088,8 +1092,8 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         valB = b.avg ?? 999;
         break;
       case 'schnaepse':
-        valA = isSpeedGame(a) ? getTimeSec(a) : (a.schnaepse ?? 0);
-        valB = isSpeedGame(b) ? getTimeSec(b) : (b.schnaepse ?? 0);
+        valA = isSpeedGame(a) ? getTimeSec(a) : Number(a.schnaepse ?? a.schnapse ?? a.schnaps ?? 0);
+        valB = isSpeedGame(b) ? getTimeSec(b) : Number(b.schnaepse ?? b.schnapse ?? b.schnaps ?? 0);
         break;
       case 'total': {
         valA = getGameScore(a);
@@ -1160,34 +1164,80 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
           </div>
 
           {/* Tabs Navigation */}
-          <div className="flex border-b border-gray-500/20 px-4 md:px-6 flex-shrink-0 overflow-x-auto">
-            {[
-              { key: 'profil' as const, label: '👤 Mein Profil', count: undefined },
-              { key: 'rekorde' as const, label: '🎮 Meine Spiele', count: myGameData.length },
-              { key: 'wiegschaften' as const, label: '🏰 Wiegschaften', count: undefined },
-              { key: 'freunde' as const, label: '👥 Freunde', count: friends.length + (pendingRequests.length > 0 ? ` (${pendingRequests.length} neu)` : '') },
-              { key: 'einstellungen' as const, label: '⚙️ Einstellungen', count: undefined }
-            ].map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => {
-                  playButtonSound();
-                  setProfileTab(tab.key);
-                }}
-                className={`py-3 px-4 font-black text-xs md:text-sm border-b-2 transition-all cursor-pointer flex-shrink-0 flex items-center space-x-1.5 ${
-                  profileTab === tab.key
-                    ? 'border-[#238183] text-[#238183]'
-                    : 'border-transparent opacity-60 hover:opacity-100'
-                }`}
-              >
-                <span>{tab.label}</span>
-                {tab.count !== undefined && (
-                  <span className="text-[11px] opacity-70 font-mono">
-                    {typeof tab.count === 'string' ? tab.count : `(${tab.count})`}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className={`w-full border-b flex-shrink-0 px-2 py-2.5 sm:px-4 sm:py-3 ${
+            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gray-50/80 border-gray-200'
+          }`}>
+            <div className="flex items-center justify-around md:justify-start gap-1 md:gap-3 overflow-x-auto no-scrollbar">
+              {[
+                { key: 'profil' as const, icon: '👤', label: 'Mein Profil', count: undefined, badge: false },
+                { key: 'rekorde' as const, icon: '🎮', label: 'Meine Spiele', count: myGameData.length, badge: false },
+                { key: 'wiegschaften' as const, icon: '🏰', label: 'Wiegschaften', count: undefined, badge: false },
+                {
+                  key: 'freunde' as const,
+                  icon: '👥',
+                  label: 'Freunde',
+                  count: friends.length + (pendingRequests.length > 0 ? ` (${pendingRequests.length} neu)` : ''),
+                  badge: pendingRequests.length > 0
+                },
+                { key: 'einstellungen' as const, icon: '⚙️', label: 'Einstellungen', count: undefined, badge: false }
+              ].map(tab => {
+                const isActive = profileTab === tab.key;
+                const fullLabel = `${tab.icon} ${tab.label}${tab.count !== undefined ? (typeof tab.count === 'string' ? ` ${tab.count}` : ` (${tab.count})`) : ''}`;
+
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      playButtonSound();
+                      setProfileTab(tab.key);
+                    }}
+                    title={!isActive ? fullLabel : undefined}
+                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-all text-xs md:text-sm font-semibold relative group shrink-0 select-none cursor-pointer ${
+                      isActive
+                        ? (darkMode 
+                            ? 'bg-teal-950 text-teal-400 border border-teal-800/60 shadow-md font-bold' 
+                            : 'bg-teal-50 text-teal-700 border border-teal-300 shadow-sm font-bold')
+                        : (darkMode 
+                            ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent' 
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-transparent')
+                    }`}
+                  >
+                    {/* Icon & optionaler Badgedot für mobile Ansicht */}
+                    <span className="relative text-base md:text-sm shrink-0 inline-flex items-center justify-center">
+                      <span>{tab.icon}</span>
+                      {!isActive && tab.badge && (
+                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse md:hidden" />
+                      )}
+                    </span>
+
+                    {/* Text nur anzeigen, wenn Tab aktiv ist ODER auf größeren Bildschirmen */}
+                    <span className={`${isActive ? 'inline' : 'hidden md:inline'}`}>
+                      {tab.label}
+                    </span>
+
+                    {/* Zähler / Count */}
+                    {tab.count !== undefined && (
+                      <span className={`text-[11px] opacity-75 font-mono ${isActive ? 'inline' : 'hidden md:inline'}`}>
+                        {typeof tab.count === 'string' ? tab.count : `(${tab.count})`}
+                      </span>
+                    )}
+
+                    {/* Optionaler Custom Tooltip für Mobile bei inaktiven Tabs */}
+                    {!isActive && (
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block group-active:block px-2 py-1 bg-slate-950 text-slate-200 text-xs rounded shadow-lg border border-slate-700 whitespace-nowrap z-50 md:hidden pointer-events-none">
+                        {tab.label}
+                        {tab.count !== undefined && (
+                          <span className="ml-1 opacity-70 font-mono">
+                            {typeof tab.count === 'string' ? tab.count : `(${tab.count})`}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Modal Body */}
@@ -1374,7 +1424,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                   const showColumnThemes = hasUnlockedAnyColumnTheme(levelInfo.level);
                   const showRowThemes = hasUnlockedAnyRowTheme(levelInfo.level);
                   const showNameBgs = hasUnlockedAnyNameBg(levelInfo.level);
-                  const showNameGlow = levelInfo.level >= 4;
+                  const showNameGlow = levelInfo.level >= 3;
 
                   return (
                     <div className={`p-4 md:p-5 rounded-2xl border ${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} space-y-4`}>
@@ -1434,7 +1484,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                           </div>
                         )}
 
-                        {/* Kategorie 2: Namensschild-Rahmen & Leuchteffekte (ab Level 4 sichtbar) */}
+                        {/* Kategorie 2: Namensschild-Rahmen & Leuchteffekte (ab Level 3 sichtbar) */}
                         {showNameGlow && (
                           <div className="space-y-2 p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/5 animate-in fade-in">
                             <div className="flex items-center justify-between flex-wrap gap-1">
@@ -1443,18 +1493,22 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                                 <span>✨ Namensschild-Rahmen & Effekte konfigurieren:</span>
                               </label>
                               <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/40">
-                                Ab Level 4 freigeschaltet
+                                Ab Level 3 freigeschaltet
                               </span>
                             </div>
 
                             <NameBorderSelector
                               currentValue={selectedNameGlow}
                               userLevel={levelInfo.level}
+                              userId={effectiveUserId || supabaseUser?.id}
                               unlockedContext={{
                                 completedQuestIds,
                                 achievementsCount: totalAchievementsCount,
                                 standardWins: standardWinsCount,
-                                unlockedColors: userUnlockedColors
+                                unlockedColors: userUnlockedColors,
+                                questProgresses,
+                                myGameData,
+                                myAchievementsData
                               }}
                               playerName={profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.user_metadata?.display_name || 'Dein Name'}
                               activeBg={selectedNameBgColor}
@@ -1955,7 +2009,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                                     </>
                                   ) : (
                                     <span className="text-amber-500 font-bold" title="Schnäpse">
-                                      {g.schnaepse ?? 0} Schnäpse
+                                      {g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0} Schnäpse
                                     </span>
                                   )}
                                   <span

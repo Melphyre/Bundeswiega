@@ -119,17 +119,123 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
     return () => { isMounted = false; };
   }, [isOpen, playerName]);
 
+  // Direkte Abfrage aus der game_results Tabelle (für Gast-Spieler wie Heini oder registrierte Spieler)
+  const [dbPlayerGames, setDbPlayerGames] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || !playerName) {
+      setDbPlayerGames([]);
+      return;
+    }
+    let isMounted = true;
+    async function loadDbPlayerGames() {
+      try {
+        const cleanName = playerName.trim();
+        const { data, error } = await supabase
+          .from('game_results')
+          .select('*')
+          .or(`player_name.ilike.${cleanName},team_name.ilike.${cleanName}`);
+        if (!error && data && isMounted) {
+          // Sofort nach ID deduplizieren
+          const uniqueDb = data.filter((item: any, index: number, self: any[]) =>
+            index === self.findIndex((t: any) => t.id && item.id ? t.id === item.id : t === item)
+          );
+          setDbPlayerGames(uniqueDb);
+        }
+      } catch (err) {
+        console.warn('Could not load player db games:', err);
+      }
+    }
+    loadDbPlayerGames();
+    return () => { isMounted = false; };
+  }, [isOpen, playerName]);
+
   // All parsed records from cache
   const allParsed = useMemo(() => {
     return parseRecords(recordsData || []);
   }, [recordsData]);
 
-  // Filter matches for this player/team name
+  // Filter matches for this player/team name (kombiniert Cache-Records und direkte DB-Datensätze)
   const playerMatches = useMemo(() => {
     if (!playerName) return [];
     const target = playerName.trim().toLowerCase();
-    return allParsed.filter(r => r.playerName?.trim().toLowerCase() === target);
-  }, [allParsed, playerName]);
+    const fromRecords = allParsed.filter(r => r.playerName?.trim().toLowerCase() === target);
+
+    const formatDateVal = (rawDate?: string, rawCreatedAt?: string): string => {
+      if (rawDate && rawDate.includes('.')) return rawDate.trim();
+      if (rawDate && rawDate.includes('-')) {
+        const parts = rawDate.split('-');
+        if (parts.length === 3) return `${parseInt(parts[2], 10)}.${parseInt(parts[1], 10)}.${parts[0]}`;
+      }
+      if (rawCreatedAt) {
+        return new Date(rawCreatedAt).toLocaleDateString('de-DE');
+      }
+      return rawDate || '';
+    };
+
+    // Mappe direkte Datensätze aus game_results
+    const fromDb = (dbPlayerGames || []).map((g: any) => {
+      const canonicalMode = normalizeGameMode(g.game_mode || 'Standardspiel');
+      const isSpeed = canonicalMode.includes('Speedwiegen');
+      const rawSchnaepse = g.schnaepse !== undefined && g.schnaepse !== null
+        ? g.schnaepse
+        : (g.schnapse !== undefined && g.schnapse !== null
+            ? g.schnapse
+            : (g.schnaps !== undefined && g.schnaps !== null ? g.schnaps : 0));
+      const schnaepseVal = Number(rawSchnaepse) || 0;
+      const timeVal = (g.time_seconds !== undefined && g.time_seconds !== null && !isNaN(Number(g.time_seconds)))
+        ? Number(g.time_seconds)
+        : ((g.time !== undefined && g.time !== null && !isNaN(Number(g.time)))
+            ? Number(g.time)
+            : (isSpeed && schnaepseVal > 0 ? schnaepseVal : 0));
+      const totalVal = g.total !== undefined && g.total !== null && !isNaN(Number(g.total))
+        ? Number(g.total)
+        : (isSpeed ? Math.round((Number(g.avg || 0) + timeVal) * 100) / 100 : Math.round((Number(g.avg || 0) + schnaepseVal) * 100) / 100);
+
+      return {
+        id: g.id ? String(g.id) : undefined,
+        game_mode: canonicalMode,
+        gameMode: canonicalMode,
+        playerName: g.player_name || playerName,
+        date: formatDateVal(g.date, g.created_at),
+        avg: Number(g.avg || 0),
+        schnaepse: isSpeed ? 0 : schnaepseVal,
+        total: totalVal,
+        time: timeVal,
+        time_seconds: timeVal,
+        levels: g.levels ? Number(g.levels) : undefined,
+        tournament_name: g.tournament_name,
+        tournament_table: g.tournament_table,
+        is_guest: !!g.is_guest
+      };
+    });
+
+    if (fromDb.length === 0) return fromRecords;
+    if (fromRecords.length === 0) return fromDb;
+
+    // Führe beide zusammen und dedupliziere strikt nach ID bzw. Normalisiertem Composite-Key
+    const matchesMap = new Map<string, any>();
+
+    // 1. Primär frische DB-Datensätze einfügen
+    fromDb.forEach(item => {
+      const key = item.id ? `id:${item.id}` : `comp:${item.date}_${item.game_mode}_${Number(item.avg || 0).toFixed(2)}_${item.schnaepse}_${item.tournament_name || ''}`;
+      matchesMap.set(key, item);
+    });
+
+    // 2. Cache-Records nur hinzufügen, falls noch nicht vorhanden
+    fromRecords.forEach(item => {
+      const normalizedDate = formatDateVal(item.date);
+      const key = item.id ? `id:${item.id}` : `comp:${normalizedDate}_${item.game_mode || item.gameMode}_${Number(item.avg || 0).toFixed(2)}_${item.schnaepse}_${item.tournament_name || ''}`;
+      if (!matchesMap.has(key)) {
+        matchesMap.set(key, item);
+      }
+    });
+
+    const combined = Array.from(matchesMap.values());
+    return combined.filter((item, index, self) =>
+      index === self.findIndex(t => (t.id && item.id ? t.id === item.id : `${formatDateVal(t.date)}_${t.game_mode || t.gameMode}_${Number(t.avg || 0).toFixed(2)}_${t.schnaepse}` === `${formatDateVal(item.date)}_${item.game_mode || item.gameMode}_${Number(item.avg || 0).toFixed(2)}_${item.schnaepse}`))
+    );
+  }, [allParsed, dbPlayerGames, playerName]);
 
   // Aggregierte Achievements für diesen Spieler
   const playerAchievementsList = useMemo(() => {
@@ -249,13 +355,13 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
     const sumAvg = matches.reduce((sum, g) => sum + Number(g.avg || 0), 0);
     const avg = sumAvg / gamesCount;
 
-    const totalSchnaepse = matches.reduce((sum, g) => sum + Number(g.schnaepse || 0), 0);
+    const totalSchnaepse = matches.reduce((sum, g) => sum + Number(g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0), 0);
     const avgSchnaepse = totalSchnaepse / gamesCount;
 
     const sumTotal = matches.reduce((sum, g) => {
       const gTot = (g.total !== undefined && g.total !== null && !isNaN(Number(g.total)) && Number(g.total) > 0)
         ? Number(g.total)
-        : (Number(g.avg || 0) + Number(g.schnaepse || 0));
+        : (Number(g.avg || 0) + Number(g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0));
       return sum + gTot;
     }, 0);
     const total = sumTotal / gamesCount;
@@ -524,7 +630,11 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
       list = list.filter(r => matchesGameMode(r.game_mode || r.gameMode, 'Teamwiegen'));
     }
 
-    return list.sort((a, b) => {
+    const deduped = list.filter((item, index, self) =>
+      index === self.findIndex(t => (t.id && item.id ? t.id === item.id : `${t.date}_${t.game_mode || t.gameMode}_${Number(t.avg || 0).toFixed(2)}_${t.schnaepse}_${t.tournament_name || ''}` === `${item.date}_${item.game_mode || item.gameMode}_${Number(item.avg || 0).toFixed(2)}_${item.schnaepse}_${item.tournament_name || ''}`))
+    );
+
+    return deduped.sort((a, b) => {
       const dateA = a.date ? new Date(a.date.split('.').reverse().join('-')).getTime() : 0;
       const dateB = b.date ? new Date(b.date.split('.').reverse().join('-')).getTime() : 0;
       return dateB - dateA;
@@ -1022,7 +1132,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
 
                     return (
                       <div
-                        key={idx}
+                        key={item.id ? `hist_${item.id}` : `hist_${idx}_${item.date}`}
                         className={`p-3 rounded-2xl border flex justify-between items-center text-xs ${
                           darkMode ? 'bg-black/20 border-white/5' : 'bg-gray-50 border-black/5'
                         }`}
@@ -1043,8 +1153,8 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
                             {isSpeed
                               ? `${normSpeed?.levels} Stufen • Zeit: ${normSpeed?.timeSec.toFixed(1)}s`
                               : isTeam
-                              ? `Teamwertung: ${item.schnaepse} Punkte`
-                              : `${item.schnaepse} Schnäpse`}
+                              ? `Teamwertung: ${item.schnaepse ?? item.schnapse ?? item.schnaps ?? 0} Punkte`
+                              : `${item.schnaepse ?? item.schnapse ?? item.schnaps ?? 0} Schnäpse`}
                           </span>
                         </div>
 
@@ -1057,7 +1167,7 @@ export const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({
                           <span className="block text-[10px] opacity-60">
                             {isSpeed
                               ? `Score: ${normSpeed?.score.toFixed(1)}`
-                              : `Total: ${(Number(item.total) || (Number(item.avg || 0) + Number(item.schnaepse || 0))).toFixed(2)}`}
+                              : `Total: ${(Number(item.total) || (Number(item.avg || 0) + Number(item.schnaepse ?? item.schnapse ?? item.schnaps ?? 0))).toFixed(2)}`}
                           </span>
                         </div>
                       </div>

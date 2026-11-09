@@ -403,13 +403,40 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
         };
       });
 
-      const { data: savedResults, error: insertErr } = await supabaseAdmin
-        .from('game_results')
-        .insert(inserts)
-        .select();
+      // Duplikatschutz für Gast-Ergebnisse (innerhalb der letzten 2 Minuten)
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const freshInserts: any[] = [];
+      for (const ins of inserts) {
+        try {
+          const { data: dups } = await supabaseAdmin
+            .from('game_results')
+            .select('id')
+            .eq('player_name', ins.player_name)
+            .eq('game_mode', ins.game_mode)
+            .eq('avg', ins.avg)
+            .eq('total', ins.total)
+            .eq('is_guest', true)
+            .gte('created_at', twoMinAgo)
+            .limit(1);
+          if (!dups || dups.length === 0) {
+            freshInserts.push(ins);
+          } else {
+            console.log(`[Duplikatschutz] Gast-Ergebnis für "${ins.player_name}" bereits vorhanden, überspringe Doppel-Upload.`);
+          }
+        } catch {
+          freshInserts.push(ins);
+        }
+      }
 
-      if (insertErr) {
-        console.warn("handleUpload game_results insert warning:", insertErr);
+      if (freshInserts.length > 0) {
+        const { error: insertErr } = await supabaseAdmin
+          .from('game_results')
+          .insert(freshInserts)
+          .select();
+
+        if (insertErr) {
+          console.warn("handleUpload game_results insert warning:", insertErr);
+        }
       }
 
       if (Array.isArray(achievements) && achievements.length > 0) {
@@ -811,8 +838,9 @@ function getCanonicalTournamentKey(r: any): string | null {
   return `game:${r.id || 'unknown'}`;
 }
 
-async function serverEvaluateQuestsForUser(userId: string) {
-  if (!userId || !supabaseAdmin) return;
+async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Record<string, number> = {}): Promise<{ updatedQuestProgress: any[]; bonusXpEarned: number; unlockedTitles: string[] }> {
+  const resultPayload = { updatedQuestProgress: [] as any[], bonusXpEarned: 0, unlockedTitles: [] as string[] };
+  if (!userId || !supabaseAdmin) return resultPayload;
   try {
     const [profRes, resultsRes, teamPlayersRes, qpRes, titlesRes, achRes] = await Promise.all([
       supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
@@ -868,13 +896,23 @@ async function serverEvaluateQuestsForUser(userId: string) {
       return m;
     };
 
-    const availableQuests = SERVER_LEVEL_QUESTS.filter(q => q.level <= userLevel && !completedQuestIds.has(q.id));
+    const availableQuests = SERVER_LEVEL_QUESTS.filter(q => q.level <= userLevel);
 
     let bonusXpEarned = 0;
 
     for (const q of availableQuests) {
-      let progress = 0;
+      const existingQp = questProgress.find((p: any) => p.quest_id === q.id);
+      const storedProgress = Number(existingQp?.current_progress || 0);
+
+      // Falls bereits abgeschlossen, übernehmen und nicht rückgängig machen
+      if (existingQp?.is_completed) {
+        resultPayload.updatedQuestProgress.push(existingQp);
+        continue;
+      }
+
+      let progress = storedProgress;
       const targetCount = (q as any).targetCount !== undefined ? (q as any).targetCount : (q.metric === 'profile_pic' ? 1 : q.targetValue);
+      const metricInc = Number(roundIncrements[q.metric] || 0);
 
       switch (q.metric) {
         case 'profile_pic':
@@ -883,8 +921,8 @@ async function serverEvaluateQuestsForUser(userId: string) {
           }
           break;
 
-        case 'games_count':
-          progress = safeResults.filter(r => {
+        case 'games_count': {
+          const gameCount = safeResults.filter(r => {
             if (!q.gameMode) return true;
             const norm = normalizeMode(r.game_mode);
             const targetNorm = normalizeMode(q.gameMode);
@@ -894,11 +932,13 @@ async function serverEvaluateQuestsForUser(userId: string) {
             if (target.includes('team') && (raw.includes('team') || r.is_team_player === true)) return true;
             return raw.includes(target);
           }).length;
+          progress = Math.max(progress, gameCount);
           break;
+        }
 
         case 'avg_less_than': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          const matchCount = safeResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -908,12 +948,13 @@ async function serverEvaluateQuestsForUser(userId: string) {
             }
             return r.avg !== null && r.avg !== undefined && Number(r.avg) < threshold;
           }).length;
+          progress = Math.max(progress, matchCount);
           break;
         }
 
         case 'total_less_than': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          const matchCount = safeResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -923,12 +964,13 @@ async function serverEvaluateQuestsForUser(userId: string) {
             }
             return r.total !== null && r.total !== undefined && Number(r.total) < threshold;
           }).length;
+          progress = Math.max(progress, matchCount);
           break;
         }
 
         case 'max_schnaepse': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          progress = safeResults.filter(r => {
+          const matchCount = safeResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -938,12 +980,11 @@ async function serverEvaluateQuestsForUser(userId: string) {
             }
             return r.schnaepse !== null && r.schnaepse !== undefined && Number(r.schnaepse) <= threshold;
           }).length;
+          progress = Math.max(progress, matchCount);
           break;
         }
 
         case 'teamwiegen_count': {
-          // Genauso wie unter Meine Spiele Reiter Teamwiegen:
-          // Kombiniert game_results (wo user_id = userId) UND teamwiegen_players (verknüpfte Spiele)
           const isTeamGame = (r: any): boolean => {
             if (!r) return false;
             if (r.is_team_player || r.is_team_member) return true;
@@ -962,21 +1003,17 @@ async function serverEvaluateQuestsForUser(userId: string) {
             if (id) uniqueGameIds.add(String(id));
           });
 
-          progress = Math.max(matchingTeamGames.length, uniqueGameIds.size);
+          progress = Math.max(progress, matchingTeamGames.length, uniqueGameIds.size);
           break;
         }
 
         case 'tournament_count': {
           const uniqueTournaments = new Set<string>();
-
           for (const r of safeResults) {
             const key = getCanonicalTournamentKey(r);
-            if (key) {
-              uniqueTournaments.add(key);
-            }
+            if (key) uniqueTournaments.add(key);
           }
-
-          progress = uniqueTournaments.size;
+          progress = Math.max(progress, uniqueTournaments.size);
           break;
         }
 
@@ -993,7 +1030,7 @@ async function serverEvaluateQuestsForUser(userId: string) {
           } catch {
             // ignore
           }
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
@@ -1007,142 +1044,150 @@ async function serverEvaluateQuestsForUser(userId: string) {
             return r.is_winner === true || r.rank === 1 || r.won === true;
           }).length;
           const profileWins = Number(profile?.games_won || 0);
-          progress = Math.max(wins, profileWins);
+          progress = Math.max(progress, wins, profileWins);
           break;
         }
 
+        // Multi-Achievement- & Rundenzähler (kumulativ über Spiele hinweg)
         case 'perfect_hits_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
           if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
           if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'schnapszahl_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
           if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'same_weight_count': {
-          let count = 0;
-          if (userAchievementIds.has('twins')) count = Math.max(count, 3);
-          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 3);
-          progress = count;
+          let count = storedProgress + metricInc;
+          if (userAchievementIds.has('twins')) count = Math.max(count, 1);
+          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 1);
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'hundreds_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'exact_five_g_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
+          let roundMatches = 0;
           for (const r of safeResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
-                if (dist !== null && Math.abs(dist - 5) < 0.05) {
-                  count++;
-                }
+                if (dist !== null && Math.abs(dist - 5) < 0.05) roundMatches++;
               }
             }
           }
-          progress = count;
+          progress = Math.max(progress, count, roundMatches);
           break;
         }
 
         case 'strategist_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'ach_67_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
+          let roundMatches = 0;
           for (const r of safeResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const w = typeof rd.weight === 'number' ? rd.weight : (typeof rd.user_weight === 'number' ? rd.user_weight : null);
-                if (w !== null && Math.round(w) === 67) count++;
+                if (w !== null && Math.round(w) === 67) roundMatches++;
               }
             }
           }
-          progress = count;
+          progress = Math.max(progress, count, roundMatches);
           break;
         }
 
         case 'speed_avg_sub5_count': {
+          let count = storedProgress + metricInc;
           const sub5 = safeResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
           }).length;
-          progress = sub5;
+          progress = Math.max(progress, count, sub5);
           break;
         }
 
         case 'speed_time_sub100_count': {
+          let count = storedProgress + metricInc;
           const sub100 = safeResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
             return isSpeed && t !== null && t > 0 && t < 100;
           }).length;
-          progress = sub100;
+          progress = Math.max(progress, count, sub100);
           break;
         }
 
         case 'ach_knapp_daneben_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('so_close')) count = Math.max(count, 1);
+          let roundMatches = 0;
           for (const r of safeResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
-                if (dist !== null && Math.abs(dist - 1) < 0.05) count++;
+                if (dist !== null && Math.abs(dist - 1) < 0.05) roundMatches++;
               }
             }
           }
-          progress = count;
+          progress = Math.max(progress, count, roundMatches);
           break;
         }
 
         case 'ach_kopfrechner_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
 
         case 'ach_scharfschuetze_count': {
-          let count = 0;
+          let count = storedProgress + metricInc;
           if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, count);
           break;
         }
       }
 
       const isCompleted = progress >= targetCount;
+      const finalProgress = Math.min(progress, targetCount);
+
+      const progressRow = {
+        user_id: userId,
+        quest_id: q.id,
+        current_progress: finalProgress,
+        is_completed: isCompleted,
+        completed_at: isCompleted ? (existingQp?.completed_at || new Date().toISOString()) : null,
+        updated_at: new Date().toISOString()
+      };
 
       try {
-        await supabaseAdmin.from('user_quest_progress').upsert({
-          user_id: userId,
-          quest_id: q.id,
-          current_progress: Math.min(progress, targetCount),
-          is_completed: isCompleted,
-          completed_at: isCompleted ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id,quest_id' });
+        await supabaseAdmin.from('user_quest_progress').upsert(progressRow, { onConflict: 'user_id,quest_id' });
+        resultPayload.updatedQuestProgress.push(progressRow);
       } catch (upsertErr) {
         console.warn('Backend quest upsert warning:', upsertErr);
       }
@@ -1159,12 +1204,15 @@ async function serverEvaluateQuestsForUser(userId: string) {
               created_at: new Date().toISOString()
             }, { onConflict: 'user_id,title' });
             unlockedTitles.add((q as any).titleReward);
+            resultPayload.unlockedTitles.push((q as any).titleReward);
           } catch (tErr) {
             console.warn('Backend title upsert warning:', tErr);
           }
         }
       }
     }
+
+    resultPayload.bonusXpEarned = bonusXpEarned;
 
     if (bonusXpEarned > 0 && profile) {
       try {
@@ -1179,6 +1227,7 @@ async function serverEvaluateQuestsForUser(userId: string) {
   } catch (err) {
     console.error('serverEvaluateQuestsForUser error:', err);
   }
+  return resultPayload;
 }
 
 // ─── GET USER PROFILE DATA (GET /api/users/profile-data) ───
@@ -1227,12 +1276,29 @@ async function handleGetProfileData(req: VercelRequest, res: VercelResponse) {
       console.warn("Konnte user_titles nicht laden:", tErr);
     }
 
+    // 3. Quest-Fortschritte abrufen
+    let questProgress: any[] = [];
+    try {
+      const { data: qpData } = await supabaseAdmin
+        .from('user_quest_progress')
+        .select('*')
+        .eq('user_id', userId);
+      if (Array.isArray(qpData)) {
+        questProgress = qpData;
+      }
+    } catch (qpErr) {
+      console.warn("Konnte user_quest_progress nicht laden:", qpErr);
+    }
+
     return res.status(200).json({
       success: true,
       profile: {
         ...profile,
         unlockedTitles
-      }
+      },
+      questProgress,
+      quests: questProgress,
+      userTitles: unlockedTitles
     });
 
   } catch (err: any) {
@@ -1350,18 +1416,43 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       insertPayload.tournament_table = String(gameResultData.tournament_table);
     }
 
-    // Speichern in game_results
-    const { data, error } = await supabaseAdmin
-      .from('game_results')
-      .insert([insertPayload])
-      .select();
+    // Speichern in game_results (mit Duplikatschutz innerhalb 2 Minuten)
+    let savedGameId: string | null = null;
+    if (userId) {
+      try {
+        const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        const { data: recentGames } = await supabaseAdmin
+          .from('game_results')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('game_mode', insertPayload.game_mode)
+          .eq('avg', avgVal)
+          .eq('total', totalVal)
+          .gte('created_at', twoMinAgo)
+          .limit(1);
 
-    if (error) {
-      console.error("Fehler beim Speichern in game_results:", error);
-      return res.status(200).json({ success: false, error: error.message });
+        if (recentGames && recentGames.length > 0) {
+          console.log(`[Duplikatschutz] Spiel für User ${userId} bereits erfasst (ID ${recentGames[0].id}), verwende bestehendes.`);
+          savedGameId = recentGames[0].id;
+        }
+      } catch (dupErr) {
+        console.warn('Duplikatschutz-Prüfung fehlgeschlagen:', dupErr);
+      }
     }
 
-    const savedGameId = data?.[0]?.id;
+    if (!savedGameId) {
+      const { data, error } = await supabaseAdmin
+        .from('game_results')
+        .insert([insertPayload])
+        .select();
+
+      if (error) {
+        console.error("Fehler beim Speichern in game_results:", error);
+        return res.status(200).json({ success: false, error: error.message });
+      }
+
+      savedGameId = data?.[0]?.id || null;
+    }
 
     // 2. Teamwiegen: Verknüpfung in 'teamwiegen_players'
     if (isTeamGame && savedGameId) {
@@ -1404,7 +1495,6 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
             return true;
           })
           .map((ach: any) => {
-            // Umwandlung in sauberes JS-Array für Postgres text[] "earned_with"
             const rawEarnedWith = ach.earnedBy || ach.earned_with || [];
             const earnedWithArr = Array.isArray(rawEarnedWith) ? rawEarnedWith : [String(rawEarnedWith)];
 
@@ -1435,13 +1525,42 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 4. XP-Berechnung & Profil-Update
+    // 4. Multi-Achievement Runden-Increments zusammenstellen
+    const roundIncrements: Record<string, number> = { ...(payload.questStats || payload.roundIncrements || {}) };
+
+    if (Array.isArray(payload.achievements)) {
+      for (const ach of payload.achievements) {
+        const achId = (ach.id || ach.achievement_id || '').toLowerCase();
+        if (achId === 'strategist') roundIncrements.strategist_count = (roundIncrements.strategist_count || 0) + 1;
+        if (achId === 'calculator') roundIncrements.ach_kopfrechner_count = (roundIncrements.ach_kopfrechner_count || 0) + 1;
+        if (achId === 'sharpshooter') roundIncrements.ach_scharfschuetze_count = (roundIncrements.ach_scharfschuetze_count || 0) + 1;
+        if (achId === 'so_close') roundIncrements.ach_knapp_daneben_count = (roundIncrements.ach_knapp_daneben_count || 0) + 1;
+        if (achId === 'six_seven') roundIncrements.ach_67_count = (roundIncrements.ach_67_count || 0) + 1;
+        if (achId === 'twins' || achId === 'doppelganger') roundIncrements.same_weight_count = (roundIncrements.same_weight_count || 0) + 1;
+        if (achId === 'schnapps_hunter' || achId === 'triple_seven') roundIncrements.schnapszahl_count = (roundIncrements.schnapszahl_count || 0) + 1;
+        if (achId === 'round_number') roundIncrements.hundreds_count = (roundIncrements.hundreds_count || 0) + 1;
+        if (achId === 'bullseye_king' || achId === 'prophet' || achId === 'perfect_balance') roundIncrements.perfect_hits_count = (roundIncrements.perfect_hits_count || 0) + 1;
+      }
+    }
+
+    if (isSpeedGame) {
+      if (avgVal > 0 && avgVal < 5.0) {
+        roundIncrements.speed_avg_sub5_count = (roundIncrements.speed_avg_sub5_count || 0) + 1;
+      }
+      if (timeVal !== null && timeVal > 0 && timeVal < 100) {
+        roundIncrements.speed_time_sub100_count = (roundIncrements.speed_time_sub100_count || 0) + 1;
+      }
+    }
+
+    // 5. XP-Berechnung & Profil-Update
     let xpEarned = 0;
     let newLevel = 1;
     let newXp = 0;
     let levelUp = false;
     let xpBreakdown: any[] = [];
     let unlockedTitle: string | undefined = undefined;
+    let finalQuestProgress: any[] = [];
+    let finalProfileStats: Record<string, any> = {};
 
     if (userId) {
       try {
@@ -1516,9 +1635,30 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
             .from('profiles')
             .update(profileUpdates)
             .eq('id', userId);
+
+          finalProfileStats = profileUpdates;
         }
 
-        serverEvaluateQuestsForUser(userId).catch(e => console.warn('Quest evaluation error after game:', e));
+        // 6. Quests synchron und lückenlos auswerten
+        try {
+          const qRes = await serverEvaluateQuestsForUser(userId, roundIncrements);
+          finalQuestProgress = qRes.updatedQuestProgress;
+          if (qRes.bonusXpEarned > 0) {
+            xpEarned += qRes.bonusXpEarned;
+            newXp += qRes.bonusXpEarned;
+            const finalLvl = calculateLevelFromXp(newXp);
+            newLevel = finalLvl.level;
+            if (newLevel > (profile?.level || 1)) levelUp = true;
+            finalProfileStats.xp = newXp;
+            finalProfileStats.level = newLevel;
+          }
+          if (qRes.unlockedTitles.length > 0 && !unlockedTitle) {
+            unlockedTitle = qRes.unlockedTitles[0];
+          }
+        } catch (questEvalErr) {
+          console.warn('Fehler bei synchroner Quest-Auswertung:', questEvalErr);
+        }
+
       } catch (xpErr) {
         console.error('Fehler bei XP-Berechnung oder Profil-Update:', xpErr);
       }
@@ -1527,19 +1667,23 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     if (isTeamGame && payload.teamPlayerUserIds && Array.isArray(payload.teamPlayerUserIds)) {
       for (const tpId of payload.teamPlayerUserIds) {
         if (tpId && tpId !== userId) {
-          serverEvaluateQuestsForUser(tpId).catch(e => console.warn('Quest evaluation error for team player:', e));
+          serverEvaluateQuestsForUser(tpId, roundIncrements).catch(e => console.warn('Quest evaluation error for team player:', e));
         }
       }
     }
 
     return res.status(200).json({ 
       success: true, 
+      gameId: savedGameId,
       xpEarned, 
       newLevel, 
       newXp,
       levelUp,
       xpBreakdown,
-      unlockedTitle
+      unlockedTitle,
+      questProgress: finalQuestProgress,
+      quests: finalQuestProgress,
+      stats: finalProfileStats
     });
   } catch (err: any) {
     console.error("handleSaveGameResult Crash:", err);

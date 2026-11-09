@@ -255,13 +255,13 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { 
     id: 'l5_border_cyber', 
     level: 5, 
-    title: 'Doppelter Cyber-Rahmen: 5x Achievement "Kopfrechner"', 
+    title: 'Industrie-Neonrahmen: 5x Achievement "Kopfrechner"', 
     xpReward: 30, 
     metric: 'ach_kopfrechner_count', 
     targetValue: 5, 
     targetCount: 5,
     animationReward: 'cyber',
-    rewardDescription: 'Rahmen: Doppelter Cyber-Rahmen' 
+    rewardDescription: 'Rahmen: Industrie-Neonrahmen (Flimmern)' 
   },
   { 
     id: 'l5_border_laser', 
@@ -842,7 +842,9 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
         return new Date(gameDate) >= startDate;
       });
 
-      let progress = 0;
+      const existingProgressObj = questProgress.find((qp: any) => qp.quest_id === q.id);
+      const currentStored = Number(existingProgressObj?.current_progress || 0);
+      let progress = currentStored;
       const targetCount = getQuestTarget(q);
 
       switch (q.metric) {
@@ -982,7 +984,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
           if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
           if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -991,16 +993,16 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           let count = Number(stats.schnapszahl_count) || 0;
           if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
           if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
         case 'same_weight_count': {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.same_weight_count) || 0;
-          if (userAchievementIds.has('twins')) count = Math.max(count, 3);
-          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 3);
-          progress = count;
+          if (userAchievementIds.has('twins')) count = Math.max(count, 1);
+          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 1);
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -1008,14 +1010,25 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.hundreds_count) || 0;
           if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
         case 'exact_five_g_count': {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.exact_five_g_count) || 0;
-          progress = count;
+          let roundMatches = 0;
+          if (Array.isArray(safeResults)) {
+            for (const g of safeResults) {
+              if (Array.isArray(g.rounds)) {
+                for (const r of g.rounds) {
+                  const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+                  if (dist !== null && Math.abs(dist - 5) < 0.05) roundMatches++;
+                }
+              }
+            }
+          }
+          progress = Math.max(progress, currentStored, count, roundMatches);
           break;
         }
 
@@ -1023,7 +1036,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.strategist_count) || 0;
           if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -1043,7 +1056,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             count = Math.max(count, count67);
           }
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -1055,7 +1068,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
           }).length;
-          progress = Math.max(count, sub5);
+          progress = Math.max(progress, currentStored, count, sub5);
           break;
         }
 
@@ -1068,7 +1081,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
             return isSpeed && t !== null && t > 0 && t < 100;
           }).length;
-          progress = Math.max(count, sub100);
+          progress = Math.max(progress, currentStored, count, sub100);
           break;
         }
 
@@ -1088,7 +1101,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             count = Math.max(count, closeCount);
           }
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -1096,7 +1109,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.ach_kopfrechner_count) || 0;
           if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
 
@@ -1104,7 +1117,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.ach_scharfschuetze_count) || 0;
           if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
-          progress = count;
+          progress = Math.max(progress, currentStored, count);
           break;
         }
       }

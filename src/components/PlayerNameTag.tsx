@@ -343,7 +343,23 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
         }}
         title={tooltipText}
       >
-        {/* Wandernder Glut- und Funkenpunkt auf der Außenkante mit langem, sanft ausfadendem Schweif */}
+        {/* Inline-CSS für Funkenflug (Spark Particles) */}
+        <style>{`
+          @keyframes sparkFade1 {
+            0% { transform: scale(1) translate(0, 0); opacity: 1; }
+            100% { transform: scale(0.2) translate(-8px, -8px); opacity: 0; }
+          }
+          @keyframes sparkFade2 {
+            0% { transform: scale(1) translate(0, 0); opacity: 1; }
+            100% { transform: scale(0.2) translate(7px, -7px); opacity: 0; }
+          }
+          @keyframes sparkFade3 {
+            0% { transform: scale(1) translate(0, 0); opacity: 1; }
+            100% { transform: scale(0.2) translate(-6px, 7px); opacity: 0; }
+          }
+        `}</style>
+
+        {/* Wandernder Glut- und Funkenpunkt auf der Außenkante mit gerichtetem Schweif und Funken */}
         <div className="absolute inset-0 rounded-lg pointer-events-none overflow-visible z-20">
           {/* Schweif 7: Ausklingendes Ende */}
           <div className="absolute w-2 h-2 flex items-center justify-center animate-trace-border-trail-7 pointer-events-none opacity-15">
@@ -378,15 +394,20 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             />
           </div>
 
-          {/* Schweif 4 */}
+          {/* Schweif 4: Mit Funkenbildung */}
           <div className="absolute w-2.5 h-2.5 flex items-center justify-center animate-trace-border-trail-4 pointer-events-none opacity-50">
             <div 
-              className="w-1.5 h-1.5 rounded-full"
+              className="w-2 h-2 rounded-full relative"
               style={{
                 backgroundColor: flameColor,
                 boxShadow: `0 0 7px 2px ${flameColor}`
               }}
-            />
+            >
+              <div
+                className="absolute -bottom-1 -right-1 w-1 h-1 rounded-full bg-orange-300 pointer-events-none"
+                style={{ animation: 'sparkFade1 0.9s ease-out infinite', animationDelay: '0.45s' }}
+              />
+            </div>
           </div>
 
           {/* Schweif 3 */}
@@ -400,36 +421,51 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             />
           </div>
 
-          {/* Schweif 2 */}
+          {/* Schweif 2: Mit Funkenbildung */}
           <div className="absolute w-3 h-3 flex items-center justify-center animate-trace-border-trail-2 pointer-events-none opacity-80">
             <div 
-              className="w-2 h-2 rounded-full"
+              className="w-2.5 h-2.5 rounded-full relative"
               style={{
                 backgroundColor: flameColor,
-                boxShadow: `0 0 9px 3px ${flameColor}, 0 0 2px #ffffff`
+                boxShadow: `0 0 9px 3px ${flameColor}`
               }}
-            />
+            >
+              <div
+                className="absolute -top-1 -right-1 w-1 h-1 rounded-full bg-amber-300 pointer-events-none"
+                style={{ animation: 'sparkFade3 0.7s ease-out infinite', animationDelay: '0.15s' }}
+              />
+            </div>
           </div>
 
-          {/* Schweif 1: Heißer Kernschweif direkt hinter dem Glutpunkt */}
+          {/* Schweif 1: Heißer Kernschweif direkt hinter dem Flammen-Glow */}
           <div className="absolute w-3.5 h-3.5 flex items-center justify-center animate-trace-border-trail-1 pointer-events-none opacity-92">
             <div 
               className="w-2.5 h-2.5 rounded-full"
               style={{
                 backgroundColor: flameColor,
-                boxShadow: `0 0 10px 3.5px ${flameColor}, 0 0 4px #ffffff`
+                boxShadow: `0 0 10px 3.5px ${flameColor}`
               }}
             />
           </div>
 
-          {/* Führender Glutpunkt (weißer Kern mit kräftigem Schein in Spielerfarbe) */}
-          <div className="absolute w-4 h-4 flex items-center justify-center animate-trace-border pointer-events-none">
+          {/* Führender Flammen-Glow (reine farbige Flamme ohne weißen Kern) */}
+          <div className="absolute w-4 h-4 flex items-center justify-center animate-trace-border pointer-events-none z-30">
             <div 
-              className="w-3 h-3 rounded-full bg-white animate-pulse"
+              className="w-2 h-2 rounded-full bg-transparent relative"
               style={{
-                boxShadow: `0 0 14px 4px ${flameColor}, 0 0 6px #ffffff`
+                boxShadow: `0 0 14px 4px ${flameColor}, -6px -3px 18px 6px ${flameColor}bb, -12px -6px 22px 4px ${flameColor}66`,
               }}
-            />
+            >
+              {/* Kleine abfliegende Funken */}
+              <div
+                className="absolute -bottom-1 -right-1 w-1.5 h-1.5 rounded-full bg-amber-200 pointer-events-none"
+                style={{ animation: 'sparkFade1 0.8s ease-out infinite' }}
+              />
+              <div
+                className="absolute -bottom-3 -left-2 w-1 h-1 rounded-full bg-orange-400 pointer-events-none"
+                style={{ animation: 'sparkFade2 0.8s ease-out infinite', animationDelay: '0.25s' }}
+              />
+            </div>
           </div>
         </div>
 
@@ -669,45 +705,342 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
     );
   }
 
-  // SPEZIALFALL: Kanten-Tracing Rahmen (Laser, Cyber, Schnee, Matrix)
+  // SPEZIALFALL: Authentischer Industrie-Neonrahmen (Industrial Neon Border mit Doppel-Schlauch & Flimmern)
+  const isIndustrialNeon = hasGlow && (
+    glowOption.patternId === 'cyber' ||
+    glowOption.patternId === 'double-border'
+  );
+
+  if (isIndustrialNeon) {
+    const neonColor = glowOption.colorHex || '#06b6d4';
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center p-0.5 my-3' : 'inline-flex items-center p-0.5 my-2.5'
+        } rounded-xl overflow-visible mx-2 shadow-md ${className}`}
+        style={{
+          ['--neon-color' as any]: neonColor,
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* CSS für das industrielle Flimmern */}
+        <style>{`
+          @keyframes industrialFlicker {
+            0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% {
+              opacity: 0.95;
+              filter: drop-shadow(0 0 6px ${neonColor});
+            }
+            20%, 21.999%, 63%, 63.999%, 65%, 69.999% {
+              opacity: 0.3;
+              filter: drop-shadow(0 0 2px ${neonColor});
+            }
+          }
+          .animate-industrial-flicker {
+            animation: industrialFlicker 3.8s infinite linear !important;
+          }
+        `}</style>
+
+        {/* Äußerer doppelter Neon-Schlauch (rundherum mit etwas Abstand) */}
+        <div 
+          className="absolute -inset-1.5 rounded-2xl pointer-events-none animate-industrial-flicker z-20"
+          style={{
+            border: `2px solid ${neonColor}`,
+            boxShadow: `0 0 8px ${neonColor}, inset 0 0 4px ${neonColor}`,
+          }}
+        />
+
+        {/* Innerer doppelter Neon-Schlauch (direkt am Rand) */}
+        <div 
+          className="absolute inset-0 rounded-xl pointer-events-none animate-industrial-flicker z-20 opacity-85"
+          style={{
+            border: `1.5px solid ${neonColor}`,
+            boxShadow: `0 0 5px ${neonColor}`,
+          }}
+        />
+
+        {/* Gestochen scharfer, dunkler Kernbereich für optimale Lesbarkeit */}
+        <span
+          className={`relative z-10 w-full h-full rounded-md ${
+            vertical
+              ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]'
+              : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-900'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Eiszapfen & rieselnde Schneeflocken (Snowfall Partikel-System)
+  const isSnowFrame = hasGlow && (
+    glowOption.patternId === 'snow-frame' ||
+    (glowOption.patternId as string) === 'snow'
+  );
+
+  if (isSnowFrame) {
+    const snowColor = glowOption.colorHex || '#38bdf8';
+
+    // 9 dynamisch konfigurierte Schneeflocken
+    const snowflakes = vertical
+      ? Array.from({ length: 4 }).map((_, i) => ({
+          id: i,
+          left: `${12 + i * 26}%`,
+          size: 10 + (i % 3) * 3,
+          duration: 2.0 + (i % 3) * 0.7,
+          delay: i * 0.35,
+        }))
+      : Array.from({ length: 9 }).map((_, i) => ({
+          id: i,
+          left: `${8 + i * 10}%`,
+          size: 10 + (i % 3) * 4, // 10px, 14px, 18px
+          duration: 2.0 + (i % 3) * 0.8,
+          delay: i * 0.3,
+        }));
+
+    // Willkürlich verteilte Eiszapfen mit unterschiedlichen Längen, Breiten und Abständen
+    const icicles = vertical
+      ? [
+          { id: 1, left: '12%', height: '12px', width: '3px' },
+          { id: 2, left: '32%', height: '19px', width: '5px' },
+          { id: 3, left: '58%', height: '9px', width: '3px' },
+          { id: 4, left: '82%', height: '17px', width: '4px' },
+        ]
+      : [
+          { id: 1, left: '8%', height: '12px', width: '3px' },
+          { id: 2, left: '15%', height: '18px', width: '5px' },
+          { id: 3, left: '27%', height: '9px', width: '3px' },
+          { id: 4, left: '34%', height: '22px', width: '6px' },
+          { id: 5, left: '48%', height: '14px', width: '4px' },
+          { id: 6, left: '57%', height: '19px', width: '5px' },
+          { id: 7, left: '69%', height: '8px', width: '3px' },
+          { id: 8, left: '76%', height: '16px', width: '5px' },
+          { id: 9, left: '88%', height: '12px', width: '4px' },
+          { id: 10, left: '94%', height: '20px', width: '5px' },
+        ];
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center p-0.5 my-3.5' : 'inline-flex items-center p-0.5 my-3'
+        } rounded-xl overflow-visible mx-2 shadow-md ${className}`}
+        style={{
+          ['--snow-color' as any]: snowColor,
+          ...style
+        }}
+        title={tooltipText}
+      >
+        {/* Inline-CSS für die fließende Fall-Animation */}
+        <style>{`
+          @keyframes fallAndFade {
+            0% {
+              transform: translateY(-4px) rotate(0deg);
+              opacity: 0;
+            }
+            20% {
+              opacity: 1;
+            }
+            80% {
+              opacity: 0.8;
+            }
+            100% {
+              transform: translateY(38px) rotate(140deg);
+              opacity: 0;
+            }
+          }
+        `}</style>
+
+        {/* Willkürliche, unterschiedlich lange Eiszapfen-Dreiecke mit sichtbarerem Glow */}
+        <div className="absolute inset-x-0 -bottom-4 h-6 pointer-events-none z-30 overflow-visible">
+          {icicles.map((icicle) => (
+            <div
+              key={icicle.id}
+              className="absolute bg-white rounded-b-full pointer-events-none"
+              style={{
+                left: icicle.left,
+                top: '0px',
+                width: icicle.width,
+                height: icicle.height,
+                clipPath: 'polygon(50% 100%, 0 0, 100% 0)',
+                filter: `drop-shadow(0 0 7px ${snowColor})`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Rieselnde Schneeflocken unterhalb des Namensschildes */}
+        <div className="absolute inset-x-0 top-full h-12 pointer-events-none overflow-visible z-40">
+          {snowflakes.map((flake) => (
+            <div
+              key={flake.id}
+              className="absolute pointer-events-none"
+              style={{
+                left: flake.left,
+                top: '0px',
+                width: `${flake.size}px`,
+                height: `${flake.size}px`,
+                animation: `fallAndFade ${flake.duration}s infinite linear`,
+                animationDelay: `${flake.delay}s`,
+                filter: `drop-shadow(0 0 5px ${snowColor})`,
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="white" className="w-full h-full">
+                <path
+                  d="M12 2v20M17 5l-10 14M7 5l10 14M2 12h20M5 7l14 10M5 17l14-10"
+                  stroke="white"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          ))}
+        </div>
+
+        {/* Gestochen scharfer, normaler Darkmode-Kernbereich (ohne Glow oben/seitlich) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-md ${
+            vertical
+              ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]'
+              : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Rieselnder Matrix-Code (Matrix-Regen)
+  const isMatrixFrame = hasGlow && (
+    glowOption.patternId === 'matrix-frame' ||
+    (glowOption.patternId as string) === 'matrix'
+  );
+
+  if (isMatrixFrame) {
+    const matrixColor = glowOption.colorHex || '#22c55e';
+    const matrixChars = ['1', '0', '4', '7', '9', '3', '8', '2', '5', '6'];
+
+    const codeStreams = vertical
+      ? Array.from({ length: 4 }).map((_, i) => ({
+          id: i,
+          left: `${15 + i * 25}%`,
+          char: matrixChars[i % matrixChars.length],
+          duration: 1.8 + (i % 3) * 0.6,
+          delay: i * 0.25,
+          fontSize: 11 + (i % 3) * 3,
+        }))
+      : Array.from({ length: 9 }).map((_, i) => ({
+          id: i,
+          left: `${10 + i * 10}%`,
+          char: matrixChars[i % matrixChars.length],
+          duration: 1.8 + (i % 3) * 0.6,
+          delay: i * 0.25,
+          fontSize: 11 + (i % 3) * 3,
+        }));
+
+    return (
+      <span
+        className={`relative ${
+          vertical ? 'inline-flex flex-col items-center justify-center p-0.5 my-3.5' : 'inline-flex items-center p-0.5 my-3'
+        } rounded-xl overflow-visible mx-2 shadow-md ${className}`}
+        style={style}
+        title={tooltipText}
+      >
+        {/* Inline-CSS für den fließenden Matrix-Zahlen-Fall */}
+        <style>{`
+          @keyframes matrixRain {
+            0% {
+              transform: translateY(-2px);
+              opacity: 0;
+            }
+            20% {
+              opacity: 1;
+            }
+            80% {
+              opacity: 0.9;
+            }
+            100% {
+              transform: translateY(35px);
+              opacity: 0;
+            }
+          }
+        `}</style>
+
+        {/* Rieselnder digitaler Matrix-Code unterhalb des Namensschildes */}
+        <div className="absolute inset-x-0 top-full h-12 pointer-events-none overflow-visible z-40">
+          {codeStreams.map((stream) => (
+            <div
+              key={stream.id}
+              className="absolute font-mono font-bold select-none pointer-events-none"
+              style={{
+                left: stream.left,
+                top: '2px',
+                fontSize: `${stream.fontSize}px`,
+                color: matrixColor,
+                animation: `matrixRain ${stream.duration}s infinite linear`,
+                animationDelay: `${stream.delay}s`,
+                filter: `drop-shadow(0 0 5px ${matrixColor})`,
+              }}
+            >
+              {stream.char}
+            </div>
+          ))}
+        </div>
+
+        {/* Gestochen scharfer, normaler Darkmode-Kernbereich (ohne Glow oben/seitlich) */}
+        <span
+          className={`relative z-10 w-full h-full rounded-md ${
+            vertical
+              ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]'
+              : 'px-2.5 py-0.5 inline-flex items-center'
+          } font-black tracking-wide shadow-xs ${
+            hasBg
+              ? bgOption.cssClasses
+              : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
+          }`}
+          style={{
+            backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
+            color: hasBg ? bgOption.textHex : undefined,
+            ...(hasBg ? (bgOption.style || {}) : {})
+          }}
+        >
+          {renderInnerContent()}
+        </span>
+      </span>
+    );
+  }
+
+  // SPEZIALFALL: Kanten-Tracing Rahmen (Laser)
   // Der Lichtstrahl / Effekt kreist exakt auf der Außenkante des Containers und wird
   // durch die inneren Deckfläche maskiert, sodass er NIEMALS den Text durchquert.
   const isBorderTracing = hasGlow && [
-    'laser', 'laser-pulse',
-    'cyber', 'double-border',
-    'snow-frame',
-    'matrix-frame'
+    'laser', 'laser-pulse'
   ].includes(glowOption.patternId);
 
   if (isBorderTracing) {
-    let spinClass = 'animate-spin-laser';
-    let borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 270deg, ${glowOption.colorHex} 325deg, #ffffff 360deg)`;
-    let shadowColor = glowOption.colorHex;
-
-    switch (glowOption.patternId) {
-      case 'cyber':
-      case 'double-border':
-        spinClass = 'animate-spin-cyber';
-        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, ${glowOption.colorHex} 25deg, transparent 50deg, transparent 180deg, #ffffff 205deg, ${glowOption.colorHex} 220deg, transparent 240deg)`;
-        shadowColor = glowOption.colorHex;
-        break;
-      case 'snow-frame':
-        spinClass = 'animate-spin-snow';
-        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 250deg, #0284c7 290deg, #7dd3fc 330deg, #ffffff 355deg, #f0f9ff 360deg)`;
-        shadowColor = '#7dd3fc';
-        break;
-      case 'matrix-frame':
-        spinClass = 'animate-spin-matrix';
-        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 240deg, #14532d 280deg, #16a34a 320deg, #4ade80 350deg, #ffffff 360deg)`;
-        shadowColor = '#22c55e';
-        break;
-      default:
-        // laser
-        spinClass = 'animate-spin-laser';
-        borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 270deg, ${glowOption.colorHex} 325deg, #ffffff 360deg)`;
-        shadowColor = glowOption.colorHex;
-        break;
-    }
+    const spinClass = 'animate-spin-laser';
+    const borderGradient = `conic-gradient(from 0deg at 50% 50%, transparent 0deg, transparent 270deg, ${glowOption.colorHex} 325deg, #ffffff 360deg)`;
+    const shadowColor = glowOption.colorHex;
 
     return (
       <span

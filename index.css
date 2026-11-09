@@ -557,29 +557,87 @@ html, body {
   z-index: 2;
 }
 
-/* 3. Doppelter Cyber-Rahmen */
-@keyframes cyberDoublePulse {
-  0%, 100% {
-    box-shadow: 
-      0 0 0 2px rgba(15, 23, 42, 0.9),
-      0 0 0 4px var(--glow-color, #3b82f6),
-      0 0 14px var(--glow-color, #3b82f6);
-    border-color: var(--glow-color, #3b82f6) !important;
+/* 3. Industrie-Neonrahmen (Industrial Neon Border mit Wackelkontakt & dezentem Flimmer-Glow) */
+@keyframes neon-flicker {
+  0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% {
+    opacity: 0.95;
+    filter: drop-shadow(0 0 4px var(--neon-color, var(--glow-color, #06b6d4)));
   }
-  50% {
-    box-shadow: 
-      0 0 0 2px rgba(15, 23, 42, 0.9),
-      0 0 0 4px #ffffff,
-      0 0 24px var(--glow-color, #3b82f6),
-      0 0 38px color-mix(in srgb, var(--glow-color, #3b82f6) 65%, transparent);
-    border-color: #ffffff !important;
+  20%, 21.999%, 63%, 63.999%, 65%, 69.999% {
+    opacity: 0.35;
+    filter: drop-shadow(0 0 1px var(--neon-color, var(--glow-color, #06b6d4)));
   }
 }
 
-.name-frame-double-border {
-  animation: cyberDoublePulse 2.2s ease-in-out infinite !important;
-  border-width: 2px !important;
+@keyframes industrialFlicker {
+  0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% {
+    opacity: 0.95;
+    filter: drop-shadow(0 0 4px var(--neon-color, var(--glow-color, #06b6d4)));
+  }
+  20%, 21.999%, 63%, 63.999%, 65%, 69.999% {
+    opacity: 0.35;
+    filter: drop-shadow(0 0 1px var(--neon-color, var(--glow-color, #06b6d4)));
+  }
+}
+
+.animate-neon-flicker,
+.animate-subtle-flicker,
+.animate-industrial-flicker {
+  animation: industrialFlicker 4s infinite linear !important;
+  will-change: opacity, filter;
+}
+
+.name-frame-double-border,
+.name-frame-industrial-neon {
+  animation: neon-flicker 4s infinite linear !important;
+  border-width: 1.5px !important;
   border-style: solid !important;
+  position: relative !important;
+  z-index: 2;
+}
+
+/* 4. Eiszapfen & rieselnde Schneeflocken (Echte Snowfall Partikel-Animation) */
+@keyframes realSnowfall {
+  0% {
+    transform: translateY(-5px) translateX(0px) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(50px) translateX(12px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fallAndFade {
+  0% {
+    transform: translateY(-4px) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(38px) rotate(120deg);
+    opacity: 0;
+  }
+}
+
+.animate-real-snow,
+.animate-snowflake {
+  animation: fallAndFade 2.6s infinite linear !important;
+  will-change: transform, opacity;
+}
+
+.name-frame-snow {
   position: relative !important;
   z-index: 2;
 }
@@ -2158,29 +2216,31 @@ html, body {
   position: relative !important;
 }
 
-/* 3. Doppelter Cyber-Rahmen */
+/* 3. Industrie-Neonrahmen / Doppelter Rahmen Avatar */
 @keyframes avatarDoublePulse {
-  0%, 100% {
+  0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% {
+    opacity: 0.95;
     box-shadow: 
-      0 0 0 2px rgba(15, 23, 42, 0.95), 
+      0 0 0 2.5px rgba(15, 23, 42, 0.95), 
       0 0 0 4px var(--frame-color, #38bdf8), 
-      0 0 14px var(--frame-color, #38bdf8);
+      0 0 6px var(--frame-color, #38bdf8);
     border-color: var(--frame-color, #38bdf8) !important;
   }
-  50% {
+  20%, 21.999%, 63%, 63.999%, 65%, 69.999% {
+    opacity: 0.35;
     box-shadow: 
-      0 0 0 2px rgba(15, 23, 42, 0.95), 
-      0 0 0 4px #ffffff, 
-      0 0 26px var(--frame-color, #38bdf8);
-    border-color: #ffffff !important;
+      0 0 0 2.5px rgba(15, 23, 42, 0.95), 
+      0 0 0 4px var(--frame-color, #38bdf8), 
+      0 0 2px var(--frame-color, #38bdf8);
+    border-color: var(--frame-color, #38bdf8) !important;
   }
 }
 
 .avatar-frame-double-border {
-  border-width: 2.5px !important;
+  border-width: 1.5px !important;
   border-style: solid !important;
   border-color: var(--frame-color, #38bdf8) !important;
-  animation: avatarDoublePulse 2.2s infinite ease-in-out !important;
+  animation: avatarDoublePulse 4s infinite linear !important;
   position: relative !important;
 }
 

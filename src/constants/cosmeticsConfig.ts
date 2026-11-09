@@ -81,10 +81,10 @@ export const AVATAR_FRAME_PATTERNS: AvatarFrameOption[] = [
   },
   {
     id: 'double-border',
-    label: 'Doppelter Cyber-Rahmen',
+    label: 'Industrie-Neonrahmen (Flimmern)',
     requiredLevel: 5,
-    description: 'Zweistufiger Hightech-Rahmen mit doppelter Leuchtkante',
-    icon: '💠',
+    description: 'Doppelter Industrie-Neon-Schlauch mit authentischem Wackelkontakt & Flimmer-Effekt',
+    icon: '⚡',
     className: 'avatar-frame-double-border'
   },
   {

@@ -11,6 +11,7 @@ export interface LeaderboardStats {
   time?: number | string | null;
   score?: number | string | null;
   spiele?: number | string | null;
+  games?: number | string | null;
   date?: string | null;
   levels?: number | string | null;
 }
@@ -26,6 +27,8 @@ export interface LeaderboardCardProps {
   playerTitle?: string | null;
   isGuest?: boolean;
   gameMode?: 'standard' | 'speed' | 'team';
+  activeTab?: 'avg' | 'schnapps' | 'total' | 'speed' | 'points' | string;
+  viewMode?: 'gesamt' | 'einzelspiel' | string;
   stats?: LeaderboardStats;
   primaryValue?: React.ReactNode;
   primaryValueColor?: string;
@@ -35,13 +38,221 @@ export interface LeaderboardCardProps {
   darkMode?: boolean;
 }
 
+export interface LeaderboardStatRowProps {
+  activeTab?: 'avg' | 'schnapps' | 'total' | 'speed' | 'points' | string;
+  viewMode?: 'gesamt' | 'einzelspiel' | string;
+  stats: LeaderboardStats;
+  gameMode?: 'standard' | 'speed' | 'team';
+  darkMode?: boolean;
+  tournamentTag?: string | null;
+}
+
+/**
+ * LeaderboardStatRow:
+ * Rendert dynamisch nur den für die aktuelle Sortierung und Ansicht relevanten Wert:
+ * - Durchschnittsrekord: "Durchschnittlicher Abstand" (Mobil: "Ø Abstand") + im Gesamtmodus Spiele
+ * - Schnappsrekord: "Schnäpse" + im Gesamtmodus Spiele
+ * - Total Rekord: "Total" + im Gesamtmodus Spiele
+ */
+export const LeaderboardStatRow: React.FC<LeaderboardStatRowProps> = ({
+  activeTab,
+  viewMode = 'gesamt',
+  stats,
+  gameMode = 'standard',
+  darkMode = true,
+  tournamentTag,
+}) => {
+  const isEinzelspiel = viewMode === 'einzelspiel';
+  const gamesCount = stats.games ?? stats.spiele;
+
+  // Auto-Erkennung, falls activeTab nicht explizit gesetzt wurde
+  const resolvedTab =
+    activeTab ||
+    (gameMode === 'speed'
+      ? 'speed'
+      : stats.avg !== undefined && stats.avg !== null && stats.schnaepse === undefined && stats.total === undefined
+      ? 'avg'
+      : stats.schnaepse !== undefined && stats.schnaepse !== null && stats.avg === undefined && stats.total === undefined
+      ? 'schnapps'
+      : stats.total !== undefined && stats.total !== null && stats.avg === undefined && stats.schnaepse === undefined
+      ? 'total'
+      : undefined);
+
+  return (
+    <div
+      className={`flex items-center justify-between sm:justify-start sm:gap-4 pt-1.5 border-t text-[11px] sm:text-xs flex-wrap gap-y-1 overflow-x-auto no-scrollbar ${
+        darkMode ? 'border-slate-800/80 text-slate-300' : 'border-slate-200 text-slate-700'
+      }`}
+    >
+      {/* 1. DURCHSCHNITTSREKORD */}
+      {resolvedTab === 'avg' && (
+        <>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>
+              <span className="hidden sm:inline">Durchschnittlicher Abstand:</span>
+              <span className="sm:hidden">Ø Abstand:</span>
+            </span>
+            <span className="font-bold text-teal-500 dark:text-teal-400 text-xs sm:text-sm">{stats.avg}</span>
+          </div>
+
+          {!isEinzelspiel && gamesCount !== undefined && gamesCount !== null && (
+            <div className={`flex items-center gap-1.5 ml-auto text-xs font-medium shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>Spiele:</span>
+              <span className={`font-semibold ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{gamesCount}</span>
+            </div>
+          )}
+
+          {isEinzelspiel && stats.date && (
+            <div className={`flex items-center gap-1.5 ml-auto text-[10px] shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>{stats.date}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 2. SCHNAPPSREKORD */}
+      {resolvedTab === 'schnapps' && (
+        <>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Schnäpse:</span>
+            <span className="font-bold text-teal-500 dark:text-teal-400 text-xs sm:text-sm">{stats.schnaepse}</span>
+          </div>
+
+          {!isEinzelspiel && gamesCount !== undefined && gamesCount !== null && (
+            <div className={`flex items-center gap-1.5 ml-auto text-xs font-medium shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>Spiele:</span>
+              <span className={`font-semibold ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{gamesCount}</span>
+            </div>
+          )}
+
+          {isEinzelspiel && stats.date && (
+            <div className={`flex items-center gap-1.5 ml-auto text-[10px] shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>{stats.date}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 3. TOTAL REKORD */}
+      {resolvedTab === 'total' && (
+        <>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Total:</span>
+            <span className="font-bold text-amber-500 dark:text-amber-400 text-xs sm:text-sm">{stats.total}</span>
+          </div>
+
+          {!isEinzelspiel && gamesCount !== undefined && gamesCount !== null && (
+            <div className={`flex items-center gap-1.5 ml-auto text-xs font-medium shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>Spiele:</span>
+              <span className={`font-semibold ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{gamesCount}</span>
+            </div>
+          )}
+
+          {isEinzelspiel && stats.date && (
+            <div className={`flex items-center gap-1.5 ml-auto text-[10px] shrink-0 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span>{stats.date}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 4. SPEEDWIEGEN */}
+      {resolvedTab === 'speed' && (
+        <>
+          {stats.time !== undefined && stats.time !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Zeit:</span>
+              <span className="font-semibold text-teal-500 dark:text-teal-400">{stats.time}</span>
+            </div>
+          )}
+          {stats.avg !== undefined && stats.avg !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>
+                <span className="hidden sm:inline">Durchschnittlicher Abstand:</span>
+                <span className="sm:hidden">Ø Abstand:</span>
+              </span>
+              <span className={`font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{stats.avg}</span>
+            </div>
+          )}
+          {stats.score !== undefined && stats.score !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Score:</span>
+              <span className="font-semibold text-amber-500 dark:text-amber-400">{stats.score}</span>
+            </div>
+          )}
+          {stats.levels !== undefined && stats.levels !== null && (
+            <div className={`flex items-center gap-1 shrink-0 text-[10px] hidden xs:inline-flex ${
+              darkMode ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              <span>({stats.levels} St.)</span>
+            </div>
+          )}
+          {stats.date && (
+            <div className={`flex items-center gap-1 shrink-0 text-[10px] ml-auto hidden sm:inline-flex ${
+              darkMode ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              <span>{stats.date}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 5. ALLGEMEINER FALLBACK (falls mehrere Werte ohne activeTab) */}
+      {!resolvedTab && (
+        <>
+          {stats.schnaepse !== undefined && stats.schnaepse !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Schnäpse:</span>
+              <span className="font-semibold text-teal-500 dark:text-teal-400">{stats.schnaepse}</span>
+            </div>
+          )}
+          {stats.avg !== undefined && stats.avg !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>
+                <span className="hidden sm:inline">Durchschnittlicher Abstand:</span>
+                <span className="sm:hidden">Ø Abstand:</span>
+              </span>
+              <span className={`font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{stats.avg}</span>
+            </div>
+          )}
+          {stats.total !== undefined && stats.total !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Total:</span>
+              <span className="font-semibold text-amber-500 dark:text-amber-400">{stats.total}</span>
+            </div>
+          )}
+          {gamesCount !== undefined && gamesCount !== null && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Spiele:</span>
+              <span className="font-semibold text-amber-500 dark:text-amber-400">{gamesCount}</span>
+            </div>
+          )}
+          {stats.date && (
+            <div className={`flex items-center gap-1 shrink-0 text-[10px] hidden sm:inline-flex ${
+              darkMode ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              <span>{stats.date}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {tournamentTag && (
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 dark:text-amber-400 border border-amber-500/30 shrink-0 ml-auto sm:ml-0">
+          {tournamentTag}
+        </span>
+      )}
+    </div>
+  );
+};
+
 /**
  * LeaderboardCard:
  * Zweizeilige, übersichtliche mobile Leaderboard-Karte für die Championswiegtabelle.
  * - Linker Bereich (über beide Zeilen): Rang-Medaille/Nummer (#1, #2, #3, ...) und Avatar mit Rahmen.
  * - Erste Zeile (oben): Vollständiges Namensschild mit allen Personalisierungen (Flamme, Blitz, Laser etc.)
  *   inklusive (Gast)-Hinweis, Level-Badge und Titel-Badge.
- * - Zweite Zeile (unten): Kennzahlen (Schnäpse, AVG, Total bzw. Zeit, AVG, Score) kompakt nebeneinander.
+ * - Zweite Zeile (unten): Dynamisch gefilterte Kennzahlzeile (LeaderboardStatRow) je nach aktiver Ansicht.
  */
 export const LeaderboardCard: React.FC<LeaderboardCardProps> = ({
   rank,
@@ -54,6 +265,8 @@ export const LeaderboardCard: React.FC<LeaderboardCardProps> = ({
   playerTitle,
   isGuest = false,
   gameMode = 'standard',
+  activeTab,
+  viewMode = 'gesamt',
   stats,
   primaryValue,
   primaryValueColor = 'text-teal-400',
@@ -149,86 +362,14 @@ export const LeaderboardCard: React.FC<LeaderboardCardProps> = ({
 
         {/* ZWEITE ZEILE (Unten): Kennzahlen / Statistiken */}
         {stats ? (
-          <div className={`flex items-center justify-between sm:justify-start sm:gap-4 pt-1.5 border-t text-[11px] sm:text-xs flex-wrap gap-y-1 overflow-x-auto no-scrollbar ${
-            darkMode ? 'border-slate-800/80 text-slate-300' : 'border-slate-200 text-slate-700'
-          }`}>
-            {gameMode === 'speed' ? (
-              <>
-                {stats.time !== undefined && stats.time !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Zeit:</span>
-                    <span className="font-semibold text-teal-500 dark:text-teal-400">{stats.time}</span>
-                  </div>
-                )}
-                {stats.avg !== undefined && stats.avg !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>AVG:</span>
-                    <span className={`font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{stats.avg}</span>
-                  </div>
-                )}
-                {stats.score !== undefined && stats.score !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Score:</span>
-                    <span className="font-semibold text-amber-500 dark:text-amber-400">{stats.score}</span>
-                  </div>
-                )}
-                {stats.levels !== undefined && stats.levels !== null && (
-                  <div className={`flex items-center gap-1 shrink-0 text-[10px] hidden xs:inline-flex ${
-                    darkMode ? 'text-slate-400' : 'text-slate-500'
-                  }`}>
-                    <span>({stats.levels} St.)</span>
-                  </div>
-                )}
-                {stats.date && (
-                  <div className={`flex items-center gap-1 shrink-0 text-[10px] hidden sm:inline-flex ${
-                    darkMode ? 'text-slate-400' : 'text-slate-500'
-                  }`}>
-                    <span>{stats.date}</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {stats.schnaepse !== undefined && stats.schnaepse !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Schnäpse:</span>
-                    <span className="font-semibold text-teal-500 dark:text-teal-400">{stats.schnaepse}</span>
-                  </div>
-                )}
-                {stats.avg !== undefined && stats.avg !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>AVG:</span>
-                    <span className={`font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{stats.avg}</span>
-                  </div>
-                )}
-                {stats.total !== undefined && stats.total !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Total:</span>
-                    <span className="font-semibold text-amber-500 dark:text-amber-400">{stats.total}</span>
-                  </div>
-                )}
-                {stats.spiele !== undefined && stats.spiele !== null && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={darkMode ? 'text-slate-400' : 'text-slate-500'}>Spiele:</span>
-                    <span className="font-semibold text-amber-500 dark:text-amber-400">{stats.spiele}</span>
-                  </div>
-                )}
-                {stats.date && (
-                  <div className={`flex items-center gap-1 shrink-0 text-[10px] hidden sm:inline-flex ${
-                    darkMode ? 'text-slate-400' : 'text-slate-500'
-                  }`}>
-                    <span>{stats.date}</span>
-                  </div>
-                )}
-              </>
-            )}
-
-            {tournamentTag && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 dark:text-amber-400 border border-amber-500/30 shrink-0 ml-auto sm:ml-0">
-                {tournamentTag}
-              </span>
-            )}
-          </div>
+          <LeaderboardStatRow
+            activeTab={activeTab}
+            viewMode={viewMode}
+            stats={stats}
+            gameMode={gameMode}
+            darkMode={darkMode}
+            tournamentTag={tournamentTag}
+          />
         ) : (
           <div className={`flex items-center justify-between pt-1.5 border-t text-[11px] sm:text-xs ${
             darkMode ? 'border-slate-800/80 text-slate-300' : 'border-slate-200 text-slate-700'
@@ -248,3 +389,5 @@ export const LeaderboardCard: React.FC<LeaderboardCardProps> = ({
     </div>
   );
 };
+
+export default LeaderboardCard;

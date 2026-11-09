@@ -47,7 +47,9 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
 }) => {
   // Parsen des initialen Werts
   const initialParsed = parseNameBorder(currentValue);
-  const [borderPattern, setBorderPattern] = useState<NameBorderPatternId>(initialParsed.patternId);
+  const [borderPattern, setBorderPattern] = useState<NameBorderPatternId>(
+    initialParsed.patternId === 'none' ? 'simple' : initialParsed.patternId
+  );
   const [selectedColor, setSelectedColor] = useState<string>(initialParsed.colorId);
 
 
@@ -137,14 +139,14 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
     },
     {
       id: 'cyber' as NameBorderPatternId,
-      name: 'Doppelter Cyber-Rahmen',
-      icon: '💠',
+      name: 'Industrie-Neonrahmen (Flimmern)',
+      icon: '⚡',
       minLevel: 5,
       unlocked: userLevel >= 5 && ((effectiveQuests.ach_kopfrechner || 0) >= 5),
       progress: Math.min(5, effectiveQuests.ach_kopfrechner || 0),
       target: 5,
       questTitle: '5x "Kopfrechner"',
-      description: 'Zweistufiger Hightech-Rahmen mit kraftvollem Cyber-Lauflicht'
+      description: 'Doppelter Industrie-Neon-Schlauch an der Unterkante mit Wackelkontakt & Flimmer-Effekt'
     },
     {
       id: 'laser' as NameBorderPatternId,
@@ -166,7 +168,7 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
       progress: Math.min(5, effectiveQuests.zwilling || 0),
       target: 5,
       questTitle: '5x Wiegezwilling',
-      description: 'Eiskristall-Frostschimmer wandert kontinuierlich um den Rahmen'
+      description: 'Hängende Eiszapfen & rieselnde Schneeflocken mit frostigem Farb-Glow'
     },
     {
       id: 'matrix-frame' as NameBorderPatternId,
@@ -177,7 +179,7 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
       progress: Math.min(5, effectiveQuests.stratege || 0),
       target: 5,
       questTitle: '5x Achievement Stratege',
-      description: 'Digitaler grüner Matrix-Datenstrom läuft ausschließlich auf der Kante'
+      description: 'Rieselnder digitaler Matrix-Zahlencode unterhalb des Namensschildes'
     }
   ];
 
@@ -293,20 +295,20 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
     }
   ];
 
-  // Gesperrte Rahmen-Muster vollständig ausblenden: Nur freigeschaltete Muster sind auswählbar
-  const availablePatterns = borderPatterns.filter(p => p.unlocked);
+  // Gesperrte Rahmen-Muster und 'Kein Rahmen' ausblenden: 'none' wird nicht mehr im Dropdown angezeigt
+  const availablePatterns = borderPatterns.filter(p => p.unlocked && p.id !== 'none');
 
   // Synchronisation bei externen Prop-Änderungen oder wenn das gewählte Muster noch nicht freigeschaltet ist
   useEffect(() => {
     const parsed = parseNameBorder(currentValue);
     const isValid = availablePatterns.some(p => p.id === parsed.patternId);
-    const chosenPattern = isValid ? parsed.patternId : (availablePatterns[0]?.id || 'none');
+    const chosenPattern = isValid ? parsed.patternId : (availablePatterns[0]?.id || 'simple');
     setBorderPattern(chosenPattern);
     setSelectedColor(parsed.colorId);
   }, [currentValue, userLevel, availablePatterns.length]);
 
   const activePattern =
-    availablePatterns.find(p => p.id === borderPattern) || availablePatterns[0] || borderPatterns[0];
+    availablePatterns.find(p => p.id === borderPattern) || availablePatterns[0] || borderPatterns[1];
 
   const activeColorMatch =
     swatches.find(s =>
@@ -340,10 +342,11 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
     }
   };
 
-  // Wenn keine Farbe gewählt ist oder kein Rahmen aktiv ist, wird der Rahmen deaktiviert
-  const previewSerialized = activePattern.id === 'none' || isColorDeactivated ? `${borderPattern}:none` : `${borderPattern}:${selectedColor}`;
-  const unlockedPatternsCount = borderPatterns.filter(p => p.id !== 'none' && p.unlocked).length;
+  // Wenn keine Farbe gewählt ist, wird der Rahmen automatisch deaktiviert
+  const previewSerialized = isColorDeactivated ? `${borderPattern}:none` : `${borderPattern}:${selectedColor}`;
   const unlockedColorsCount = swatches.filter(s => s.id !== 'none' && s.unlocked).length;
+  // Gesperrte Farben komplett ausblenden: nur freigeschaltete Farben und 'none' im DOM rendern
+  const visibleSwatches = swatches.filter(s => s.id === 'none' || s.unlocked);
 
   return (
     <div className="space-y-4">
@@ -373,16 +376,14 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
           }`}>
             {!activePattern.unlocked && '🔒 '}Rahmen: {activePattern.name}
           </span>
-          {activePattern.id !== 'none' && (
-            isColorDeactivated ? (
-              <span className="px-2 py-0.5 rounded-md bg-slate-500/15 text-slate-400 border border-slate-500/30">
-                Status: Deaktiviert (Keine Farbe)
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-400 border border-teal-500/30">
-                Farbe: {activeColorMatch.label}
-              </span>
-            )
+          {isColorDeactivated ? (
+            <span className="px-2 py-0.5 rounded-md bg-slate-500/15 text-slate-400 border border-slate-500/30">
+              Status: Deaktiviert (Farbe: Keine)
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-400 border border-teal-500/30">
+              Farbe: {activeColorMatch.label}
+            </span>
           )}
         </div>
       </div>
@@ -398,7 +399,7 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
               <span>🔲 RAHMEN-STIL / MUSTER:</span>
             </label>
             <span className="text-[10px] font-bold opacity-60">
-              {availablePatterns.filter(p => p.id !== 'none').length} / {borderPatterns.length - 1} freigeschaltet
+              {availablePatterns.length} / {borderPatterns.length - 1} freigeschaltet
             </span>
           </div>
 
@@ -428,8 +429,12 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
               <span className="font-bold text-purple-300 flex items-center space-x-1.5">
                 <span>{activePattern.icon} {activePattern.name}</span>
               </span>
-              <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                Aktiv
+              <span className={`text-[9px] uppercase font-black px-1.5 py-0.5 rounded border ${
+                isColorDeactivated
+                  ? 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              }`}>
+                {isColorDeactivated ? 'Deaktiviert (Farbe: Keine)' : 'Aktiv'}
               </span>
             </div>
             <p className="text-[11px] opacity-75">{activePattern.description}</p>
@@ -449,11 +454,10 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
             </span>
           </div>
 
-          {/* Grid der Farbkärtchen (5 Spalten x 2 Reihen = 10 Kacheln) */}
+          {/* Grid der Farbkärtchen (nur freigeschaltete Farben rendern, gesperrte komplett ausblenden) */}
           <div className="grid grid-cols-5 gap-2 p-1">
-            {swatches.map((swatch) => {
-              const levelOk = userLevel >= swatch.minLevel;
-              const isClickable = swatch.unlocked && !disabled;
+            {visibleSwatches.map((swatch) => {
+              const isClickable = !disabled;
               const isSelected =
                 swatch.id === 'none'
                   ? isColorDeactivated
@@ -463,12 +467,6 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
 
               const tooltipText = swatch.id === 'none'
                 ? 'Keine Farbe (Deaktiviert den Rahmen)'
-                : !levelOk
-                ? (swatch.questTitle
-                    ? `Erfordert Level ${swatch.minLevel} • ${swatch.questName || 'Quest'}: ${swatch.questTitle} (${swatch.progress}/${swatch.target})`
-                    : `Erfordert Level ${swatch.minLevel}`)
-                : !swatch.unlocked
-                ? `${swatch.questName ? `${swatch.questName}: ` : ''}${swatch.questTitle} (${swatch.progress}/${swatch.target})`
                 : `${swatch.label} (Freigeschaltet)`;
 
               return (
@@ -477,11 +475,7 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
                   type="button"
                   disabled={!isClickable}
                   style={swatch.id === 'none' ? undefined : { backgroundColor: swatch.hex }}
-                  className={`relative h-11 rounded-lg transition-transform flex items-center justify-center ${
-                    !swatch.unlocked
-                      ? 'opacity-40 cursor-not-allowed grayscale'
-                      : 'hover:scale-105 shadow-md cursor-pointer'
-                  } ${
+                  className={`relative h-11 rounded-lg transition-transform flex items-center justify-center hover:scale-105 shadow-md cursor-pointer ${
                     swatch.id === 'none'
                       ? (darkMode ? 'bg-slate-800/80 border-2 border-dashed border-slate-600' : 'bg-slate-100 border-2 border-dashed border-slate-300')
                       : ''
@@ -503,15 +497,8 @@ export const NameBorderSelector: React.FC<NameBorderSelectorProps> = ({
                     </div>
                   )}
 
-                  {/* Schloss-Icon bei gesperrten Farben */}
-                  {!swatch.unlocked && (
-                    <span className="absolute inset-0 flex items-center justify-center text-xs bg-black/60 rounded-lg text-white font-bold select-none pointer-events-none">
-                      🔒
-                    </span>
-                  )}
-
                   {/* Häkchen bei ausgewählter Farbe */}
-                  {isSelected && swatch.unlocked && (
+                  {isSelected && (
                     <span className={`font-black text-xs leading-none select-none pointer-events-none ${
                       swatch.id === 'none'
                         ? 'absolute top-1 right-1 text-teal-400 font-extrabold'

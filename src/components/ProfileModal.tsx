@@ -244,6 +244,16 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
       loadQuestProgress();
     }
   }, [showProfileModal, effectiveUserId, loadQuestProgress]);
+
+  useEffect(() => {
+    const handleProgressUpdate = () => {
+      if (effectiveUserId) {
+        loadQuestProgress();
+      }
+    };
+    window.addEventListener('questProgressUpdated', handleProgressUpdate);
+    return () => window.removeEventListener('questProgressUpdated', handleProgressUpdate);
+  }, [effectiveUserId, loadQuestProgress]);
   const [localFriends, setLocalFriends] = useState<Friend[]>(propFriends || []);
   const [localPendingRequests, setLocalPendingRequests] = useState<PendingFriendRequest[]>(propPendingRequests || []);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
@@ -1891,38 +1901,63 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                 </div>
 
                 {/* Statistik-Karten (Case-Insensitive Check für Speedwiegen) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-[#238183]">{dynamicStats.gamesPlayed}</div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Spiele absolviert</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-[#238183] tracking-tight">
+                      {dynamicStats.gamesPlayed}
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
+                      Spiele absolviert
+                    </span>
                   </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-amber-500">
+
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-amber-500 tracking-tight">
                       {effectiveGameMode.toLowerCase().includes('speed')
                         ? `${dynamicStats.bestTime ? dynamicStats.bestTime.toFixed(1) + 's' : '-'}`
                         : (dynamicStats.gamesPlayed && dynamicStats.gamesPlayed > 0
                             ? (dynamicStats.totalSchnaepse / dynamicStats.gamesPlayed).toFixed(1)
                             : '0.0')}
-                    </div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
                       {effectiveGameMode.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Ø Schnäpse pro Spiel'}
-                    </div>
+                    </span>
                   </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-emerald-500">
+
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-emerald-500 tracking-tight">
                       {dynamicStats.bestAvg !== null ? dynamicStats.bestAvg.toFixed(2) : '-'}
-                    </div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">Bester Ø (Abweichung)</div>
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
+                      Bester Ø (Abweichung)
+                    </span>
                   </div>
-                  <div className={`p-4 rounded-2xl border text-center ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="text-2xl font-black text-purple-500">
+
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-purple-500 tracking-tight">
                       {effectiveGameMode.toLowerCase().includes('speed')
                         ? (dynamicStats.bestScore !== null ? dynamicStats.bestScore.toFixed(2) : '-')
                         : myAchievementsData.length}
-                    </div>
-                    <div className="text-[11px] font-bold opacity-60 uppercase mt-1">
-                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Bester Score (Abstand + Zeit)' : 'Errungenschaften'}
-                    </div>
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
+                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Bester Score' : 'Errungenschaften'}
+                    </span>
                   </div>
                 </div>
 
@@ -1959,29 +1994,38 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                       <p className="text-xs opacity-50 text-center py-4">Keine Spiele für diesen Modus gefunden.</p>
                     ) : (
                       sortedGames.map((g, idx) => (
-                        <div key={g.id || idx} className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${darkMode ? 'bg-slate-800/40 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
-                          <div>
-                            <div className="text-sm font-black flex items-center gap-1.5">
+                        <div
+                          key={g.id || idx}
+                          className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-xs font-bold transition-all ${
+                            darkMode ? 'bg-slate-800/40 border-slate-700/60' : 'bg-gray-50 border-gray-200'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-black flex items-center gap-1.5 flex-wrap">
                               <span>{g.game_mode || 'Standard'}</span>
                               {g.is_team_player && !g.team_name && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400 font-semibold">Team</span>
                               )}
                             </div>
                             {g.team_name && (
-                              <div className="text-xs text-teal-600 dark:text-teal-400 font-semibold flex items-center gap-1 mt-0.5">
+                              <div className="text-xs text-teal-600 dark:text-teal-400 font-semibold flex items-center gap-1 mt-0.5 truncate">
                                 <i className="fas fa-users text-[10px]"></i>
                                 <span>Team: {g.team_name}</span>
                               </div>
                             )}
                             {g.tournament_name && (
-                              <div className="text-xs text-amber-500 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
+                              <div className="text-xs text-amber-500 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5 truncate">
                                 <span>🏆</span>
                                 <span>Turnier: {g.tournament_name}{g.tournament_table ? ` (${g.tournament_table})` : ''}</span>
                               </div>
                             )}
-                            <div className="text-[10px] opacity-50">{g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}</div>
+                            <div className="text-[10px] opacity-50 mt-0.5">
+                              {g.date || (g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Unbekannt')}
+                            </div>
                           </div>
-                          <div className="text-right flex items-center justify-end gap-2.5 sm:gap-3 flex-wrap">
+
+                          {/* Metriken: Auf breitem Bildschirm einzeilig, bei Platzmangel auf Mobilgeräten sauber umbrechend */}
+                          <div className="flex items-center justify-start sm:justify-end gap-1.5 sm:gap-2.5 flex-wrap shrink-0">
                             {(() => {
                               const isSpeed = isSpeedGame(g);
                               const timeVal = getTimeSec(g);
@@ -1993,27 +2037,39 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
 
                               return (
                                 <>
-                                  <span className="text-emerald-500 font-black" title="Durchschnittliche Abweichung (Abstand pro Stufe)">
+                                  <span
+                                    className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-black whitespace-nowrap text-xs"
+                                    title="Durchschnittliche Abweichung (Abstand pro Stufe)"
+                                  >
                                     Ø {avgDist.toFixed(2)}g
                                   </span>
                                   {isSpeed ? (
                                     <>
-                                      <span className="text-amber-500 font-bold" title="Benötigte Zeit">
-                                        {timeVal > 0 ? `${timeVal.toFixed(1)}s` : '-'}
+                                      <span
+                                        className="inline-flex items-center px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold whitespace-nowrap text-xs"
+                                        title="Benötigte Zeit"
+                                      >
+                                        ⏱️ {timeVal > 0 ? `${timeVal.toFixed(1)}s` : '-'}
                                       </span>
                                       {g.levels !== undefined && g.levels !== null && !isNaN(Number(g.levels)) && (
-                                        <span className="text-indigo-400 font-bold" title="Stufen">
+                                        <span
+                                          className="inline-flex items-center px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold whitespace-nowrap text-xs"
+                                          title="Stufen"
+                                        >
                                           {g.levels} Stufen
                                         </span>
                                       )}
                                     </>
                                   ) : (
-                                    <span className="text-amber-500 font-bold" title="Schnäpse">
-                                      {g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0} Schnäpse
+                                    <span
+                                      className="inline-flex items-center px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold whitespace-nowrap text-xs"
+                                      title="Schnäpse"
+                                    >
+                                      🍻 {g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0} Schnäpse
                                     </span>
                                   )}
                                   <span
-                                    className={`font-black px-1.5 py-0.5 rounded border ${
+                                    className={`inline-flex items-center px-2 py-1 rounded-lg border font-black whitespace-nowrap text-xs ${
                                       isSpeed
                                         ? 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30'
                                         : 'text-purple-400 bg-purple-500/10 border-purple-500/20'

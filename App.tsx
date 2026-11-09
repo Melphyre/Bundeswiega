@@ -63,7 +63,7 @@ import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
 import { LeaderboardCard } from './src/components/LeaderboardCard';
-import { recordQuestStat, processQuestsForUser } from './src/utils/questEvaluator';
+import { recordQuestStat, processQuestsForUser, getStoredQuestStats } from './src/utils/questEvaluator';
 import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
@@ -2253,6 +2253,7 @@ const App: React.FC = () => {
       const schnaepse = Number(gameResult.schnaepse) || 0;
       const total = Math.round((avg + schnaepse) * 100) / 100;
 
+      const questStats = getStoredQuestStats(userId);
       const res = await fetch('/api/users/save-game-result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2268,7 +2269,9 @@ const App: React.FC = () => {
           achievements: (achievements || []).map(a => ({
             ...a,
             game_mode: a.game_mode ? normalizeGameMode(a.game_mode) : canonicalMode
-          }))
+          })),
+          questStats,
+          roundIncrements: questStats
         })
       });
 
@@ -2280,6 +2283,22 @@ const App: React.FC = () => {
 
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
+
+      // Sofortige UI- & State-Synchronisation
+      if (json.newLevel) setUserLevel(json.newLevel);
+      if (json.newXp !== undefined) setUserXp(json.newXp);
+      if (json.levelUp) {
+        setLevelUpData({
+          newLevel: json.newLevel,
+          unlockedTitle: json.unlockedTitle || getTitleForLevel(json.newLevel)
+        });
+        setShowLevelUpModal(true);
+      }
+      loadProfileStats(userId);
+      loadMyProfileData(userId);
+      fetchAllProfiles();
+      window.dispatchEvent(new Event('questProgressUpdated'));
+
       return true;
     } catch (err: any) {
       console.error('saveResultToSupabase error:', err);
@@ -2997,6 +3016,7 @@ const App: React.FC = () => {
         console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total, isSpeed, timeSec });
 
         try {
+          const questStats = getStoredQuestStats(userId);
           const res = await fetch('/api/users/save-game-result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3020,7 +3040,9 @@ const App: React.FC = () => {
                   rarity: a.rarity,
                   earnedBy: a.earnedBy,
                   earnedTogether: a.earnedTogether || false
-                }))
+                })),
+              questStats,
+              roundIncrements: questStats
             })
           });
 
@@ -3053,10 +3075,14 @@ const App: React.FC = () => {
                 setShowLevelUpModal(true);
               }
               loadProfileStats(userId);
+              loadMyProfileData(userId);
+              fetchAllProfiles();
+              window.dispatchEvent(new Event('questProgressUpdated'));
             }
             // Quest-Fortschritt & Belohnungen nach Spielende auswerten
             try {
               await processQuestsForUser(userId);
+              window.dispatchEvent(new Event('questProgressUpdated'));
             } catch (procQuestErr) {
               console.warn('processQuestsForUser error after saving game:', procQuestErr);
             }
@@ -4213,6 +4239,29 @@ const App: React.FC = () => {
           });
           return updated;
         });
+
+        // Multi-Achievement-Quests für neu errungene Achievements dieser Runde verbuchen
+        newAch.forEach(ach => {
+          ach.earnedBy.forEach(name => {
+            const pl = updatedPlayers.find(p => p.name === name);
+            const targetUserId = pl?.userId || (pl as any)?.user_id || (pl ? playerAccountLinks[pl.id]?.userId : null) || (
+              supabaseUser && (pl?.id === supabaseUser.id || name.trim().toLowerCase() === supabaseUser.user_metadata?.username?.trim().toLowerCase())
+                ? supabaseUser.id
+                : null
+            );
+            if (targetUserId) {
+              if (ach.id === 'calculator') recordQuestStat(targetUserId, 'ach_kopfrechner_count', 1);
+              if (ach.id === 'sharpshooter') recordQuestStat(targetUserId, 'ach_scharfschuetze_count', 1);
+              if (ach.id === 'strategist') recordQuestStat(targetUserId, 'strategist_count', 1);
+              if (ach.id === 'so_close') recordQuestStat(targetUserId, 'ach_knapp_daneben_count', 1);
+              if (ach.id === 'six_seven') recordQuestStat(targetUserId, 'ach_67_count', 1);
+              if (ach.id === 'twins' || ach.id === 'doppelganger') recordQuestStat(targetUserId, 'same_weight_count', 1);
+              if (ach.id === 'schnapps_hunter' || ach.id === 'triple_seven') recordQuestStat(targetUserId, 'schnapszahl_count', 1);
+              if (ach.id === 'round_number') recordQuestStat(targetUserId, 'hundreds_count', 1);
+              if (ach.id === 'bullseye_king' || ach.id === 'prophet' || ach.id === 'perfect_balance') recordQuestStat(targetUserId, 'perfect_hits_count', 1);
+            }
+          });
+        });
       }
     }
 
@@ -4459,6 +4508,22 @@ const App: React.FC = () => {
       if (activeGameIdRef.current) {
         finishActiveGame(activeGameIdRef.current);
       }
+      // Speedwiegen-Quests auswerten (Wandernde Flamme & Elektrischer Blitz)
+      const speedUid = supabaseUser?.id;
+      if (speedUid) {
+        try {
+          const { avgDistance, timeSec } = getSpeedGameMetrics();
+          if (avgDistance > 0 && avgDistance < 5.0) {
+            recordQuestStat(speedUid, 'speed_avg_sub5_count', 1);
+          }
+          if (timeSec > 0 && timeSec < 100) {
+            recordQuestStat(speedUid, 'speed_time_sub100_count', 1);
+          }
+          window.dispatchEvent(new Event('questProgressUpdated'));
+        } catch (speedStatErr) {
+          console.warn('Error recording speed quest stats:', speedStatErr);
+        }
+      }
       return;
     }
 
@@ -4488,6 +4553,30 @@ const App: React.FC = () => {
             return updated;
           });
           setShowAchievements(true);
+
+          // Multi-Achievement-Quests für finale Errungenschaften verbuchen (z. B. Kopfrechner, Scharfschütze)
+          finalAch.forEach(ach => {
+            ach.earnedBy.forEach(name => {
+              const pl = players.find(p => p.name === name);
+              const targetUserId = pl?.userId || (pl as any)?.user_id || (pl ? playerAccountLinks[pl.id]?.userId : null) || (
+                supabaseUser && (pl?.id === supabaseUser.id || name.trim().toLowerCase() === supabaseUser.user_metadata?.username?.trim().toLowerCase())
+                  ? supabaseUser.id
+                  : null
+              );
+              if (targetUserId) {
+                if (ach.id === 'calculator') recordQuestStat(targetUserId, 'ach_kopfrechner_count', 1);
+                if (ach.id === 'sharpshooter') recordQuestStat(targetUserId, 'ach_scharfschuetze_count', 1);
+                if (ach.id === 'strategist') recordQuestStat(targetUserId, 'strategist_count', 1);
+                if (ach.id === 'so_close') recordQuestStat(targetUserId, 'ach_knapp_daneben_count', 1);
+                if (ach.id === 'six_seven') recordQuestStat(targetUserId, 'ach_67_count', 1);
+                if (ach.id === 'twins' || ach.id === 'doppelganger') recordQuestStat(targetUserId, 'same_weight_count', 1);
+                if (ach.id === 'schnapps_hunter' || ach.id === 'triple_seven') recordQuestStat(targetUserId, 'schnapszahl_count', 1);
+                if (ach.id === 'round_number') recordQuestStat(targetUserId, 'hundreds_count', 1);
+                if (ach.id === 'bullseye_king' || ach.id === 'prophet' || ach.id === 'perfect_balance') recordQuestStat(targetUserId, 'perfect_hits_count', 1);
+              }
+            });
+          });
+          window.dispatchEvent(new Event('questProgressUpdated'));
         }
       } else if (teams.length > 0) {
         const finalTeamAch = checkTeamAchievements(teams, players, rounds, true, earnedAchievements);
@@ -4510,6 +4599,7 @@ const App: React.FC = () => {
             return updated;
           });
           setShowAchievements(true);
+          window.dispatchEvent(new Event('questProgressUpdated'));
         }
       }
     } else if (!disqualifiedNotice) {
@@ -5358,19 +5448,44 @@ const App: React.FC = () => {
         }
       });
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gameMode,
-          results: resultsToUpload,
-          date: today,
-          achievements: achievementsToUpload
-        })
-      });
+      if (resultsSaved) {
+        setSaveModalSuccess(true);
+        setTimeout(() => {
+          setShowSaveModal(false);
+          setSaveModalSuccess(false);
+        }, 1000);
+        setSaveModalSubmitting(false);
+        return;
+      }
 
-      const data = await response.json();
-      if (response.ok) {
+      const userMetaName = supabaseUser ? (supabaseUser.user_metadata?.username || supabaseUser.email || '').toLowerCase() : '';
+      
+      // Gast-Spieler vs. eingeloggter Nutzer trennen, um doppelte Zeilen zu verhindern
+      const guestResultsToUpload = supabaseUser
+        ? resultsToUpload.filter(r => r.name.toLowerCase() !== userMetaName && !userMetaName.includes(r.name.toLowerCase()))
+        : resultsToUpload;
+
+      let uploadSuccess = true;
+      if (guestResultsToUpload.length > 0) {
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gameMode,
+            results: guestResultsToUpload,
+            date: today,
+            achievements: achievementsToUpload
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          uploadSuccess = false;
+          setSaveModalError(data.error || 'Fehler beim Hochladen der Gast-Ergebnisse.');
+        }
+      }
+
+      if (uploadSuccess) {
         if (selectedTournamentName && activeTournamentTableId) {
           try {
             const tRes = await fetch('/api/tournament/save', {
@@ -5419,10 +5534,9 @@ const App: React.FC = () => {
           }
         }
 
-        // Save authenticated user's result to Supabase if logged in
-        if (supabaseUser) {
+        // Save authenticated user's result to Supabase if logged in (nur falls noch nicht durch autoSave gespeichert)
+        if (supabaseUser && !accountResultsSaved.includes(supabaseUser.id)) {
           try {
-            const userMetaName = (supabaseUser.user_metadata?.username || supabaseUser.email || '').toLowerCase();
             const userResult = resultsToUpload.find(r => r.name.toLowerCase() === userMetaName || userMetaName.includes(r.name.toLowerCase()));
 
             if (userResult) {
@@ -5442,10 +5556,18 @@ const App: React.FC = () => {
                 },
                 userAchievements
               );
+              setAccountResultsSaved(prev => (prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]));
             }
           } catch (sbSaveErr) {
             console.error('Error saving to Supabase:', sbSaveErr);
           }
+        }
+
+        if (supabaseUser) {
+          loadProfileStats(supabaseUser.id);
+          loadMyProfileData(supabaseUser.id);
+          fetchAllProfiles();
+          window.dispatchEvent(new Event('questProgressUpdated'));
         }
 
         setSaveModalSuccess(true);
@@ -5454,8 +5576,6 @@ const App: React.FC = () => {
           setShowSaveModal(false);
           setSaveModalSuccess(false);
         }, 2000);
-      } else {
-        setSaveModalError(data.error || 'Fehler beim Speichern der Ergebnisse.');
       }
     } catch (err: any) {
       console.error('Error in save results submit:', err);
@@ -9183,9 +9303,10 @@ const App: React.FC = () => {
                                         playerTitle={getPlayerTitle(p.name)}
                                         isGuest={isPlayerGuest(p.name)}
                                         gameMode="standard"
+                                        activeTab="schnapps"
+                                        viewMode="gesamt"
                                         stats={{
                                           schnaepse: p.avgSchnaepsePerGame.toFixed(2),
-                                          avg: `${p.careerAverage.toFixed(2)}g`,
                                           spiele: p.gamesPlayed,
                                         }}
                                         onClickPlayer={() => {
@@ -9209,12 +9330,13 @@ const App: React.FC = () => {
                                         playerTitle={getPlayerTitle(p.playerName)}
                                         isGuest={isPlayerGuest(p.playerName)}
                                         gameMode="standard"
+                                        activeTab="schnapps"
+                                        viewMode="einzelspiel"
                                         stats={{
                                           schnaepse: p.schnaepse,
-                                          avg: `${p.avg.toFixed(2)}g`,
-                                          total: (p.avg + p.schnaepse).toFixed(2),
                                           date: p.date,
                                         }}
+                                        tournamentTag={p.tournament_name ? `[${p.tournament_name}${p.tournament_table ? ` - ${p.tournament_table}` : ''}]` : null}
                                         onClickPlayer={() => {
                                           playGlobalClickSound();
                                           setSelectedPlayerForDetails(p.playerName);
@@ -9391,8 +9513,9 @@ const App: React.FC = () => {
                                         playerTitle={getPlayerTitle(p.name)}
                                         isGuest={isPlayerGuest(p.name)}
                                         gameMode="standard"
+                                        activeTab="avg"
+                                        viewMode="gesamt"
                                         stats={{
-                                          schnaepse: p.avgSchnaepsePerGame.toFixed(2),
                                           avg: `${p.careerAverage.toFixed(2)}g`,
                                           spiele: p.gamesPlayed,
                                         }}
@@ -9417,12 +9540,13 @@ const App: React.FC = () => {
                                         playerTitle={getPlayerTitle(p.playerName)}
                                         isGuest={isPlayerGuest(p.playerName)}
                                         gameMode="standard"
+                                        activeTab="avg"
+                                        viewMode="einzelspiel"
                                         stats={{
-                                          schnaepse: p.schnaepse,
                                           avg: `${p.avg.toFixed(2)}g`,
-                                          total: (p.avg + p.schnaepse).toFixed(2),
                                           date: p.date,
                                         }}
+                                        tournamentTag={p.tournament_name ? `[${p.tournament_name}${p.tournament_table ? ` - ${p.tournament_table}` : ''}]` : null}
                                         onClickPlayer={() => {
                                           playGlobalClickSound();
                                           setSelectedPlayerForDetails(p.playerName);
@@ -9606,10 +9730,10 @@ const App: React.FC = () => {
                                           playerTitle={getPlayerTitle(p.name)}
                                           isGuest={isPlayerGuest(p.name)}
                                           gameMode="standard"
+                                          activeTab="total"
+                                          viewMode="gesamt"
                                           stats={{
-                                            schnaepse: p.avgSchnaepsePerGame.toFixed(2),
-                                            avg: `${p.careerAverage.toFixed(2)}g`,
-                                            total: careerTotalAvg.toFixed(2),
+                                            total: `${careerTotalAvg.toFixed(2)}g`,
                                             spiele: p.gamesPlayed,
                                           }}
                                           onClickPlayer={() => {
@@ -9634,12 +9758,13 @@ const App: React.FC = () => {
                                         playerTitle={getPlayerTitle(p.playerName)}
                                         isGuest={isPlayerGuest(p.playerName)}
                                         gameMode="standard"
+                                        activeTab="total"
+                                        viewMode="einzelspiel"
                                         stats={{
-                                          schnaepse: p.schnaepse,
-                                          avg: `${p.avg.toFixed(2)}g`,
-                                          total: (p.avg + p.schnaepse).toFixed(2),
+                                          total: `${(p.avg + p.schnaepse).toFixed(2)}g`,
                                           date: p.date,
                                         }}
+                                        tournamentTag={p.tournament_name ? `[${p.tournament_name}${p.tournament_table ? ` - ${p.tournament_table}` : ''}]` : null}
                                         onClickPlayer={() => {
                                           playGlobalClickSound();
                                           setSelectedPlayerForDetails(p.playerName);
@@ -9881,6 +10006,8 @@ const App: React.FC = () => {
                                     playerTitle={getPlayerTitle(p.name)}
                                     isGuest={isPlayerGuest(p.name)}
                                     gameMode={effectiveGameTab === 'Speedwiegen' ? 'speed' : 'standard'}
+                                    activeTab="avg"
+                                    viewMode="einzelspiel"
                                     stats={{
                                       avg: `${p.avg.toFixed(2)}g`,
                                       levels: effectiveGameTab === 'Speedwiegen' && p.levels !== undefined ? p.levels : undefined,
@@ -9958,6 +10085,8 @@ const App: React.FC = () => {
                                     playerTitle={getPlayerTitle(p.playerName)}
                                     isGuest={isPlayerGuest(p.playerName)}
                                     gameMode={effectiveGameTab === 'Speedwiegen' ? 'speed' : 'standard'}
+                                    activeTab={effectiveGameTab === 'Speedwiegen' ? 'speed' : 'schnapps'}
+                                    viewMode="einzelspiel"
                                     stats={{
                                       time: effectiveGameTab === 'Speedwiegen' ? `${(p.time_seconds ?? p.time ?? p.Time ?? 0).toFixed(1)}s` : undefined,
                                       schnaepse: effectiveGameTab !== 'Speedwiegen' ? p.schnaepse : undefined,

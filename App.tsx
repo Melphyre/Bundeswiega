@@ -5931,72 +5931,62 @@ const App: React.FC = () => {
                 <span>Turnier spielen</span>
               </button>
 
-              {/* 3. ZWEISPALTIGER BEREICH: Championswiegtabelle & Livestream nebeneinander (erhöht für optimale Lesbarkeit) */}
-              <div className="grid grid-cols-2 gap-3 w-full">
-                {/* Links: Championswiegtabelle */}
-                <div className="relative h-full">
-                  {/* Animierte Sternchen für Glitzer-Effekt */}
-                  <div className="absolute inset-0 pointer-events-none overflow-visible">
-                    <span className="absolute -top-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
-                    <span className="absolute -top-2.5 -right-1.5 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
-                    <span className="absolute -bottom-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
-                    <span className="absolute -bottom-2 -right-1.5 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isSignedIn) {
+              {/* 3. ZWEISPALTIGER BEREICH: Championswiegtabelle & Livestream nebeneinander (nur bei eingeloggten Accounts sichtbar) */}
+              {isSignedIn && (
+                <div className="grid grid-cols-2 gap-3 w-full">
+                  {/* Links: Championswiegtabelle */}
+                  <div className="relative h-full">
+                    {/* Animierte Sternchen für Glitzer-Effekt */}
+                    <div className="absolute inset-0 pointer-events-none overflow-visible">
+                      <span className="absolute -top-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
+                      <span className="absolute -top-2.5 -right-1.5 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
+                      <span className="absolute -bottom-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
+                      <span className="absolute -bottom-2 -right-1.5 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
                         setShowRecords(true);
                         fetchRecords();
-                      } else {
-                        setAuthMode('login');
-                        setAuthError(null);
-                        setShowAuthModal(true);
-                      }
+                      }}
+                      className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white relative z-10 cursor-pointer min-h-[100px] sm:min-h-[110px]"
+                      style={{ backgroundColor: GOLD_COLOR }}
+                    >
+                      <i className="fas fa-trophy text-amber-300 text-2xl sm:text-3xl mb-1.5 drop-shadow-sm"></i>
+                      <span className="text-xs sm:text-sm md:text-base font-extrabold leading-tight text-center tracking-tight">
+                        Championswieg-<br />tabelle
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Rechts: Livestream */}
+                  <button
+                    type="button"
+                    id="btn-spectator-mode"
+                    onClick={() => {
+                      setShowLiveGamesModal(true);
                     }}
-                    className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white relative z-10 cursor-pointer min-h-[100px] sm:min-h-[110px]"
-                    style={{ backgroundColor: GOLD_COLOR }}
+                    className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white cursor-pointer relative overflow-hidden min-h-[100px] sm:min-h-[110px]"
+                    style={{ backgroundColor: '#DC2626' }}
                   >
-                    <i className="fas fa-trophy text-amber-300 text-2xl sm:text-3xl mb-1.5 drop-shadow-sm"></i>
+                    <div className="flex items-center justify-center space-x-1.5 mb-1.5">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+                      </span>
+                      <i className="fas fa-satellite-dish text-red-100 text-2xl sm:text-3xl"></i>
+                      {activeFriendsGamesCount > 0 && (
+                        <span className="bg-white text-red-600 text-xs px-1.5 py-0.5 rounded-full font-black animate-pulse shadow-xs">
+                          {activeFriendsGamesCount}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs sm:text-sm md:text-base font-extrabold leading-tight text-center tracking-tight">
-                      Championswieg-<br />tabelle
+                      Livestream
                     </span>
                   </button>
                 </div>
-
-                {/* Rechts: Livestream */}
-                <button
-                  type="button"
-                  id="btn-spectator-mode"
-                  onClick={() => {
-                    if (isSignedIn) {
-                      setShowLiveGamesModal(true);
-                    } else {
-                      setAuthMode('login');
-                      setAuthError(null);
-                      setShowAuthModal(true);
-                    }
-                  }}
-                  className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white cursor-pointer relative overflow-hidden min-h-[100px] sm:min-h-[110px]"
-                  style={{ backgroundColor: '#DC2626' }}
-                >
-                  <div className="flex items-center justify-center space-x-1.5 mb-1.5">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-                    </span>
-                    <i className="fas fa-satellite-dish text-red-100 text-2xl sm:text-3xl"></i>
-                    {isSignedIn && activeFriendsGamesCount > 0 && (
-                      <span className="bg-white text-red-600 text-xs px-1.5 py-0.5 rounded-full font-black animate-pulse shadow-xs">
-                        {activeFriendsGamesCount}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs sm:text-sm md:text-base font-extrabold leading-tight text-center tracking-tight">
-                    Livestream
-                  </span>
-                </button>
-              </div>
+              )}
 
               {/* 4. UNTERER BEREICH: Volle Breite ("Regeln", ggf. Admin, "App auf Handy installieren") */}
               {/* Regeln */}

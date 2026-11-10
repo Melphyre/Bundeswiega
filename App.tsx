@@ -5880,65 +5880,139 @@ const App: React.FC = () => {
           <div className="text-center animate-in fade-in duration-700">
             <img src={LOGO_URL} className="w-64 h-64 mx-auto mb-12 drop-shadow-2xl" alt="Bundeswiega Logo" />
             <h1 className="text-5xl font-black mb-12 tracking-tighter uppercase" style={{ color: BRAND_COLOR }}>1. Bundeswiega</h1>
-            <div className="flex flex-col space-y-4 max-w-xs mx-auto">
-              <button onClick={startGame} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
-                <i className="fas fa-play"></i><span>Spiel starten</span>
+            <div className="flex flex-col space-y-3 w-full max-w-sm sm:max-w-md mx-auto px-4">
+              {/* 1. OBERER BEREICH: 2 Spalten (Links: Standardspiel hochkant, Rechts: Teamwiegen + Speedwiegen übereinander) */}
+              <div className="grid grid-cols-2 gap-3 w-full">
+                {/* Links: Große vertikale Kachel "Standardspiel starten" */}
+                <button
+                  onClick={startGame}
+                  className="flex flex-col items-center justify-center p-4 sm:p-5 rounded-3xl shadow-xl active:scale-95 transition-transform text-white font-black text-center cursor-pointer min-h-[160px] sm:min-h-[180px] h-full"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/15 flex items-center justify-center mb-2.5 sm:mb-3 shadow-inner">
+                    <i className="fas fa-play text-xl sm:text-2xl text-white ml-0.5"></i>
+                  </div>
+                  <span className="text-base sm:text-xl leading-tight font-extrabold tracking-tight">
+                    Standardspiel<br />starten
+                  </span>
+                </button>
+
+                {/* Rechts: Zwei übereinanderliegende Kacheln */}
+                <div className="flex flex-col gap-3 h-full">
+                  {/* Obere rechte Kachel: Teamwiegen */}
+                  <button
+                    onClick={startTeamwiegen}
+                    className="flex-1 flex items-center justify-center space-x-2 px-3 py-3 rounded-2xl shadow-lg active:scale-95 transition-transform text-white font-bold text-sm sm:text-base cursor-pointer"
+                    style={{ backgroundColor: DARK_GRAY }}
+                  >
+                    <i className="fas fa-users text-base sm:text-lg text-teal-300"></i>
+                    <span className="font-extrabold">Teamwiegen</span>
+                  </button>
+
+                  {/* Untere rechte Kachel: Speedwiegen */}
+                  <button
+                    onClick={startSpeedwiegen}
+                    className="flex-1 flex items-center justify-center space-x-2 px-3 py-3 rounded-2xl shadow-lg active:scale-95 transition-transform text-white font-bold text-sm sm:text-base cursor-pointer"
+                    style={{ backgroundColor: DARK_GRAY }}
+                  >
+                    <i className="fas fa-bolt text-base sm:text-lg text-yellow-300"></i>
+                    <span className="font-extrabold">Speedwiegen</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. MITTLERER BEREICH: Volle Breite ("Turnier spielen") */}
+              <button
+                onClick={() => { setShowTournamentOverview(true); fetchTournamentsList(); }}
+                className="w-full text-white font-extrabold py-3.5 sm:py-4 px-6 rounded-2xl shadow-xl active:scale-95 text-base sm:text-lg flex items-center justify-center space-x-2.5 cursor-pointer transition-transform"
+                style={{ backgroundColor: '#238183' }}
+              >
+                <i className="fas fa-trophy text-amber-300 text-lg sm:text-xl"></i>
+                <span>Turnier spielen</span>
               </button>
-              <button onClick={() => { setShowTournamentOverview(true); fetchTournamentsList(); }} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2 cursor-pointer" style={{ backgroundColor: '#238183' }}>
-                <i className="fas fa-trophy text-amber-300"></i><span>Turnier spielen</span>
-              </button>
-              <button onClick={startSpeedwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
-                <i className="fas fa-bolt"></i><span>Speedwiegen</span>
-              </button>
-              <button onClick={startTeamwiegen} className="text-white font-bold py-5 rounded-3xl shadow-xl active:scale-95 text-xl flex items-center justify-center space-x-2" style={{ backgroundColor: DARK_GRAY }}>
-                <i className="fas fa-users"></i><span>Teamwiegen</span>
-              </button>
-              {/* LIVE ZUSCHAUEN BUTTON (NUR FÜR EINGELOGGTE USER) */}
-              {isSignedIn && (
+
+              {/* 3. ZWEISPALTIGER BEREICH: Championswiegtabelle & Livestream nebeneinander (erhöht für optimale Lesbarkeit) */}
+              <div className="grid grid-cols-2 gap-3 w-full">
+                {/* Links: Championswiegtabelle */}
+                <div className="relative h-full">
+                  {/* Animierte Sternchen für Glitzer-Effekt */}
+                  <div className="absolute inset-0 pointer-events-none overflow-visible">
+                    <span className="absolute -top-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
+                    <span className="absolute -top-2.5 -right-1.5 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
+                    <span className="absolute -bottom-1.5 -left-1.5 text-white text-xs animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
+                    <span className="absolute -bottom-2 -right-1.5 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isSignedIn) {
+                        setShowRecords(true);
+                        fetchRecords();
+                      } else {
+                        setAuthMode('login');
+                        setAuthError(null);
+                        setShowAuthModal(true);
+                      }
+                    }}
+                    className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white relative z-10 cursor-pointer min-h-[100px] sm:min-h-[110px]"
+                    style={{ backgroundColor: GOLD_COLOR }}
+                  >
+                    <i className="fas fa-trophy text-amber-300 text-2xl sm:text-3xl mb-1.5 drop-shadow-sm"></i>
+                    <span className="text-xs sm:text-sm md:text-base font-extrabold leading-tight text-center tracking-tight">
+                      Championswieg-<br />tabelle
+                    </span>
+                  </button>
+                </div>
+
+                {/* Rechts: Livestream */}
                 <button
                   type="button"
                   id="btn-spectator-mode"
-                  onClick={() => setShowLiveGamesModal(true)}
-                  className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 transition-transform cursor-pointer relative overflow-hidden"
+                  onClick={() => {
+                    if (isSignedIn) {
+                      setShowLiveGamesModal(true);
+                    } else {
+                      setAuthMode('login');
+                      setAuthError(null);
+                      setShowAuthModal(true);
+                    }
+                  }}
+                  className="w-full h-full flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl shadow-lg active:scale-95 transition-transform text-white cursor-pointer relative overflow-hidden min-h-[100px] sm:min-h-[110px]"
                   style={{ backgroundColor: '#DC2626' }}
                 >
-                  <span className="relative flex h-3 w-3 mr-1">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
-                  </span>
-                  <i className="fas fa-satellite-dish mr-1 text-red-200"></i>
-                  <span>Live zuschauen</span>
-                  {activeFriendsGamesCount > 0 && (
-                    <span className="ml-2 bg-white text-red-600 text-xs px-2 py-0.5 rounded-full font-black animate-pulse shadow-xs">
-                      {activeFriendsGamesCount}
+                  <div className="flex items-center justify-center space-x-1.5 mb-1.5">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
                     </span>
-                  )}
-                </button>
-              )}
-              <button onClick={() => setShowRules(true)} className="text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2" style={{ backgroundColor: BRAND_COLOR }}>
-                <i className="fas fa-book"></i><span>Regeln</span>
-              </button>
-              {isSignedIn && (
-                <div className="relative inline-block w-full">
-                  {/* Animierte Sternchen für Glitzer-Effekt */}
-                  <div className="absolute inset-0 pointer-events-none overflow-visible">
-                    <span className="absolute -top-2 -left-2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.8s', animationDelay: '0s' }}>✦</span>
-                    <span className="absolute -top-3 -right-2 text-yellow-200 text-sm animate-twinkle" style={{ animationDuration: '2.3s', animationDelay: '0.4s' }}>✨</span>
-                    <span className="absolute -bottom-2 -left-3 text-white text-sm animate-twinkle" style={{ animationDuration: '1.5s', animationDelay: '0.8s' }}>✨</span>
-                    <span className="absolute -bottom-3 -right-1 text-yellow-100 text-xs animate-twinkle" style={{ animationDuration: '2.1s', animationDelay: '0.2s' }}>✦</span>
-                    <span className="absolute top-1/2 -left-4 -translate-y-1/2 text-white text-xs animate-twinkle" style={{ animationDuration: '1.9s', animationDelay: '0.6s' }}>✦</span>
-                    <span className="absolute top-1/2 -right-4 -translate-y-1/2 text-yellow-200 text-xs animate-twinkle" style={{ animationDuration: '2.5s', animationDelay: '1.1s' }}>✦</span>
+                    <i className="fas fa-satellite-dish text-red-100 text-2xl sm:text-3xl"></i>
+                    {isSignedIn && activeFriendsGamesCount > 0 && (
+                      <span className="bg-white text-red-600 text-xs px-1.5 py-0.5 rounded-full font-black animate-pulse shadow-xs">
+                        {activeFriendsGamesCount}
+                      </span>
+                    )}
                   </div>
-                  <button onClick={() => { setShowRecords(true); fetchRecords(); }} className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 relative z-10 cursor-pointer" style={{ backgroundColor: GOLD_COLOR }}>
-                    <i className="fas fa-trophy text-amber-300"></i><span>Championswieg Tabelle</span>
-                  </button>
-                </div>
-              )}
+                  <span className="text-xs sm:text-sm md:text-base font-extrabold leading-tight text-center tracking-tight">
+                    Livestream
+                  </span>
+                </button>
+              </div>
+
+              {/* 4. UNTERER BEREICH: Volle Breite ("Regeln", ggf. Admin, "App auf Handy installieren") */}
+              {/* Regeln */}
+              <button
+                onClick={() => setShowRules(true)}
+                className="w-full text-white font-extrabold py-3.5 sm:py-4 px-6 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform text-base sm:text-lg"
+                style={{ backgroundColor: BRAND_COLOR }}
+              >
+                <i className="fas fa-book text-lg sm:text-xl"></i>
+                <span>Regeln</span>
+              </button>
 
               {isAdmin && (
                 <button
                   onClick={openAdminPanel}
-                  className="w-full text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform"
+                  className="w-full text-white font-bold py-3.5 sm:py-4 rounded-2xl shadow-lg active:scale-95 flex items-center justify-center space-x-2 cursor-pointer transition-transform text-sm sm:text-base"
                   style={{ backgroundColor: '#DC2626' }}
                 >
                   <i className="fas fa-shield-alt"></i>
@@ -5946,9 +6020,9 @@ const App: React.FC = () => {
                 </button>
               )}
 
-              {/* App installieren Button – nur anzeigen wenn noch nicht installiert */}
+              {/* App auf Handy installieren (am ganz unteren Ende) */}
               {!isAppInstalled && gameState === GameState.START && (
-                <div className="w-full max-w-xs mx-auto mt-4">
+                <div className="w-full pt-1">
                   <button
                     onClick={() => {
                       if (isAndroid && deferredPrompt) {
@@ -5957,7 +6031,7 @@ const App: React.FC = () => {
                         setShowInstallModal(true);
                       }
                     }}
-                    className="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center space-x-2 border-2 transition-all active:scale-95 cursor-pointer"
+                    className="w-full py-3.5 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center space-x-2 border-2 transition-all active:scale-95 cursor-pointer bg-white/5 hover:bg-white/10"
                     style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
                   >
                     <i className="fas fa-download"></i>

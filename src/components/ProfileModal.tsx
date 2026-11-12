@@ -1426,6 +1426,18 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     completedQuestIds.push('l2_5_wins_standard');
                   }
 
+                  const pokerFaceCount = (myAchievementsData || []).filter((a: any) =>
+                    (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
+                    (a.unlocked || a.is_unlocked)
+                  ).length;
+                  const qpPoker = questProgresses.find(qp => qp.quest_id === 'l4_orange_poker_face');
+                  const pokerProgressFromQp = qpPoker ? (qpPoker.is_completed ? 5 : Number(qpPoker.current_progress || 0)) : 0;
+                  const effectivePokerCount = Math.max(pokerFaceCount, pokerProgressFromQp);
+
+                  if (levelInfo.level >= 4 && effectivePokerCount >= 5 && !completedQuestIds.includes('l4_orange_poker_face')) {
+                    completedQuestIds.push('l4_orange_poker_face');
+                  }
+
                   const unlockedAvatarFrames = getUnlockedAvatarFrames(levelInfo.level);
                   const unlockedColumnThemes = getUnlockedColumnThemes(levelInfo.level);
                   const unlockedRowThemes = getUnlockedRowThemes(levelInfo.level);
@@ -1477,12 +1489,18 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             <NameBgSelector
                               currentValue={selectedNameBgColor}
                               userLevel={levelInfo.level}
+                              userId={effectiveUserId || supabaseUser?.id}
                               unlockedContext={{
                                 completedQuestIds,
                                 achievementsCount: totalAchievementsCount,
                                 standardWins: standardWinsCount,
                                 unlockedColors: userUnlockedColors,
-                                unlockedPatterns: userUnlockedPatterns
+                                unlockedPatterns: userUnlockedPatterns,
+                                pokerFaceCount: effectivePokerCount,
+                                questProgresses,
+                                myGameData,
+                                myAchievementsData,
+                                userId: effectiveUserId || supabaseUser?.id
                               }}
                               playerName={profileUsername || supabaseUser?.user_metadata?.username || supabaseUser?.user_metadata?.display_name || 'Dein Name'}
                               activeGlow={selectedNameGlow}

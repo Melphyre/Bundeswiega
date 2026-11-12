@@ -7,6 +7,7 @@ import {
   parseNameBg,
   getUnlockedColors,
   getUnlockedAnimations,
+  isColorUnlocked,
   NameBgColorOption,
   NameBgAnimationOption
 } from '../constants/nameTagConfig';
@@ -15,12 +16,18 @@ import { PlayerNameTag } from './PlayerNameTag';
 export interface NameBgSelectorProps {
   currentValue?: string | null;
   userLevel: number;
+  userId?: string;
   unlockedContext?: {
     completedQuestIds?: string[];
     achievementsCount?: number;
     standardWins?: number;
     unlockedColors?: string[];
     unlockedPatterns?: string[];
+    pokerFaceCount?: number;
+    questProgresses?: any[];
+    myGameData?: any[];
+    myAchievementsData?: any[];
+    userId?: string;
   };
   playerName?: string;
   activeGlow?: string | null;
@@ -33,6 +40,7 @@ export interface NameBgSelectorProps {
 export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
   currentValue,
   userLevel,
+  userId,
   unlockedContext,
   playerName = 'Spieler',
   activeGlow,
@@ -53,14 +61,22 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
     setSelectedAnimation(parsed.animationId);
   }, [currentValue]);
 
-  // WICHTIG: Immer NUR freigeschaltete Farben und Animationen anzeigen!
-  const unlockedAnimations: NameBgAnimationOption[] = getUnlockedAnimations(userLevel, unlockedContext);
-  const unlockedColors: NameBgColorOption[] = getUnlockedColors(userLevel, unlockedContext);
+  const effectiveUnlockedContext = {
+    ...unlockedContext,
+    userId: userId || unlockedContext?.userId
+  };
+
+  // Freigeschaltete Animationen und Farben
+  const unlockedAnimations: NameBgAnimationOption[] = getUnlockedAnimations(userLevel, effectiveUnlockedContext);
+  const unlockedColors: NameBgColorOption[] = getUnlockedColors(userLevel, effectiveUnlockedContext);
 
   // Echte Animationen/Muster (außer dem Standard "Keine")
   const totalSpecialAnimationsCount = NAME_BG_ANIMATIONS.filter(a => a.id !== 'none').length;
   const unlockedSpecialAnimations = unlockedAnimations.filter(a => a.id !== 'none');
   const hasUnlockedAnimations = unlockedSpecialAnimations.length > 0;
+
+  // Swatches für das Grid: Nur noch freigeschaltete Farben rendern (gesperrte Farben komplett ausblenden)
+  const displayColors = unlockedColors;
 
   // Falls die aktuell gespeicherte Farbe oder Animation noch nicht freigeschaltet ist, Fallback auf freigeschaltete
   const activeColorMatch = unlockedColors.find(c => c.id === selectedColor) || unlockedColors[0] || NAME_BG_COLORS[0];
@@ -170,15 +186,17 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
             </span>
           </div>
 
-          {/* Grid der Farbkätchen */}
+          {/* Grid der Farbkärtchen */}
+          {/* Grid der Farbkärtchen (nur freigeschaltete Farben rendern) */}
           <div className={`grid gap-2 p-1 max-h-[170px] overflow-y-auto ${
             hasUnlockedAnimations
               ? 'grid-cols-5 sm:grid-cols-6 md:grid-cols-5 lg:grid-cols-8'
               : 'grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12'
           }`}>
-            {unlockedColors.map((col) => {
+            {displayColors.map((col) => {
               const isSelected = selectedColor === col.id;
               const isNone = col.id === 'none';
+              const tooltipText = isNone ? 'Kein Hintergrund' : `${col.label} (Freigeschaltet)`;
 
               return (
                 <button
@@ -186,8 +204,8 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
                   type="button"
                   onClick={() => handleColorChange(col.id)}
                   disabled={disabled}
-                  title={`${col.label}${col.requiredLevel > 0 ? ` (ab Level ${col.requiredLevel})` : ''}`}
-                  className={`group relative h-9 w-9 rounded-xl flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 focus:outline-hidden ${
+                  title={tooltipText}
+                  className={`group relative h-9 w-9 rounded-xl flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 cursor-pointer focus:outline-hidden ${
                     isSelected
                       ? 'ring-3 ring-offset-2 ring-teal-400 scale-105 z-10 shadow-lg'
                       : 'hover:opacity-90 opacity-80'
@@ -196,7 +214,9 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
                   }`}
                   style={{
                     backgroundColor: isNone ? 'transparent' : col.bgHex,
-                    border: isNone ? '2px dashed rgba(150, 150, 150, 0.5)' : `2px solid ${col.borderHex || 'rgba(255,255,255,0.2)'}`
+                    border: isNone
+                      ? '2px dashed rgba(150, 150, 150, 0.5)'
+                      : `2px solid ${col.borderHex || 'rgba(255,255,255,0.2)'}`
                   }}
                 >
                   {isNone ? (
@@ -211,8 +231,8 @@ export const NameBgSelector: React.FC<NameBgSelectorProps> = ({
                   ) : null}
 
                   {/* Tooltip on hover */}
-                  <span className="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 z-30">
-                    {col.label}
+                  <span className="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-xl transition-opacity group-hover:opacity-100 z-50 border border-slate-700">
+                    {tooltipText}
                   </span>
                 </button>
               );

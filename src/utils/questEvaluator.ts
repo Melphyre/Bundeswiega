@@ -32,7 +32,8 @@ export interface QuestDefinition {
     | 'speed_time_sub100_count'
     | 'ach_knapp_daneben_count'
     | 'ach_kopfrechner_count'
-    | 'ach_scharfschuetze_count';
+    | 'ach_scharfschuetze_count'
+    | 'poker_face_count';
   targetValue: number;
   gameMode?: string;
   threshold?: number;
@@ -60,8 +61,8 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
   { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
   { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
-  // Neue Level-2 Quests (Einfarbige & animierte Hintergründe):
-  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel', colorReward: 'neon_orange', rewardDescription: 'Hintergrundfarbe Neon-Orange' },
+  // Neue Level-2 Quests:
+  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel' },
   { id: 'l2_royal_blue', level: 2, title: 'Erreiche 3x einen Durchschnitt < 3 Gramm', xpReward: 15, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 3, colorReward: 'royal_blue', rewardDescription: 'Hintergrundfarbe Königsblau' },
   { id: 'l2_deep_purple', level: 2, title: 'Nimm an 5 Teamwiegen teil', xpReward: 15, metric: 'teamwiegen_count', targetValue: 5, targetCount: 5, colorReward: 'deep_purple', rewardDescription: 'Hintergrundfarbe Purpur' },
   { id: 'l2_toxic_green', level: 2, title: 'Spiele 5 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Speedwiegen', colorReward: 'toxic_green', rewardDescription: 'Hintergrundfarbe Giftgrün' },
@@ -165,6 +166,18 @@ export const LEVEL_QUESTS: QuestDefinition[] = [
     targetCount: 10, 
     animationReward: 'waves', 
     rewardDescription: 'Animation: Wasser & Wellen' 
+  },
+  // Level-4 Quest: Namenshintergrund Orange
+  { 
+    id: 'l4_orange_poker_face', 
+    level: 4, 
+    title: 'Poker Face Meister: Erhalte 5x das Achievement "Poker Face"', 
+    xpReward: 25, 
+    metric: 'poker_face_count', 
+    targetValue: 5, 
+    targetCount: 5,
+    colorReward: 'neon_orange',
+    rewardDescription: 'Hintergrundfarbe Orange' 
   },
   // Level-4 Quests für gestaffelte Namensschild-Rahmenfarben (Swatches)
   { 
@@ -431,11 +444,12 @@ export interface UserQuestCounters {
   ach_knapp_daneben: number;
   ach_kopfrechner: number;
   ach_scharfschuetze: number;
+  pokerFace: number;
 }
 
 export function recordQuestStat(
   userId: string,
-  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count' | 'exact_five_g_count' | 'strategist_count' | 'ach_67_count' | 'speed_avg_sub5_count' | 'speed_time_sub100_count' | 'ach_knapp_daneben_count' | 'ach_kopfrechner_count' | 'ach_scharfschuetze_count',
+  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count' | 'exact_five_g_count' | 'strategist_count' | 'ach_67_count' | 'speed_avg_sub5_count' | 'speed_time_sub100_count' | 'ach_knapp_daneben_count' | 'ach_kopfrechner_count' | 'ach_scharfschuetze_count' | 'poker_face_count',
   amount: number = 1
 ): number {
   if (!userId) return 0;
@@ -657,6 +671,20 @@ export function getUserQuestCounters(
     if (matchSharp > 0) ach_scharfschuetze = Math.max(ach_scharfschuetze, matchSharp);
   }
 
+  // 12. pokerFace: 5x Achievement "Poker Face" ("poker_face")
+  let pokerFace = Number(directUserQuests?.pokerFace ?? stats.poker_face_count ?? stats.poker_face ?? 0);
+  const qpPoker = questProgresses?.find(qp => qp.quest_id === 'l4_orange_poker_face');
+  if (qpPoker) {
+    pokerFace = Math.max(pokerFace, Number(qpPoker.current_progress) || (qpPoker.is_completed ? 5 : 0));
+  }
+  if (myAchievementsData) {
+    const matchPoker = myAchievementsData.filter(a =>
+      (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
+      (a.unlocked || a.is_unlocked)
+    ).length;
+    if (matchPoker > 0) pokerFace = Math.max(pokerFace, matchPoker);
+  }
+
   return {
     schnapszahl,
     hunderter,
@@ -668,7 +696,8 @@ export function getUserQuestCounters(
     speed_time_sub100,
     ach_knapp_daneben,
     ach_kopfrechner,
-    ach_scharfschuetze
+    ach_scharfschuetze,
+    pokerFace
   };
 }
 
@@ -1036,6 +1065,14 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           const stats = getStoredQuestStats(userId);
           let count = Number(stats.strategist_count) || 0;
           if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
+          progress = Math.max(progress, currentStored, count);
+          break;
+        }
+
+        case 'poker_face_count': {
+          const stats = getStoredQuestStats(userId);
+          let count = Number(stats.poker_face_count || stats.poker_face) || 0;
+          if (userAchievementIds.has('poker_face') || userAchievementIds.has('pokerface')) count = Math.max(count, 1);
           progress = Math.max(progress, currentStored, count);
           break;
         }

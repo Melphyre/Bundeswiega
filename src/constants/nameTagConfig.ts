@@ -129,15 +129,15 @@ export const NAME_BG_COLORS: NameBgColorOption[] = [
   },
   {
     id: 'neon_orange',
-    label: 'Neon-Orange',
+    label: 'Orange',
     bgHex: '#FF5E00',
     textHex: '#FFFFFF',
     borderHex: '#EA580C',
     cssClasses: 'bg-[#FF5E00] text-white shadow-md shadow-[#FF5E00]/40 border border-[#EA580C]',
     textCssClasses: 'text-white font-black',
-    requiredLevel: 2,
-    requiredQuestId: 'l2_neon_orange',
-    unlockConditionText: 'Quest: Spiele 8 Standardspiele'
+    requiredLevel: 4,
+    requiredQuestId: 'l4_orange_poker_face',
+    unlockConditionText: "Quest: Erhalte 5x das Achievement 'Poker Face'"
   },
   {
     id: 'royal_blue',
@@ -729,19 +729,90 @@ export const isColorUnlocked = (
     achievementsCount?: number;
     standardWins?: number;
     unlockedColors?: string[];
+    pokerFaceCount?: number;
+    questProgresses?: any[];
+    myAchievementsData?: any[];
+    userId?: string;
   }
-): { unlocked: boolean; reason?: string } => {
+): { unlocked: boolean; reason?: string; progress?: number; target?: number; requiredLevel?: number } => {
   const clean = (colorId || '').trim().toLowerCase();
   const aliasResolved = COLOR_ALIAS_MAP[clean] || clean;
   if (!aliasResolved || aliasResolved === 'none') return { unlocked: true };
+
+  const opt = NAME_BG_COLORS.find(c => c.id === aliasResolved);
+  if (!opt) return { unlocked: false, reason: 'Unbekannte Farbe' };
+
+  // Spezielle Freischalt- und Sperrlogik für die Namenshintergrund-Farbe Orange (neon_orange)
+  if (opt.id === 'neon_orange') {
+    // 1. Level-Voraussetzung: Erst ab Nutzer-Level 4 verfügbar bzw. sichtbar
+    if (userLevel < 4) {
+      return {
+        unlocked: false,
+        reason: 'Wird erst ab Level 4 freigeschaltet.',
+        progress: 0,
+        target: 5,
+        requiredLevel: 4
+      };
+    }
+
+    // 2. Explizit freigeschaltet (z. B. im Profil gespeichert)
+    if (
+      unlockedContext?.unlockedColors?.includes('neon_orange') ||
+      unlockedContext?.unlockedColors?.includes('orange') ||
+      unlockedContext?.completedQuestIds?.includes('l4_orange_poker_face')
+    ) {
+      return { unlocked: true, progress: 5, target: 5, requiredLevel: 4 };
+    }
+
+    // 3. Ermittle Poker Face Zähler (0 bis 5)
+    let pokerCount = unlockedContext?.pokerFaceCount ?? 0;
+    if (unlockedContext?.questProgresses && Array.isArray(unlockedContext.questProgresses)) {
+      const qp = unlockedContext.questProgresses.find(
+        (q: any) => q.quest_id === 'l4_orange_poker_face' || q.quest_id === 'l4_quest_poker_face'
+      );
+      if (qp) {
+        pokerCount = Math.max(pokerCount, qp.is_completed ? 5 : Number(qp.current_progress || 0));
+      }
+    }
+    if (unlockedContext?.myAchievementsData && Array.isArray(unlockedContext.myAchievementsData)) {
+      const pokerAch = unlockedContext.myAchievementsData.filter(
+        (a: any) =>
+          (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
+          (a.unlocked || a.is_unlocked)
+      );
+      if (pokerAch.length > 0) {
+        pokerCount = Math.max(pokerCount, pokerAch.length);
+      }
+    }
+    if (unlockedContext?.userId) {
+      try {
+        const rawStats = localStorage.getItem(`bundeswiega_quest_stats_${unlockedContext.userId}`);
+        if (rawStats) {
+          const parsedStats = JSON.parse(rawStats);
+          pokerCount = Math.max(pokerCount, Number(parsedStats.poker_face_count || parsedStats.poker_face || 0));
+        }
+      } catch {}
+    }
+
+    pokerCount = Math.min(5, Math.max(0, pokerCount));
+
+    if (pokerCount >= 5) {
+      return { unlocked: true, progress: 5, target: 5, requiredLevel: 4 };
+    }
+
+    return {
+      unlocked: false,
+      reason: `Freischaltbar über Quest: Erhalte 5x das Achievement 'Poker Face' (Fortschritt: ${pokerCount}/5).`,
+      progress: pokerCount,
+      target: 5,
+      requiredLevel: 4
+    };
+  }
 
   // Explizit in freigeschalteten Farben
   if (unlockedContext?.unlockedColors?.includes(aliasResolved)) {
     return { unlocked: true };
   }
-
-  const opt = NAME_BG_COLORS.find(c => c.id === aliasResolved);
-  if (!opt) return { unlocked: false, reason: 'Unbekannte Farbe' };
 
   if (opt.requiredQuestId) {
     if (unlockedContext?.completedQuestIds?.includes(opt.requiredQuestId)) {

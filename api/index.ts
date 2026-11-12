@@ -515,8 +515,8 @@ const SERVER_LEVEL_QUESTS = [
   { id: 'l2_5x_sub4_schnaepse', level: 2, title: 'Spiele 5 Spiele mit weniger als 4 Schnäppse', xpReward: 10, metric: 'max_schnaepse', targetValue: 3, threshold: 3, targetCount: 5 },
   { id: 'l2_50_achievements', level: 2, title: 'Sammle 50 Achievements', xpReward: 20, metric: 'achievements_count', targetValue: 50, targetCount: 50, colorReward: 'pink', rewardDescription: 'Hintergrundfarbe Rosa' },
   { id: 'l2_5_wins_standard', level: 2, title: 'Gewinne 5 Standardspiele', xpReward: 20, metric: 'wins_count', targetValue: 5, targetCount: 5, gameMode: 'Standardspiel', colorReward: 'turquoise', rewardDescription: 'Hintergrundfarbe Türkis' },
-  // Neue Level-2 Quests (Einfarbige & animierte Hintergründe):
-  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel', colorReward: 'neon_orange', rewardDescription: 'Hintergrundfarbe Neon-Orange' },
+  // Neue Level-2 Quests:
+  { id: 'l2_neon_orange', level: 2, title: 'Spiele 8 Standardspiele', xpReward: 15, metric: 'games_count', targetValue: 8, targetCount: 8, gameMode: 'Standardspiel' },
   { id: 'l2_royal_blue', level: 2, title: 'Erreiche 3x einen Durchschnitt < 3 Gramm', xpReward: 15, metric: 'avg_less_than', targetValue: 3.0, threshold: 3.0, targetCount: 3, colorReward: 'royal_blue', rewardDescription: 'Hintergrundfarbe Königsblau' },
   { id: 'l2_deep_purple', level: 2, title: 'Nimm an 5 Teamwiegen teil', xpReward: 15, metric: 'teamwiegen_count', targetValue: 5, targetCount: 5, colorReward: 'deep_purple', rewardDescription: 'Hintergrundfarbe Purpur' },
   { id: 'l2_toxic_green', level: 2, title: 'Spiele 5 Speedwiegen', xpReward: 20, metric: 'games_count', targetValue: 5, targetCount: 5, gameMode: 'Speedwiegen', colorReward: 'toxic_green', rewardDescription: 'Hintergrundfarbe Giftgrün' },
@@ -619,6 +619,18 @@ const SERVER_LEVEL_QUESTS = [
     targetCount: 10, 
     animationReward: 'waves', 
     rewardDescription: 'Animation: Wasser & Wellen' 
+  },
+  // Level-4 Quest: Namenshintergrund Orange
+  { 
+    id: 'l4_orange_poker_face', 
+    level: 4, 
+    title: 'Poker Face Meister: Erhalte 5x das Achievement "Poker Face"', 
+    xpReward: 25, 
+    metric: 'poker_face_count', 
+    targetValue: 5, 
+    targetCount: 5, 
+    colorReward: 'neon_orange', 
+    rewardDescription: 'Hintergrundfarbe Orange' 
   },
   // Level-4 Quests für gestaffelte Namensschild-Rahmenfarben (Swatches)
   { 
@@ -1103,6 +1115,13 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
           break;
         }
 
+        case 'poker_face_count': {
+          let count = storedProgress + metricInc;
+          if (userAchievementIds.has('poker_face') || userAchievementIds.has('pokerface')) count = Math.max(count, 1);
+          progress = Math.max(progress, count);
+          break;
+        }
+
         case 'ach_67_count': {
           let count = storedProgress + metricInc;
           if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
@@ -1540,6 +1559,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         if (achId === 'schnapps_hunter' || achId === 'triple_seven') roundIncrements.schnapszahl_count = (roundIncrements.schnapszahl_count || 0) + 1;
         if (achId === 'round_number') roundIncrements.hundreds_count = (roundIncrements.hundreds_count || 0) + 1;
         if (achId === 'bullseye_king' || achId === 'prophet' || achId === 'perfect_balance') roundIncrements.perfect_hits_count = (roundIncrements.perfect_hits_count || 0) + 1;
+        if (achId === 'poker_face' || achId === 'pokerface') roundIncrements.poker_face_count = (roundIncrements.poker_face_count || 0) + 1;
       }
     }
 

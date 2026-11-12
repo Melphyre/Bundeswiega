@@ -4259,6 +4259,7 @@ const App: React.FC = () => {
               if (ach.id === 'schnapps_hunter' || ach.id === 'triple_seven') recordQuestStat(targetUserId, 'schnapszahl_count', 1);
               if (ach.id === 'round_number') recordQuestStat(targetUserId, 'hundreds_count', 1);
               if (ach.id === 'bullseye_king' || ach.id === 'prophet' || ach.id === 'perfect_balance') recordQuestStat(targetUserId, 'perfect_hits_count', 1);
+              if (ach.id === 'poker_face' || ach.id === 'pokerface') recordQuestStat(targetUserId, 'poker_face_count', 1);
             }
           });
         });
@@ -4573,6 +4574,7 @@ const App: React.FC = () => {
                 if (ach.id === 'schnapps_hunter' || ach.id === 'triple_seven') recordQuestStat(targetUserId, 'schnapszahl_count', 1);
                 if (ach.id === 'round_number') recordQuestStat(targetUserId, 'hundreds_count', 1);
                 if (ach.id === 'bullseye_king' || ach.id === 'prophet' || ach.id === 'perfect_balance') recordQuestStat(targetUserId, 'perfect_hits_count', 1);
+                if (ach.id === 'poker_face' || ach.id === 'pokerface') recordQuestStat(targetUserId, 'poker_face_count', 1);
               }
             });
           });

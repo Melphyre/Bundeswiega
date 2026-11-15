@@ -38,7 +38,7 @@ import {
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
 import { QuestList, QuestProgress } from './QuestList';
-import { processQuestsForUser } from '../utils/questEvaluator';
+import { processQuestsForUser, getQuestEventTimestampMs } from '../utils/questEvaluator';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -1414,27 +1414,63 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                   })();
 
                   const completedQuestIds = questProgresses.filter(qp => qp.is_completed).map(qp => qp.quest_id);
-                  const totalAchievementsCount = (myAchievementsData || []).filter((a: any) => a.unlocked || a.is_unlocked).length;
-                  if (totalAchievementsCount >= 50 && !completedQuestIds.includes('l2_50_achievements')) {
+
+                  const qpAch50 = questProgresses.find(qp => qp.quest_id === 'l2_50_achievements');
+                  const ach50StartMs = qpAch50?.created_at ? getQuestEventTimestampMs({ created_at: qpAch50.created_at }) : null;
+                  const totalAchievementsCount = qpAch50
+                    ? (qpAch50.is_completed
+                        ? 50
+                        : Math.max(
+                            Number(qpAch50.current_progress || 0),
+                            ach50StartMs !== null
+                              ? (myAchievementsData || []).filter((a: any) => {
+                                  if (!(a.unlocked || a.is_unlocked)) return false;
+                                  const ts = getQuestEventTimestampMs(a);
+                                  return ts !== null && ts >= ach50StartMs;
+                                }).length
+                              : 0
+                          ))
+                    : 0;
+                  if (qpAch50 && totalAchievementsCount >= 50 && !completedQuestIds.includes('l2_50_achievements')) {
                     completedQuestIds.push('l2_50_achievements');
                   }
-                  const standardWinsCount = (myGameData || []).filter((g: any) => {
-                    const norm = matchesGameMode(g.game_mode, 'Standardspiel');
-                    return norm && (g.is_winner || g.rank === 1 || g.won);
-                  }).length;
-                  if (standardWinsCount >= 5 && !completedQuestIds.includes('l2_5_wins_standard')) {
+
+                  const qpStdWins = questProgresses.find(qp => qp.quest_id === 'l2_5_wins_standard');
+                  const stdWinsStartMs = qpStdWins?.created_at ? getQuestEventTimestampMs({ created_at: qpStdWins.created_at }) : null;
+                  const standardWinsCount = qpStdWins
+                    ? (qpStdWins.is_completed
+                        ? 5
+                        : Math.max(
+                            Number(qpStdWins.current_progress || 0),
+                            stdWinsStartMs !== null
+                              ? (myGameData || []).filter((g: any) => {
+                                  const norm = matchesGameMode(g.game_mode, 'Standardspiel');
+                                  if (!norm || !(g.is_winner || g.rank === 1 || g.won)) return false;
+                                  const ts = getQuestEventTimestampMs(g);
+                                  return ts !== null && ts >= stdWinsStartMs;
+                                }).length
+                              : 0
+                          ))
+                    : 0;
+                  if (qpStdWins && standardWinsCount >= 5 && !completedQuestIds.includes('l2_5_wins_standard')) {
                     completedQuestIds.push('l2_5_wins_standard');
                   }
 
-                  const pokerFaceCount = (myAchievementsData || []).filter((a: any) =>
-                    (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
-                    (a.unlocked || a.is_unlocked)
-                  ).length;
-                  const qpPoker = questProgresses.find(qp => qp.quest_id === 'l4_orange_poker_face');
+                  const qpPoker = questProgresses.find(qp => qp.quest_id === 'l4_orange_poker_face' || qp.quest_id === 'l4_quest_poker_face');
+                  const pokerStartMs = qpPoker?.created_at ? getQuestEventTimestampMs({ created_at: qpPoker.created_at }) : null;
+                  const pokerFaceCount = (qpPoker && pokerStartMs !== null)
+                    ? (myAchievementsData || []).filter((a: any) => {
+                        if (!((a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') && (a.unlocked || a.is_unlocked))) {
+                          return false;
+                        }
+                        const ts = getQuestEventTimestampMs(a);
+                        return ts !== null && ts >= pokerStartMs;
+                      }).length
+                    : 0;
                   const pokerProgressFromQp = qpPoker ? (qpPoker.is_completed ? 5 : Number(qpPoker.current_progress || 0)) : 0;
-                  const effectivePokerCount = Math.max(pokerFaceCount, pokerProgressFromQp);
+                  const effectivePokerCount = qpPoker ? Math.max(pokerFaceCount, pokerProgressFromQp) : 0;
 
-                  if (levelInfo.level >= 4 && effectivePokerCount >= 5 && !completedQuestIds.includes('l4_orange_poker_face')) {
+                  if (levelInfo.level >= 4 && qpPoker && effectivePokerCount >= 5 && !completedQuestIds.includes('l4_orange_poker_face')) {
                     completedQuestIds.push('l4_orange_poker_face');
                   }
 

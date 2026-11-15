@@ -115,7 +115,7 @@ html, body {
       0 0 16px color-mix(in srgb, var(--glow-color, #3b82f6) 80%, transparent),
       0 0 30px color-mix(in srgb, var(--glow-color, #3b82f6) 50%, transparent),
       inset 0 0 6px color-mix(in srgb, var(--glow-color, #3b82f6) 50%, transparent);
-    border-color: color-mix(in srgb, var(--glow-color, #3b82f6) 80%, #ffffff) !important;
+    border-color: color-mix(in srgb, var(--glow-color, #3b82f6) 80%, #ffffff);
   }
   50% {
     box-shadow: 
@@ -123,7 +123,7 @@ html, body {
       0 0 28px var(--glow-color, #3b82f6),
       0 0 48px color-mix(in srgb, var(--glow-color, #3b82f6) 75%, transparent),
       inset 0 0 10px color-mix(in srgb, var(--glow-color, #3b82f6) 70%, #ffffff);
-    border-color: #ffffff !important;
+    border-color: #ffffff;
   }
 }
 
@@ -142,8 +142,15 @@ html, body {
   animation: dynamicNeonGlowPulse 1.8s infinite ease-in-out !important;
   border-width: 2px !important;
   border-style: solid !important;
+  border-color: var(--glow-color, #3b82f6);
   position: relative !important;
   z-index: 2;
+}
+
+/* Innerer Hintergrund innerhalb eines mehrschichtigen Außenrahmens */
+.name-tag-inner-bg {
+  border: none !important;
+  box-shadow: none !important;
 }
 
 /* 2. Laufender Laser-Rahmen */
@@ -1212,6 +1219,9 @@ html, body {
     radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 20%, transparent) 0%, transparent 80%) !important;
   background-size: 4px 4px, 4px 4px, 4px 4px, 4px 4px, 100% 100% !important;
   background-position: 0 0, 0 2px, 2px -2px, -2px 0px, 0 0 !important;
+}
+
+:is(.name-anim-carbon, .carbon-effect-container):not(.name-frame-neon-glow):not(.name-frame-simple-border):not(.name-frame-laser-pulse):not(.name-tag-inner-bg) {
   border: 1px solid color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 65%, #333333) !important;
   box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.85),
               0 0 8px color-mix(in srgb, var(--selected-color, var(--name-accent-color, #22c55e)) 28%, transparent) !important;
@@ -1298,6 +1308,9 @@ html, body {
   position: relative !important;
   overflow: hidden !important;
   background-color: #06060a !important;
+}
+
+.name-anim-cyberpunk:not(.name-frame-neon-glow):not(.name-frame-simple-border):not(.name-frame-laser-pulse):not(.name-tag-inner-bg) {
   border-color: var(--name-accent-color, #ff0055) !important;
 }
 
@@ -1365,6 +1378,9 @@ html, body {
   overflow: hidden !important;
   /* Subtiler farbiger Nebel im Zentrum für intensive Farbtiefe */
   background-image: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--selected-color, var(--name-accent-color, #ef4444)) 35%, transparent) 0%, transparent 80%) !important;
+}
+
+:is(.name-anim-glitter, .glitter-effect-container):not(.name-frame-neon-glow):not(.name-frame-simple-border):not(.name-frame-laser-pulse):not(.name-tag-inner-bg) {
   border: 1.5px solid var(--selected-color, var(--name-accent-color, #ef4444)) !important;
   box-shadow: 
     0 0 10px color-mix(in srgb, var(--selected-color, var(--name-accent-color, #ef4444)) 45%, transparent),
@@ -1484,8 +1500,11 @@ html, body {
   position: relative !important;
   overflow: hidden !important;
   background-color: #000000 !important;
-  border-color: var(--selected-color, var(--name-accent-color, #22c55e)) !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+:is(.name-anim-matrix, .matrix-effect-container):not(.name-frame-neon-glow):not(.name-frame-simple-border):not(.name-frame-laser-pulse):not(.name-tag-inner-bg) {
+  border-color: var(--selected-color, var(--name-accent-color, #22c55e)) !important;
 }
 
 /* Entfernt eventuelle alte Pseudo-Hintergründe */
@@ -1786,6 +1805,9 @@ html, body {
   background-color: #000000 !important;
   position: relative !important;
   overflow: hidden !important;
+}
+
+:is(.name-anim-snow, .snow-effect-container):not(.name-frame-neon-glow):not(.name-frame-simple-border):not(.name-frame-laser-pulse):not(.name-tag-inner-bg) {
   /* Kräftiger, leuchtender Rahmen in der Spielerfarbe */
   border: 1.5px solid color-mix(in srgb, var(--selected-color, var(--name-accent-color, #38bdf8)) 80%, #ffffff) !important;
   box-shadow: 

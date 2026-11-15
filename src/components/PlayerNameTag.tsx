@@ -91,6 +91,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
   const glowClass = hasGlow ? glowOption.glowClass : '';
   const isLaser = hasGlow && glowOption.patternId === 'laser-pulse';
   const isSpecialBg = bgOption.cssClasses.includes('name-bg-') || bgOption.cssClasses.includes('bg-gradient');
+  const cleanBgStyle: React.CSSProperties = hasBg && bgOption.style
+    ? (() => {
+        if (!hasGlow) return bgOption.style;
+        const { boxShadow: _bs, borderColor: _bc, ...rest } = bgOption.style;
+        return rest;
+      })()
+    : {};
 
   const tooltipText = [
     hasBg ? `Hintergrund: ${bgOption.label}` : '',
@@ -311,13 +318,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -475,13 +482,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -610,13 +617,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -690,13 +697,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800/80'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -768,13 +775,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
               : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-900'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -915,13 +922,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
               : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -1015,13 +1022,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
               : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#040711',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -1069,13 +1076,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
             vertical ? 'px-1.5 py-1.5 flex flex-col items-center justify-center min-w-[24px]' : 'px-2.5 py-0.5 inline-flex items-center'
           } font-black tracking-wide shadow-xs ${
             hasBg
-              ? bgOption.cssClasses
+              ? `${bgOption.cssClasses} name-tag-inner-bg`
               : 'bg-black dark:bg-slate-950 text-white border border-slate-800'
           }`}
           style={{
             backgroundColor: hasBg ? (isSpecialBg ? undefined : bgOption.bgHex) : '#06080f',
             color: hasBg ? bgOption.textHex : undefined,
-            ...(hasBg ? (bgOption.style || {}) : {})
+            ...cleanBgStyle
           }}
         >
           {renderInnerContent()}
@@ -1126,7 +1133,7 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
       style={{
         backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
         color: bgOption.textHex,
-        ...(bgOption.style || {}),
+        ...cleanBgStyle,
         ...(hasGlow ? { borderColor: glowOption.colorHex, ['--glow-color' as any]: glowOption.colorHex } : {}),
         ...style
       }}

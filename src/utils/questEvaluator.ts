@@ -422,13 +422,115 @@ export function getQuestTarget(quest: QuestDefinition): number {
   return 1;
 }
 
-export function getStoredQuestStats(userId: string): Record<string, number> {
+export type QuestStatMetric =
+  | 'perfect_hits_count'
+  | 'schnapszahl_count'
+  | 'same_weight_count'
+  | 'hundreds_count'
+  | 'exact_five_g_count'
+  | 'strategist_count'
+  | 'ach_67_count'
+  | 'speed_avg_sub5_count'
+  | 'speed_time_sub100_count'
+  | 'ach_knapp_daneben_count'
+  | 'ach_kopfrechner_count'
+  | 'ach_scharfschuetze_count'
+  | 'poker_face_count';
+
+interface TimestampedQuestEvent {
+  metric: string;
+  amount: number;
+  ts: number;
+}
+
+/**
+ * Parst den Zeitstempel eines Spiels oder Achievements in Epoch-Millisekunden.
+ * Gibt null zurück, wenn kein gültiges Datum vorhanden ist (verhindert rückwirkende Anrechnung).
+ */
+export function getQuestEventTimestampMs(record: any): number | null {
+  if (!record) return null;
+  const iso = record.created_at || record.timestamp;
+  if (iso) {
+    const parsed = new Date(iso).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (typeof record.date === 'string' && record.date.trim()) {
+    const d = record.date.trim();
+    const deMatch = d.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (deMatch) {
+      const parsed = new Date(Date.UTC(Number(deMatch[3]), Number(deMatch[2]) - 1, Number(deMatch[1]), 0, 0, 0)).getTime();
+      if (!isNaN(parsed)) return parsed;
+    }
+    const parsed = new Date(d).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+  return null;
+}
+
+function getStoredQuestEventList(userId: string): TimestampedQuestEvent[] {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(`bundeswiega_quest_events_${userId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+export function getStoredQuestEventsCount(userId: string, metric: string, sinceMs: number): number {
+  if (!userId) return 0;
+  const events = getStoredQuestEventList(userId);
+  return events
+    .filter(ev => ev && ev.metric === metric && typeof ev.ts === 'number' && ev.ts >= sinceMs)
+    .reduce((sum, ev) => sum + (Number(ev.amount) || 0), 0);
+}
+
+export function getStoredQuestStats(userId: string, sinceIso?: string): Record<string, number> {
   if (!userId) return {};
   try {
-    const raw = localStorage.getItem(`bundeswiega_quest_stats_${userId}`);
-    if (raw) return JSON.parse(raw);
+    if (sinceIso) {
+      const sinceMs = new Date(sinceIso).getTime();
+      if (isNaN(sinceMs)) return {};
+      const counts: Record<string, number> = {};
+      for (const ev of getStoredQuestEventList(userId)) {
+        if (ev && ev.metric && typeof ev.ts === 'number' && ev.ts >= sinceMs) {
+          counts[ev.metric] = (counts[ev.metric] || 0) + (Number(ev.amount) || 0);
+        }
+      }
+      return counts;
+    }
+    const pendingRaw = localStorage.getItem(`bundeswiega_quest_pending_${userId}`);
+    if (pendingRaw) return JSON.parse(pendingRaw);
   } catch {}
   return {};
+}
+
+export function consumePendingQuestIncrements(userId: string): Record<string, number> {
+  if (!userId) return {};
+  try {
+    const raw = localStorage.getItem(`bundeswiega_quest_pending_${userId}`);
+    localStorage.removeItem(`bundeswiega_quest_pending_${userId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }
+  } catch {}
+  return {};
+}
+
+export function clearAllPendingQuestIncrements(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('bundeswiega_quest_pending_')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch {}
 }
 
 export interface UserQuestCounters {
@@ -449,23 +551,64 @@ export interface UserQuestCounters {
 
 export function recordQuestStat(
   userId: string,
-  metric: 'perfect_hits_count' | 'schnapszahl_count' | 'same_weight_count' | 'hundreds_count' | 'exact_five_g_count' | 'strategist_count' | 'ach_67_count' | 'speed_avg_sub5_count' | 'speed_time_sub100_count' | 'ach_knapp_daneben_count' | 'ach_kopfrechner_count' | 'ach_scharfschuetze_count' | 'poker_face_count',
+  metric: QuestStatMetric,
   amount: number = 1
 ): number {
-  if (!userId) return 0;
+  if (!userId || amount <= 0) return 0;
   try {
-    const stats = getStoredQuestStats(userId);
-    const current = Number(stats[metric]) || 0;
-    const updated = current + amount;
-    stats[metric] = updated;
-    localStorage.setItem(`bundeswiega_quest_stats_${userId}`, JSON.stringify(stats));
-    return updated;
+    const now = Date.now();
+    // 1. Zeitgestempelten Event-Log für lokale Auswertung (strikt >= created_at) fortschreiben
+    const events = getStoredQuestEventList(userId);
+    events.push({ metric, amount, ts: now });
+    const trimmed = events.length > 2000 ? events.slice(events.length - 2000) : events;
+    localStorage.setItem(`bundeswiega_quest_events_${userId}`, JSON.stringify(trimmed));
+
+    // 2. Runden-/Spiel-Inkremente nur für das laufende Spiel sammeln (wird beim Speichern verbraucht)
+    const pendingRaw = localStorage.getItem(`bundeswiega_quest_pending_${userId}`);
+    const pending: Record<string, number> = pendingRaw ? JSON.parse(pendingRaw) : {};
+    const updatedPending = (Number(pending[metric]) || 0) + amount;
+    pending[metric] = updatedPending;
+    localStorage.setItem(`bundeswiega_quest_pending_${userId}`, JSON.stringify(pending));
+    return updatedPending;
   } catch {}
   return 0;
 }
 
+function getEffectiveCounterForQuests(
+  questIds: string[],
+  target: number,
+  questProgresses: any[] | undefined,
+  directVal: number | undefined,
+  fallbackAfterStart: (startMs: number) => number
+): number {
+  if (directVal !== undefined) return Number(directVal) || 0;
+
+  if (Array.isArray(questProgresses)) {
+    const matching = questProgresses.filter(qp => questIds.includes(qp.quest_id));
+    // Wenn diese Quest für den Nutzer noch gar nicht existiert/freigeschaltet wurde -> strikt 0 (kein Vorausarbeiten)
+    if (matching.length === 0) return 0;
+
+    let best = 0;
+    for (const qp of matching) {
+      if (qp.is_completed) {
+        best = Math.max(best, target);
+        continue;
+      }
+      const stored = Number(qp.current_progress) || 0;
+      const createdAtStr = qp.created_at || qp.updated_at;
+      const startMs = createdAtStr ? new Date(createdAtStr).getTime() : NaN;
+      const scopedFallback = !isNaN(startMs) ? fallbackAfterStart(startMs) : 0;
+      best = Math.max(best, stored, scopedFallback);
+    }
+    return best;
+  }
+
+  return 0;
+}
+
 /**
- * Ermittelt kumulierte Zähler über mehrere Spiele für die Namensschild-Rahmenfarben und Level 5 Quest-Rahmen
+ * Ermittelt kumulierte Zähler über mehrere Spiele für die Namensschild-Rahmenfarben und Level 5 Quest-Rahmen.
+ * Zählt Ereignisse strikt erst ab `user_quest_progress.created_at`.
  */
 export function getUserQuestCounters(
   userId?: string,
@@ -474,216 +617,204 @@ export function getUserQuestCounters(
   myAchievementsData?: any[],
   directUserQuests?: Partial<UserQuestCounters>
 ): UserQuestCounters {
-  const stats = userId ? getStoredQuestStats(userId) : {};
+  const filterGamesSince = (startMs: number) =>
+    Array.isArray(myGameData)
+      ? myGameData.filter(g => {
+          const ts = getQuestEventTimestampMs(g);
+          return ts !== null && ts >= startMs;
+        })
+      : [];
 
-  // 1. Schnapszahl (target: 5)
-  let schnapszahl = Number(directUserQuests?.schnapszahl ?? stats.schnapszahl_count ?? stats.schnapszahl ?? 0);
-  const qpSchnaps = questProgresses?.find(qp => qp.quest_id === 'l4_lightning_animation_quest' || qp.quest_id === 'l3_border_pink');
-  if (qpSchnaps) {
-    schnapszahl = Math.max(schnapszahl, Number(qpSchnaps.current_progress) || (qpSchnaps.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    if (myAchievementsData.some(a => (a.achievement_id === 'schnapps_hunter' || a.id === 'schnapps_hunter') && (a.unlocked || a.is_unlocked))) {
-      schnapszahl = Math.max(schnapszahl, 2);
-    }
-    if (myAchievementsData.some(a => (a.achievement_id === 'triple_seven' || a.id === 'triple_seven') && (a.unlocked || a.is_unlocked))) {
-      schnapszahl = Math.max(schnapszahl, 1);
-    }
-  }
+  const hasAchSince = (achIds: string[], titles: string[], startMs: number) => {
+    if (!Array.isArray(myAchievementsData)) return 0;
+    return myAchievementsData.filter(a => {
+      if (!(a.unlocked || a.is_unlocked)) return false;
+      const idMatch = achIds.includes(a.achievement_id) || achIds.includes(a.id) || (a.title && titles.includes(a.title));
+      if (!idMatch) return false;
+      const ts = getQuestEventTimestampMs(a);
+      return ts !== null && ts >= startMs;
+    }).length;
+  };
 
-  // 2. Hunderter (target: 5)
-  let hunderter = Number(directUserQuests?.hunderter ?? stats.hundreds_count ?? stats.hunderter ?? 0);
-  const qpHund = questProgresses?.find(qp => qp.quest_id === 'l4_waves_animation_quest' || qp.quest_id === 'l3_border_teal');
-  if (qpHund) {
-    hunderter = Math.max(hunderter, Number(qpHund.current_progress) || (qpHund.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    if (myAchievementsData.some(a => (a.achievement_id === 'round_number' || a.id === 'round_number') && (a.unlocked || a.is_unlocked))) {
-      hunderter = Math.max(hunderter, 1);
-    }
-  }
+  // 1. Schnapszahl
+  const schnapszahl = getEffectiveCounterForQuests(
+    ['l4_lightning_animation_quest', 'l3_border_pink'],
+    5,
+    questProgresses,
+    directUserQuests?.schnapszahl,
+    (startMs) => (userId ? getStoredQuestEventsCount(userId, 'schnapszahl_count', startMs) : 0)
+  );
+
+  // 2. Hunderter
+  const hunderter = getEffectiveCounterForQuests(
+    ['l4_waves_animation_quest', 'l3_border_teal'],
+    5,
+    questProgresses,
+    directUserQuests?.hunderter,
+    (startMs) => (userId ? getStoredQuestEventsCount(userId, 'hundreds_count', startMs) : 0)
+  );
 
   // 3. Stratege (target: 5)
-  let stratege = Number(directUserQuests?.stratege ?? stats.strategist_count ?? stats.stratege ?? 0);
-  if (myAchievementsData) {
-    const stratAchievements = myAchievementsData.filter(a => 
-      (a.achievement_id === 'strategist' || a.id === 'strategist' || a.title === 'Stratege') && 
-      (a.unlocked || a.is_unlocked)
-    );
-    if (stratAchievements.length > 0) {
-      stratege = Math.max(stratege, stratAchievements.length);
+  const stratege = getEffectiveCounterForQuests(
+    ['l4_border_orange', 'l5_border_matrix'],
+    5,
+    questProgresses,
+    directUserQuests?.stratege,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'strategist_count', startMs) : 0;
+      const ach = hasAchSince(['strategist'], ['Stratege'], startMs);
+      return Math.max(ev, ach);
     }
-  }
-  const qpStrat = questProgresses?.find(qp => qp.quest_id === 'l4_border_orange' || qp.quest_id === 'l5_border_matrix');
-  if (qpStrat) {
-    stratege = Math.max(stratege, Number(qpStrat.current_progress) || (qpStrat.is_completed ? 5 : 0));
-  }
+  );
 
   // 4. Wiegezwilling (target: 5)
-  let zwilling = Number(directUserQuests?.zwilling ?? stats.same_weight_count ?? stats.zwilling ?? 0);
-  const qpZwill = questProgresses?.find(qp => qp.quest_id === 'l4_snow_animation_quest' || qp.quest_id === 'l4_border_purple' || qp.quest_id === 'l5_border_snow');
-  if (qpZwill) {
-    zwilling = Math.max(zwilling, Number(qpZwill.current_progress) || (qpZwill.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    if (myAchievementsData.some(a => (a.achievement_id === 'twins' || a.id === 'twins') && (a.unlocked || a.is_unlocked))) {
-      zwilling = Math.max(zwilling, 2);
-    }
-    if (myAchievementsData.some(a => (a.achievement_id === 'doppelganger' || a.id === 'doppelganger') && (a.unlocked || a.is_unlocked))) {
-      zwilling = Math.max(zwilling, 2);
-    }
-  }
+  const zwilling = getEffectiveCounterForQuests(
+    ['l4_snow_animation_quest', 'l4_border_purple', 'l5_border_snow'],
+    5,
+    questProgresses,
+    directUserQuests?.zwilling,
+    (startMs) => (userId ? getStoredQuestEventsCount(userId, 'same_weight_count', startMs) : 0)
+  );
 
   // 5. Exakt 5g Abstand (target: 5)
-  let exactFiveG = Number(directUserQuests?.exactFiveG ?? stats.exact_five_g_count ?? stats.exactFiveG ?? 0);
-  const qpExactFive = questProgresses?.find(qp => qp.quest_id === 'l4_border_cyan');
-  if (qpExactFive) {
-    exactFiveG = Math.max(exactFiveG, Number(qpExactFive.current_progress) || (qpExactFive.is_completed ? 5 : 0));
-  }
-  if (Array.isArray(myGameData)) {
-    let fiveGCount = 0;
-    for (const g of myGameData) {
-      if (Array.isArray(g.rounds)) {
-        for (const r of g.rounds) {
-          const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
-          if (dist !== null && Math.abs(dist - 5) < 0.05) {
-            fiveGCount++;
+  const exactFiveG = getEffectiveCounterForQuests(
+    ['l4_border_cyan'],
+    5,
+    questProgresses,
+    directUserQuests?.exactFiveG,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'exact_five_g_count', startMs) : 0;
+      let fiveGCount = 0;
+      for (const g of filterGamesSince(startMs)) {
+        if (Array.isArray(g.rounds)) {
+          for (const r of g.rounds) {
+            const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+            if (dist !== null && Math.abs(dist - 5) < 0.05) fiveGCount++;
           }
         }
       }
+      return Math.max(ev, fiveGCount);
     }
-    exactFiveG = Math.max(exactFiveG, fiveGCount);
-  }
+  );
 
-  // 6. ach_67: 3x Achievement 67 ("six_seven" / Six Seven)
-  let ach_67 = Number(directUserQuests?.ach_67 ?? stats.ach_67_count ?? stats.ach_67 ?? 0);
-  const qpHearts = questProgresses?.find(qp => qp.quest_id === 'l5_border_hearts');
-  if (qpHearts) {
-    ach_67 = Math.max(ach_67, Number(qpHearts.current_progress) || (qpHearts.is_completed ? 3 : 0));
-  }
-  if (myAchievementsData) {
-    const match67 = myAchievementsData.filter(a =>
-      (a.achievement_id === 'six_seven' || a.id === 'six_seven' || a.title === 'Six Seven' || a.title === '67') &&
-      (a.unlocked || a.is_unlocked)
-    ).length;
-    if (match67 > 0) ach_67 = Math.max(ach_67, match67);
-  }
-  if (Array.isArray(myGameData)) {
-    let count67 = 0;
-    for (const g of myGameData) {
-      if (Array.isArray(g.rounds)) {
-        for (const r of g.rounds) {
-          const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
-          if (w !== null && Math.round(w) === 67) {
-            count67++;
+  // 6. ach_67: 3x Achievement 67 ("six_seven")
+  const ach_67 = getEffectiveCounterForQuests(
+    ['l5_border_hearts'],
+    3,
+    questProgresses,
+    directUserQuests?.ach_67,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'ach_67_count', startMs) : 0;
+      const ach = hasAchSince(['six_seven'], ['Six Seven', '67'], startMs);
+      let count67 = 0;
+      for (const g of filterGamesSince(startMs)) {
+        if (Array.isArray(g.rounds)) {
+          for (const r of g.rounds) {
+            const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
+            if (w !== null && Math.round(w) === 67) count67++;
           }
         }
       }
+      return Math.max(ev, ach, count67);
     }
-    ach_67 = Math.max(ach_67, count67);
-  }
+  );
 
   // 7. speed_avg_sub5: Speedwiegen 3x Avg unter 5g
-  let speed_avg_sub5 = Number(directUserQuests?.speed_avg_sub5 ?? stats.speed_avg_sub5_count ?? stats.speed_avg_sub5 ?? 0);
-  const qpFlame = questProgresses?.find(qp => qp.quest_id === 'l5_border_flame');
-  if (qpFlame) {
-    speed_avg_sub5 = Math.max(speed_avg_sub5, Number(qpFlame.current_progress) || (qpFlame.is_completed ? 3 : 0));
-  }
-  if (Array.isArray(myGameData)) {
-    const sub5Games = myGameData.filter(g => {
-      const mode = (g.game_mode || '').toLowerCase();
-      const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
-      const avg = typeof g.avg === 'number' ? g.avg : (typeof g.average === 'number' ? g.average : (typeof g.average_distance === 'number' ? g.average_distance : null));
-      return isSpeed && avg !== null && avg < 5.0;
-    }).length;
-    speed_avg_sub5 = Math.max(speed_avg_sub5, sub5Games);
-  }
+  const speed_avg_sub5 = getEffectiveCounterForQuests(
+    ['l5_border_flame'],
+    3,
+    questProgresses,
+    directUserQuests?.speed_avg_sub5,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'speed_avg_sub5_count', startMs) : 0;
+      const sub5Games = filterGamesSince(startMs).filter(g => {
+        const mode = (g.game_mode || '').toLowerCase();
+        const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
+        const avg = typeof g.avg === 'number' ? g.avg : (typeof g.average === 'number' ? g.average : (typeof g.average_distance === 'number' ? g.average_distance : null));
+        return isSpeed && avg !== null && avg < 5.0;
+      }).length;
+      return Math.max(ev, sub5Games);
+    }
+  );
 
   // 8. speed_time_sub100: Speedwiegen 3x Zeit unter 100s
-  let speed_time_sub100 = Number(directUserQuests?.speed_time_sub100 ?? stats.speed_time_sub100_count ?? stats.speed_time_sub100 ?? 0);
-  const qpLightning = questProgresses?.find(qp => qp.quest_id === 'l5_border_lightning');
-  if (qpLightning) {
-    speed_time_sub100 = Math.max(speed_time_sub100, Number(qpLightning.current_progress) || (qpLightning.is_completed ? 3 : 0));
-  }
-  if (Array.isArray(myGameData)) {
-    const sub100Games = myGameData.filter(g => {
-      const mode = (g.game_mode || '').toLowerCase();
-      const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
-      const t = typeof g.total_time === 'number' ? g.total_time : (typeof g.time === 'number' ? g.time : (typeof g.time_seconds === 'number' ? g.time_seconds : null));
-      return isSpeed && t !== null && t > 0 && t < 100;
-    }).length;
-    speed_time_sub100 = Math.max(speed_time_sub100, sub100Games);
-  }
+  const speed_time_sub100 = getEffectiveCounterForQuests(
+    ['l5_border_lightning'],
+    3,
+    questProgresses,
+    directUserQuests?.speed_time_sub100,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'speed_time_sub100_count', startMs) : 0;
+      const sub100Games = filterGamesSince(startMs).filter(g => {
+        const mode = (g.game_mode || '').toLowerCase();
+        const isSpeed = mode.includes('speed') || !!g.is_speed_mode;
+        const t = typeof g.total_time === 'number' ? g.total_time : (typeof g.time === 'number' ? g.time : (typeof g.time_seconds === 'number' ? g.time_seconds : null));
+        return isSpeed && t !== null && t > 0 && t < 100;
+      }).length;
+      return Math.max(ev, sub100Games);
+    }
+  );
 
   // 9. ach_knapp_daneben: 5x Achievement "Knapp daneben" ("so_close")
-  let ach_knapp_daneben = Number(directUserQuests?.ach_knapp_daneben ?? stats.ach_knapp_daneben_count ?? stats.ach_knapp_daneben ?? 0);
-  const qpWave = questProgresses?.find(qp => qp.quest_id === 'l5_border_wave');
-  if (qpWave) {
-    ach_knapp_daneben = Math.max(ach_knapp_daneben, Number(qpWave.current_progress) || (qpWave.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    const matchKnapp = myAchievementsData.filter(a =>
-      (a.achievement_id === 'so_close' || a.id === 'so_close' || a.title === 'Knapp daneben') &&
-      (a.unlocked || a.is_unlocked)
-    ).length;
-    if (matchKnapp > 0) ach_knapp_daneben = Math.max(ach_knapp_daneben, matchKnapp);
-  }
-  if (Array.isArray(myGameData)) {
-    let countClose = 0;
-    for (const g of myGameData) {
-      if (Array.isArray(g.rounds)) {
-        for (const r of g.rounds) {
-          const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
-          if (dist !== null && Math.abs(dist - 1) < 0.05) {
-            countClose++;
+  const ach_knapp_daneben = getEffectiveCounterForQuests(
+    ['l5_border_wave'],
+    5,
+    questProgresses,
+    directUserQuests?.ach_knapp_daneben,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'ach_knapp_daneben_count', startMs) : 0;
+      const ach = hasAchSince(['so_close'], ['Knapp daneben'], startMs);
+      let countClose = 0;
+      for (const g of filterGamesSince(startMs)) {
+        if (Array.isArray(g.rounds)) {
+          for (const r of g.rounds) {
+            const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+            if (dist !== null && Math.abs(dist - 1) < 0.05) countClose++;
           }
         }
       }
+      return Math.max(ev, ach, countClose);
     }
-    ach_knapp_daneben = Math.max(ach_knapp_daneben, countClose);
-  }
+  );
 
   // 10. ach_kopfrechner: 5x Achievement "Kopfrechner" ("calculator")
-  let ach_kopfrechner = Number(directUserQuests?.ach_kopfrechner ?? stats.ach_kopfrechner_count ?? stats.ach_kopfrechner ?? 0);
-  const qpCyber = questProgresses?.find(qp => qp.quest_id === 'l5_border_cyber');
-  if (qpCyber) {
-    ach_kopfrechner = Math.max(ach_kopfrechner, Number(qpCyber.current_progress) || (qpCyber.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    const matchCalc = myAchievementsData.filter(a =>
-      (a.achievement_id === 'calculator' || a.id === 'calculator' || a.title === 'Kopfrechner') &&
-      (a.unlocked || a.is_unlocked)
-    ).length;
-    if (matchCalc > 0) ach_kopfrechner = Math.max(ach_kopfrechner, matchCalc);
-  }
+  const ach_kopfrechner = getEffectiveCounterForQuests(
+    ['l5_border_cyber'],
+    5,
+    questProgresses,
+    directUserQuests?.ach_kopfrechner,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'ach_kopfrechner_count', startMs) : 0;
+      const ach = hasAchSince(['calculator'], ['Kopfrechner'], startMs);
+      return Math.max(ev, ach);
+    }
+  );
 
   // 11. ach_scharfschuetze: 5x Achievement "Scharfschütze" ("sharpshooter")
-  let ach_scharfschuetze = Number(directUserQuests?.ach_scharfschuetze ?? stats.ach_scharfschuetze_count ?? stats.ach_scharfschuetze ?? 0);
-  const qpLaser = questProgresses?.find(qp => qp.quest_id === 'l5_border_laser');
-  if (qpLaser) {
-    ach_scharfschuetze = Math.max(ach_scharfschuetze, Number(qpLaser.current_progress) || (qpLaser.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    const matchSharp = myAchievementsData.filter(a =>
-      (a.achievement_id === 'sharpshooter' || a.id === 'sharpshooter' || a.title === 'Scharfschütze') &&
-      (a.unlocked || a.is_unlocked)
-    ).length;
-    if (matchSharp > 0) ach_scharfschuetze = Math.max(ach_scharfschuetze, matchSharp);
-  }
+  const ach_scharfschuetze = getEffectiveCounterForQuests(
+    ['l5_border_laser'],
+    5,
+    questProgresses,
+    directUserQuests?.ach_scharfschuetze,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'ach_scharfschuetze_count', startMs) : 0;
+      const ach = hasAchSince(['sharpshooter'], ['Scharfschütze'], startMs);
+      return Math.max(ev, ach);
+    }
+  );
 
   // 12. pokerFace: 5x Achievement "Poker Face" ("poker_face")
-  let pokerFace = Number(directUserQuests?.pokerFace ?? stats.poker_face_count ?? stats.poker_face ?? 0);
-  const qpPoker = questProgresses?.find(qp => qp.quest_id === 'l4_orange_poker_face');
-  if (qpPoker) {
-    pokerFace = Math.max(pokerFace, Number(qpPoker.current_progress) || (qpPoker.is_completed ? 5 : 0));
-  }
-  if (myAchievementsData) {
-    const matchPoker = myAchievementsData.filter(a =>
-      (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
-      (a.unlocked || a.is_unlocked)
-    ).length;
-    if (matchPoker > 0) pokerFace = Math.max(pokerFace, matchPoker);
-  }
+  const pokerFace = getEffectiveCounterForQuests(
+    ['l4_orange_poker_face'],
+    5,
+    questProgresses,
+    directUserQuests?.pokerFace,
+    (startMs) => {
+      const ev = userId ? getStoredQuestEventsCount(userId, 'poker_face_count', startMs) : 0;
+      const ach = hasAchSince(['poker_face', 'pokerface'], ['Poker Face'], startMs);
+      return Math.max(ev, ach);
+    }
+  );
 
   return {
     schnapszahl,
@@ -820,23 +951,21 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
     const completedQuestIds = new Set(questProgress.filter((qp: any) => qp.is_completed).map((qp: any) => qp.quest_id));
     const unlockedTitles = new Set(existingTitles.map((t: any) => t.title));
     
-    const userAchievementIds = new Set<string>();
+    let userAchRows: Array<{ achievement_id: string; created_at?: string | null }> = [];
     try {
       const { data: achData } = await db
         .from('achievements')
-        .select('achievement_id')
+        .select('achievement_id, created_at')
         .eq('user_id', userId);
       if (Array.isArray(achData)) {
-        achData.forEach((a: any) => {
-          if (a.achievement_id) userAchievementIds.add(String(a.achievement_id));
-        });
+        userAchRows = achData;
       }
     } catch {}
 
-    const questCreatedAtMap = new Map<string, string>();
+    const questProgressMap = new Map<string, any>();
     questProgress.forEach((qp: any) => {
-      if (qp.created_at) {
-        questCreatedAtMap.set(qp.quest_id, qp.created_at);
+      if (qp?.quest_id) {
+        questProgressMap.set(qp.quest_id, qp);
       }
     });
 
@@ -846,35 +975,58 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
     const nowIso = new Date().toISOString();
 
     for (const q of availableQuests) {
-      let questStartedAt = questCreatedAtMap.get(q.id);
-      if (!questStartedAt) {
-        questStartedAt = nowIso;
+      const existingProgressObj = questProgressMap.get(q.id);
+      const targetCount = getQuestTarget(q);
+
+      if (!existingProgressObj) {
+        // Neu freigeschaltete Quest initialisieren -> startet strikt bei 0 (kein Vorausarbeiten),
+        // Ausnahme: l1_profile_pic (Zustandsprüfung ob Profilbild bereits existiert)
+        const hasAvatar =
+          effectiveAvatarUrl &&
+          typeof effectiveAvatarUrl === 'string' &&
+          effectiveAvatarUrl.trim() !== '' &&
+          !effectiveAvatarUrl.includes('unknown.svg');
+        const initialProgress = q.metric === 'profile_pic' && hasAvatar ? 1 : 0;
+        const initialCompleted = initialProgress >= targetCount;
+
         try {
           await db.from('user_quest_progress').upsert({
             user_id: userId,
             quest_id: q.id,
-            current_progress: 0,
-            is_completed: false,
+            current_progress: Math.min(initialProgress, targetCount),
+            is_completed: initialCompleted,
+            completed_at: initialCompleted ? nowIso : null,
             created_at: nowIso,
             updated_at: nowIso
           }, { onConflict: 'user_id,quest_id' });
-          questCreatedAtMap.set(q.id, nowIso);
         } catch (err) {
           console.warn('Could not initialize quest progress:', err);
         }
+
+        if (initialCompleted) {
+          bonusXpEarned += q.xpReward;
+          completedQuestIds.add(q.id);
+        }
+        continue;
       }
 
-      const startDate = new Date(questStartedAt);
+      const questStartedAt: string = existingProgressObj.created_at || existingProgressObj.updated_at || nowIso;
+      const startMs = new Date(questStartedAt).getTime();
+
+      // Strikt nur Ereignisse >= user_quest_progress.created_at werten (undatierte Legacy-Spiele ignorieren)
       const filteredResults = safeResults.filter(r => {
-        const gameDate = r.created_at || r.timestamp || r.date;
-        if (!gameDate) return true;
-        return new Date(gameDate) >= startDate;
+        const eventMs = getQuestEventTimestampMs(r);
+        return eventMs !== null && eventMs >= startMs;
       });
 
-      const existingProgressObj = questProgress.find((qp: any) => qp.quest_id === q.id);
-      const currentStored = Number(existingProgressObj?.current_progress || 0);
+      const questAchievementRows = userAchRows.filter(a => {
+        const achMs = getQuestEventTimestampMs(a);
+        return achMs !== null && achMs >= startMs;
+      });
+      const questAchievementIds = new Set(questAchievementRows.map(a => String(a.achievement_id)));
+
+      const currentStored = Number(existingProgressObj.current_progress || 0);
       let progress = currentStored;
-      const targetCount = getQuestTarget(q);
 
       switch (q.metric) {
         case 'profile_pic':
@@ -888,8 +1040,8 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           }
           break;
 
-        case 'games_count':
-          progress = filteredResults.filter(r => {
+        case 'games_count': {
+          const cnt = filteredResults.filter(r => {
             if (!q.gameMode) return true;
             const targetModeNorm = normalizeGameMode(q.gameMode);
             const rModeNorm = normalizeGameMode(r.game_mode);
@@ -899,11 +1051,13 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             if (target.includes('team') && (raw.includes('team') || r.is_team_player === true)) return true;
             return raw.includes(target);
           }).length;
+          progress = Math.max(currentStored, cnt);
           break;
+        }
 
         case 'avg_less_than': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = filteredResults.filter(r => {
+          const cnt = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -913,12 +1067,13 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             return r.avg !== null && r.avg !== undefined && Number(r.avg) < threshold;
           }).length;
+          progress = Math.max(currentStored, cnt);
           break;
         }
 
         case 'total_less_than': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = filteredResults.filter(r => {
+          const cnt = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -928,12 +1083,13 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             return r.total !== null && r.total !== undefined && Number(r.total) < threshold;
           }).length;
+          progress = Math.max(currentStored, cnt);
           break;
         }
 
         case 'max_schnaepse': {
           const threshold = q.threshold !== undefined ? q.threshold : q.targetValue;
-          progress = filteredResults.filter(r => {
+          const cnt = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetModeNorm = normalizeGameMode(q.gameMode);
               const rModeNorm = normalizeGameMode(r.game_mode);
@@ -943,6 +1099,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             return r.schnaepse !== null && r.schnaepse !== undefined && Number(r.schnaepse) <= threshold;
           }).length;
+          progress = Math.max(currentStored, cnt);
           break;
         }
 
@@ -961,7 +1118,7 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           matchingTeamGames.forEach(g => {
             if (g.id) uniqueGameIds.add(String(g.id));
           });
-          progress = uniqueGameIds.size || matchingTeamGames.length;
+          progress = Math.max(currentStored, uniqueGameIds.size || matchingTeamGames.length);
           break;
         }
 
@@ -975,12 +1132,12 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
           }
 
-          progress = uniqueTournaments.size;
+          progress = Math.max(currentStored, uniqueTournaments.size);
           break;
         }
 
         case 'achievements_count': {
-          let count = 0;
+          let count = questAchievementRows.length;
           try {
             const { count: exactCount } = await db
               .from('achievements')
@@ -988,15 +1145,15 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
               .eq('user_id', userId)
               .gte('created_at', questStartedAt);
             if (typeof exactCount === 'number') {
-              count = exactCount;
+              count = Math.max(count, exactCount);
             }
           } catch {}
-          progress = count;
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'wins_count': {
-          progress = filteredResults.filter(r => {
+          const cnt = filteredResults.filter(r => {
             if (q.gameMode) {
               const targetNorm = normalizeGameMode(q.gameMode);
               const rNorm = normalizeGameMode(r.game_mode);
@@ -1004,157 +1161,139 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
             }
             return r.is_winner === true || r.rank === 1 || r.won === true;
           }).length;
+          progress = Math.max(currentStored, cnt);
           break;
         }
 
         case 'perfect_hits_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.perfect_hits_count) || 0;
-          if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
-          if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
-          if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'perfect_hits_count', startMs);
+          if (questAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
+          if (questAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
+          if (questAchievementIds.has('prophet')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'schnapszahl_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.schnapszahl_count) || 0;
-          if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
-          if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'schnapszahl_count', startMs);
+          if (questAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
+          if (questAchievementIds.has('triple_seven')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'same_weight_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.same_weight_count) || 0;
-          if (userAchievementIds.has('twins')) count = Math.max(count, 1);
-          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'same_weight_count', startMs);
+          if (questAchievementIds.has('twins')) count = Math.max(count, 1);
+          if (questAchievementIds.has('doppelganger')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'hundreds_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.hundreds_count) || 0;
-          if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'hundreds_count', startMs);
+          if (questAchievementIds.has('round_number')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'exact_five_g_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.exact_five_g_count) || 0;
+          const count = getStoredQuestEventsCount(userId, 'exact_five_g_count', startMs);
           let roundMatches = 0;
-          if (Array.isArray(safeResults)) {
-            for (const g of safeResults) {
-              if (Array.isArray(g.rounds)) {
-                for (const r of g.rounds) {
-                  const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
-                  if (dist !== null && Math.abs(dist - 5) < 0.05) roundMatches++;
-                }
+          for (const g of filteredResults) {
+            if (Array.isArray(g.rounds)) {
+              for (const r of g.rounds) {
+                const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+                if (dist !== null && Math.abs(dist - 5) < 0.05) roundMatches++;
               }
             }
           }
-          progress = Math.max(progress, currentStored, count, roundMatches);
+          progress = Math.max(currentStored, count, roundMatches);
           break;
         }
 
         case 'strategist_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.strategist_count) || 0;
-          if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'strategist_count', startMs);
+          if (questAchievementIds.has('strategist')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'poker_face_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.poker_face_count || stats.poker_face) || 0;
-          if (userAchievementIds.has('poker_face') || userAchievementIds.has('pokerface')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'poker_face_count', startMs);
+          if (questAchievementIds.has('poker_face') || questAchievementIds.has('pokerface')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'ach_67_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.ach_67_count) || 0;
-          if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
-          if (Array.isArray(safeResults)) {
-            let count67 = 0;
-            for (const g of safeResults) {
-              if (Array.isArray(g.rounds)) {
-                for (const r of g.rounds) {
-                  const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
-                  if (w !== null && Math.round(w) === 67) count67++;
-                }
+          let count = getStoredQuestEventsCount(userId, 'ach_67_count', startMs);
+          if (questAchievementIds.has('six_seven')) count = Math.max(count, 1);
+          let count67 = 0;
+          for (const g of filteredResults) {
+            if (Array.isArray(g.rounds)) {
+              for (const r of g.rounds) {
+                const w = typeof r.weight === 'number' ? r.weight : (typeof r.user_weight === 'number' ? r.user_weight : null);
+                if (w !== null && Math.round(w) === 67) count67++;
               }
             }
-            count = Math.max(count, count67);
           }
-          progress = Math.max(progress, currentStored, count);
+          count = Math.max(count, count67);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'speed_avg_sub5_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.speed_avg_sub5_count) || 0;
-          const sub5 = safeResults.filter(r => {
+          const count = getStoredQuestEventsCount(userId, 'speed_avg_sub5_count', startMs);
+          const sub5 = filteredResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
           }).length;
-          progress = Math.max(progress, currentStored, count, sub5);
+          progress = Math.max(currentStored, count, sub5);
           break;
         }
 
         case 'speed_time_sub100_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.speed_time_sub100_count) || 0;
-          const sub100 = safeResults.filter(r => {
+          const count = getStoredQuestEventsCount(userId, 'speed_time_sub100_count', startMs);
+          const sub100 = filteredResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
             return isSpeed && t !== null && t > 0 && t < 100;
           }).length;
-          progress = Math.max(progress, currentStored, count, sub100);
+          progress = Math.max(currentStored, count, sub100);
           break;
         }
 
         case 'ach_knapp_daneben_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.ach_knapp_daneben_count) || 0;
-          if (userAchievementIds.has('so_close')) count = Math.max(count, 1);
-          if (Array.isArray(safeResults)) {
-            let closeCount = 0;
-            for (const g of safeResults) {
-              if (Array.isArray(g.rounds)) {
-                for (const r of g.rounds) {
-                  const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
-                  if (dist !== null && Math.abs(dist - 1) < 0.05) closeCount++;
-                }
+          let count = getStoredQuestEventsCount(userId, 'ach_knapp_daneben_count', startMs);
+          if (questAchievementIds.has('so_close')) count = Math.max(count, 1);
+          let closeCount = 0;
+          for (const g of filteredResults) {
+            if (Array.isArray(g.rounds)) {
+              for (const r of g.rounds) {
+                const dist = typeof r.dist === 'number' ? r.dist : (typeof r.distance === 'number' ? r.distance : null);
+                if (dist !== null && Math.abs(dist - 1) < 0.05) closeCount++;
               }
             }
-            count = Math.max(count, closeCount);
           }
-          progress = Math.max(progress, currentStored, count);
+          count = Math.max(count, closeCount);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'ach_kopfrechner_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.ach_kopfrechner_count) || 0;
-          if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'ach_kopfrechner_count', startMs);
+          if (questAchievementIds.has('calculator')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
 
         case 'ach_scharfschuetze_count': {
-          const stats = getStoredQuestStats(userId);
-          let count = Number(stats.ach_scharfschuetze_count) || 0;
-          if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
-          progress = Math.max(progress, currentStored, count);
+          let count = getStoredQuestEventsCount(userId, 'ach_scharfschuetze_count', startMs);
+          if (questAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
+          progress = Math.max(currentStored, count);
           break;
         }
       }
@@ -1167,7 +1306,8 @@ export async function processQuestsForUser(userId: string, customClient?: any) {
           quest_id: q.id,
           current_progress: Math.min(progress, targetCount),
           is_completed: isCompleted,
-          completed_at: isCompleted ? nowIso : null,
+          completed_at: isCompleted ? (existingProgressObj.completed_at || nowIso) : null,
+          created_at: questStartedAt,
           updated_at: nowIso
         }, { onConflict: 'user_id,quest_id' });
       } catch (upsertErr) {

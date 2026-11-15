@@ -63,7 +63,7 @@ import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
 import { LeaderboardCard } from './src/components/LeaderboardCard';
-import { recordQuestStat, processQuestsForUser, getStoredQuestStats } from './src/utils/questEvaluator';
+import { recordQuestStat, processQuestsForUser, consumePendingQuestIncrements, clearAllPendingQuestIncrements } from './src/utils/questEvaluator';
 import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
@@ -2253,7 +2253,7 @@ const App: React.FC = () => {
       const schnaepse = Number(gameResult.schnaepse) || 0;
       const total = Math.round((avg + schnaepse) * 100) / 100;
 
-      const questStats = getStoredQuestStats(userId);
+      const pendingIncrements = consumePendingQuestIncrements(userId);
       const res = await fetch('/api/users/save-game-result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2270,8 +2270,8 @@ const App: React.FC = () => {
             ...a,
             game_mode: a.game_mode ? normalizeGameMode(a.game_mode) : canonicalMode
           })),
-          questStats,
-          roundIncrements: questStats
+          questStats: pendingIncrements,
+          roundIncrements: pendingIncrements
         })
       });
 
@@ -3016,7 +3016,7 @@ const App: React.FC = () => {
         console.log(`Speichere für ${playerName} (${userId}):`, { gameMode, avg, schnaepse, total, isSpeed, timeSec });
 
         try {
-          const questStats = getStoredQuestStats(userId);
+          const pendingIncrements = consumePendingQuestIncrements(userId);
           const res = await fetch('/api/users/save-game-result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3041,8 +3041,8 @@ const App: React.FC = () => {
                   earnedBy: a.earnedBy,
                   earnedTogether: a.earnedTogether || false
                 })),
-              questStats,
-              roundIncrements: questStats
+              questStats: pendingIncrements,
+              roundIncrements: pendingIncrements
             })
           });
 
@@ -3381,6 +3381,7 @@ const App: React.FC = () => {
               earnedTogether: a.earnedTogether || false
             }));
 
+          const pendingIncrements = resolvedUserId ? consumePendingQuestIncrements(resolvedUserId) : {};
           const res = await fetch('/api/users/save-game-result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3401,7 +3402,9 @@ const App: React.FC = () => {
                 tournamentRank: isFinalTable ? p.rank : undefined,
                 disqualified: (p as any).isDisqualified
               },
-              achievements: playerAchievements
+              achievements: playerAchievements,
+              questStats: pendingIncrements,
+              roundIncrements: pendingIncrements
             })
           });
 
@@ -3486,6 +3489,7 @@ const App: React.FC = () => {
   };
 
   const startGame = () => {
+    clearAllPendingQuestIncrements();
     setGameState(GameState.PLAYER_COUNT);
     setResultsSaved(false);
     setAccountResultsSaved([]);
@@ -3514,6 +3518,7 @@ const App: React.FC = () => {
   };
 
   const startTeamwiegen = () => {
+    clearAllPendingQuestIncrements();
     setGameState(GameState.TEAM_SETUP);
     setResultsSaved(false);
     setAccountResultsSaved([]);
@@ -3533,6 +3538,7 @@ const App: React.FC = () => {
   };
 
   const startSpeedwiegen = () => {
+    clearAllPendingQuestIncrements();
     setGameState(GameState.SPEED_SETUP);
     setResultsSaved(false);
     setAccountResultsSaved([]);
@@ -3553,6 +3559,7 @@ const App: React.FC = () => {
   };
 
   const resetToStart = () => {
+    clearAllPendingQuestIncrements();
     setGameState(GameState.START);
     setResultsSaved(false);
     setShowExitWithoutSaveConfirm(false);
@@ -5254,20 +5261,28 @@ const App: React.FC = () => {
             }
           });
           const avg = roundsCount > 0 ? (totalOffset / roundsCount) : 0;
+          const avgRounded = Number(avg.toFixed(2));
+          const schnaepseVal = Number(t.points) || 0;
           return {
             id: t.id,
             name: t.name,
-            avg: Number(avg.toFixed(2)),
-            schnaepse: t.points
+            avg: avgRounded,
+            schnaepse: schnaepseVal,
+            total: Number((avgRounded + schnaepseVal).toFixed(2))
           };
         });
       } else {
-        items = players.map(p => ({
-          id: p.id,
-          name: p.name,
-          avg: Number(calculateAverageDistance(p.id, rounds).toFixed(2)),
-          schnaepse: p.schnaepse
-        }));
+        items = players.map(p => {
+          const avgRounded = Number(calculateAverageDistance(p.id, rounds).toFixed(2));
+          const schnaepseVal = Number(p.schnaepse) || 0;
+          return {
+            id: p.id,
+            name: p.name,
+            avg: avgRounded,
+            schnaepse: schnaepseVal,
+            total: Number((avgRounded + schnaepseVal).toFixed(2))
+          };
+        });
       }
     }
     return items;
@@ -5395,12 +5410,15 @@ const App: React.FC = () => {
       const resultsToUpload = selectedItems.map(it => {
         const mapping = saveModalMappings[it.id];
         const finalName = (mapping && mapping !== '__NEW__') ? mapping : it.name;
+        const computedTotal = it.total !== undefined
+          ? it.total
+          : Number(((Number(it.avg) || 0) + (Number(it.schnaepse) || 0)).toFixed(2));
         return {
           name: finalName,
           avg: it.avg,
           schnaepse: it.schnaepse,
-          ...(it.levels !== undefined ? { levels: it.levels } : {}),
-          ...(it.total !== undefined ? { total: it.total } : {})
+          total: computedTotal,
+          ...(it.levels !== undefined ? { levels: it.levels } : {})
         };
       });
 
@@ -7259,11 +7277,13 @@ const App: React.FC = () => {
                           players.map(p => {
                             const avg = calculateAverageDistance(p.id, rounds);
                             const schnaepse = Number(p.schnaepse) || 0;
+                            const total = avg + schnaepse;
                             return {
                               ...p,
                               avg,
                               schnaepse,
-                              tot: avg + schnaepse
+                              total,
+                              tot: total
                             };
                           })
                         ).map((p) => (
@@ -7311,11 +7331,16 @@ const App: React.FC = () => {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      {registeredPlayers.map((p) => {
                        const rankedAll = calculateCompetitionRanks(
-                         players.map(pl => ({
-                           ...pl,
-                           avg: calculateAverageDistance(pl.id, rounds),
-                           schnaepse: Number(pl.schnaepse) || 0
-                         }))
+                         players.map(pl => {
+                           const avg = calculateAverageDistance(pl.id, rounds);
+                           const schnaepse = Number(pl.schnaepse) || 0;
+                           return {
+                             ...pl,
+                             avg,
+                             schnaepse,
+                             total: avg + schnaepse
+                           };
+                         })
                        );
                        const ranked = rankedAll.find(rp => rp.id === p.id);
                        const pAvg = ranked ? ranked.avg : calculateAverageDistance(p.id, rounds);

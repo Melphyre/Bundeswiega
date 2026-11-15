@@ -850,7 +850,31 @@ function getCanonicalTournamentKey(r: any): string | null {
   return `game:${r.id || 'unknown'}`;
 }
 
-async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Record<string, number> = {}): Promise<{ updatedQuestProgress: any[]; bonusXpEarned: number; unlockedTitles: string[] }> {
+function getServerEventTimestampMs(record: any): number | null {
+  if (!record) return null;
+  const iso = record.created_at || record.timestamp;
+  if (iso) {
+    const parsed = new Date(iso).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (typeof record.date === 'string' && record.date.trim()) {
+    const d = record.date.trim();
+    const deMatch = d.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (deMatch) {
+      const parsed = new Date(Date.UTC(Number(deMatch[3]), Number(deMatch[2]) - 1, Number(deMatch[1]), 0, 0, 0)).getTime();
+      if (!isNaN(parsed)) return parsed;
+    }
+    const parsed = new Date(d).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+  return null;
+}
+
+async function serverEvaluateQuestsForUser(
+  userId: string,
+  roundIncrements: Record<string, number> = {},
+  options?: { eventTimestampIso?: string | null; isDuplicateGame?: boolean }
+): Promise<{ updatedQuestProgress: any[]; bonusXpEarned: number; unlockedTitles: string[] }> {
   const resultPayload = { updatedQuestProgress: [] as any[], bonusXpEarned: 0, unlockedTitles: [] as string[] };
   if (!userId || !supabaseAdmin) return resultPayload;
   try {
@@ -860,16 +884,16 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
       supabaseAdmin.from('teamwiegen_players').select('game_id').eq('user_id', userId),
       supabaseAdmin.from('user_quest_progress').select('*').eq('user_id', userId),
       supabaseAdmin.from('user_titles').select('title').eq('user_id', userId),
-      supabaseAdmin.from('achievements').select('name, achievement_id').eq('user_id', userId)
+      supabaseAdmin.from('achievements').select('name, achievement_id, created_at').eq('user_id', userId)
     ]);
 
-    const userAchievementIds = new Set((achRes?.data || []).map((a: any) => a.achievement_id || a.name));
+    const allAchRows: Array<{ name?: string; achievement_id?: string; created_at?: string | null }> = Array.isArray(achRes?.data) ? achRes.data : [];
 
     const profile = profRes?.data;
     const userLevel = profile ? Number(profile.level) || 1 : 1;
-    let effectiveAvatarUrl = profile?.avatar_url || profile?.image_url || '';
+    const effectiveAvatarUrl = profile?.avatar_url || profile?.image_url || '';
 
-    let safeResults: any[] = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
+    const safeResults: any[] = Array.isArray(resultsRes?.data) ? [...resultsRes.data] : [];
     const teamGameIds: string[] = (teamPlayersRes?.data || []).map((tp: any) => tp.game_id).filter(Boolean);
 
     if (teamGameIds.length > 0) {
@@ -909,12 +933,18 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
     };
 
     const availableQuests = SERVER_LEVEL_QUESTS.filter(q => q.level <= userLevel);
+    const eventTsMs = options?.eventTimestampIso ? new Date(options.eventTimestampIso).getTime() : Date.now();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    // Neu freigeschaltete Quests bekommen einen Zeitstempel strikt nach dem aktuellen Event,
+    // damit ein Spiel, das erst zum Level-Up führt, nicht direkt auf die neuen Quests angerechnet wird.
+    const initCreatedAtIso = new Date(Math.max(nowMs, (isNaN(eventTsMs) ? nowMs : eventTsMs) + 50)).toISOString();
 
     let bonusXpEarned = 0;
 
     for (const q of availableQuests) {
       const existingQp = questProgress.find((p: any) => p.quest_id === q.id);
-      const storedProgress = Number(existingQp?.current_progress || 0);
+      const targetCount = (q as any).targetCount !== undefined ? (q as any).targetCount : (q.metric === 'profile_pic' ? 1 : q.targetValue);
 
       // Falls bereits abgeschlossen, übernehmen und nicht rückgängig machen
       if (existingQp?.is_completed) {
@@ -922,9 +952,59 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         continue;
       }
 
+      // Quest wurde soeben erst für dieses Nutzerlevel freigeschaltet -> strikt bei 0 starten (kein Vorausarbeiten!)
+      if (!existingQp) {
+        const hasAvatar =
+          effectiveAvatarUrl &&
+          typeof effectiveAvatarUrl === 'string' &&
+          effectiveAvatarUrl.trim() !== '' &&
+          !effectiveAvatarUrl.includes('unknown.svg');
+        const initialProgress = q.metric === 'profile_pic' && hasAvatar ? 1 : 0;
+        const initialCompleted = initialProgress >= targetCount;
+
+        const initRow = {
+          user_id: userId,
+          quest_id: q.id,
+          current_progress: Math.min(initialProgress, targetCount),
+          is_completed: initialCompleted,
+          completed_at: initialCompleted ? initCreatedAtIso : null,
+          created_at: initCreatedAtIso,
+          updated_at: initCreatedAtIso
+        };
+
+        try {
+          await supabaseAdmin.from('user_quest_progress').upsert(initRow, { onConflict: 'user_id,quest_id' });
+          resultPayload.updatedQuestProgress.push(initRow);
+        } catch (upsertErr) {
+          console.warn('Backend quest init upsert warning:', upsertErr);
+        }
+
+        if (initialCompleted) {
+          bonusXpEarned += q.xpReward;
+          completedQuestIds.add(q.id);
+        }
+        continue;
+      }
+
+      const questCreatedAt: string = existingQp.created_at || existingQp.updated_at || nowIso;
+      const questCreatedAtMs = new Date(questCreatedAt).getTime();
+      const storedProgress = Number(existingQp.current_progress || 0);
       let progress = storedProgress;
-      const targetCount = (q as any).targetCount !== undefined ? (q as any).targetCount : (q.metric === 'profile_pic' ? 1 : q.targetValue);
-      const metricInc = Number(roundIncrements[q.metric] || 0);
+
+      // Strikt nur Spiele und Achievements >= user_quest_progress.created_at berücksichtigen
+      const questResults = safeResults.filter(r => {
+        const ms = getServerEventTimestampMs(r);
+        return ms !== null && ms >= questCreatedAtMs;
+      });
+
+      const questAchRows = allAchRows.filter(a => {
+        const ms = getServerEventTimestampMs(a);
+        return ms !== null && ms >= questCreatedAtMs;
+      });
+      const questAchievementIds = new Set(questAchRows.map(a => a.achievement_id || a.name));
+
+      const isEventEligible = !options?.isDuplicateGame && !isNaN(eventTsMs) && eventTsMs >= questCreatedAtMs;
+      const metricInc = isEventEligible ? Number(roundIncrements[q.metric] || 0) : 0;
 
       switch (q.metric) {
         case 'profile_pic':
@@ -934,7 +1014,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
           break;
 
         case 'games_count': {
-          const gameCount = safeResults.filter(r => {
+          const gameCount = questResults.filter(r => {
             if (!q.gameMode) return true;
             const norm = normalizeMode(r.game_mode);
             const targetNorm = normalizeMode(q.gameMode);
@@ -950,7 +1030,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'avg_less_than': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          const matchCount = safeResults.filter(r => {
+          const matchCount = questResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -966,7 +1046,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'total_less_than': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          const matchCount = safeResults.filter(r => {
+          const matchCount = questResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -982,7 +1062,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'max_schnaepse': {
           const threshold = (q as any).threshold !== undefined ? (q as any).threshold : q.targetValue;
-          const matchCount = safeResults.filter(r => {
+          const matchCount = questResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -1006,22 +1086,19 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
             return norm === 'Teamwiegen';
           };
 
-          const matchingTeamGames = safeResults.filter(isTeamGame);
+          const matchingTeamGames = questResults.filter(isTeamGame);
           const uniqueGameIds = new Set<string>();
           matchingTeamGames.forEach(g => {
             if (g.id) uniqueGameIds.add(String(g.id));
           });
-          teamGameIds.forEach(id => {
-            if (id) uniqueGameIds.add(String(id));
-          });
 
-          progress = Math.max(progress, matchingTeamGames.length, uniqueGameIds.size);
+          progress = Math.max(progress, uniqueGameIds.size || matchingTeamGames.length);
           break;
         }
 
         case 'tournament_count': {
           const uniqueTournaments = new Set<string>();
-          for (const r of safeResults) {
+          for (const r of questResults) {
             const key = getCanonicalTournamentKey(r);
             if (key) uniqueTournaments.add(key);
           }
@@ -1030,12 +1107,13 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         }
 
         case 'achievements_count': {
-          let count = Number(profile?.achievements_count || 0);
+          let count = questAchRows.length;
           try {
             const { count: exactCount } = await supabaseAdmin
               .from('achievements')
               .select('id', { count: 'exact', head: true })
-              .eq('user_id', userId);
+              .eq('user_id', userId)
+              .gte('created_at', questCreatedAt);
             if (typeof exactCount === 'number') {
               count = Math.max(count, exactCount);
             }
@@ -1047,7 +1125,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         }
 
         case 'wins_count': {
-          const wins = safeResults.filter(r => {
+          const wins = questResults.filter(r => {
             if (q.gameMode) {
               const norm = normalizeMode(r.game_mode);
               const targetNorm = normalizeMode(q.gameMode);
@@ -1055,48 +1133,47 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
             }
             return r.is_winner === true || r.rank === 1 || r.won === true;
           }).length;
-          const profileWins = Number(profile?.games_won || 0);
-          progress = Math.max(progress, wins, profileWins);
+          progress = Math.max(progress, wins);
           break;
         }
 
-        // Multi-Achievement- & Rundenzähler (kumulativ über Spiele hinweg)
+        // Multi-Achievement- & Rundenzähler (strikt ab questCreatedAt)
         case 'perfect_hits_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
-          if (userAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
-          if (userAchievementIds.has('prophet')) count = Math.max(count, 1);
+          if (questAchievementIds.has('bullseye_king')) count = Math.max(count, 3);
+          if (questAchievementIds.has('perfect_balance')) count = Math.max(count, 5);
+          if (questAchievementIds.has('prophet')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'schnapszahl_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
-          if (userAchievementIds.has('triple_seven')) count = Math.max(count, 1);
+          if (questAchievementIds.has('schnapps_hunter')) count = Math.max(count, 2);
+          if (questAchievementIds.has('triple_seven')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'same_weight_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('twins')) count = Math.max(count, 1);
-          if (userAchievementIds.has('doppelganger')) count = Math.max(count, 1);
+          if (questAchievementIds.has('twins')) count = Math.max(count, 1);
+          if (questAchievementIds.has('doppelganger')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'hundreds_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('round_number')) count = Math.max(count, 1);
+          if (questAchievementIds.has('round_number')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'exact_five_g_count': {
-          let count = storedProgress + metricInc;
+          const count = storedProgress + metricInc;
           let roundMatches = 0;
-          for (const r of safeResults) {
+          for (const r of questResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
@@ -1110,23 +1187,23 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'strategist_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('strategist')) count = Math.max(count, 1);
+          if (questAchievementIds.has('strategist')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'poker_face_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('poker_face') || userAchievementIds.has('pokerface')) count = Math.max(count, 1);
+          if (questAchievementIds.has('poker_face') || questAchievementIds.has('pokerface')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'ach_67_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('six_seven')) count = Math.max(count, 1);
+          if (questAchievementIds.has('six_seven')) count = Math.max(count, 1);
           let roundMatches = 0;
-          for (const r of safeResults) {
+          for (const r of questResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const w = typeof rd.weight === 'number' ? rd.weight : (typeof rd.user_weight === 'number' ? rd.user_weight : null);
@@ -1139,8 +1216,8 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         }
 
         case 'speed_avg_sub5_count': {
-          let count = storedProgress + metricInc;
-          const sub5 = safeResults.filter(r => {
+          const count = storedProgress + metricInc;
+          const sub5 = questResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             return isSpeed && r.avg !== null && Number(r.avg) < 5.0;
@@ -1150,8 +1227,8 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         }
 
         case 'speed_time_sub100_count': {
-          let count = storedProgress + metricInc;
-          const sub100 = safeResults.filter(r => {
+          const count = storedProgress + metricInc;
+          const sub100 = questResults.filter(r => {
             const mode = (r.game_mode || '').toLowerCase();
             const isSpeed = mode.includes('speed') || !!r.is_speed_mode;
             const t = r.time_seconds !== undefined && r.time_seconds !== null ? Number(r.time_seconds) : (r.time !== undefined ? Number(r.time) : null);
@@ -1163,9 +1240,9 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'ach_knapp_daneben_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('so_close')) count = Math.max(count, 1);
+          if (questAchievementIds.has('so_close')) count = Math.max(count, 1);
           let roundMatches = 0;
-          for (const r of safeResults) {
+          for (const r of questResults) {
             if (Array.isArray(r.rounds)) {
               for (const rd of r.rounds) {
                 const dist = typeof rd.dist === 'number' ? rd.dist : (typeof rd.distance === 'number' ? rd.distance : null);
@@ -1179,14 +1256,14 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
 
         case 'ach_kopfrechner_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('calculator')) count = Math.max(count, 1);
+          if (questAchievementIds.has('calculator')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
 
         case 'ach_scharfschuetze_count': {
           let count = storedProgress + metricInc;
-          if (userAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
+          if (questAchievementIds.has('sharpshooter')) count = Math.max(count, 1);
           progress = Math.max(progress, count);
           break;
         }
@@ -1200,8 +1277,9 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
         quest_id: q.id,
         current_progress: finalProgress,
         is_completed: isCompleted,
-        completed_at: isCompleted ? (existingQp?.completed_at || new Date().toISOString()) : null,
-        updated_at: new Date().toISOString()
+        completed_at: isCompleted ? (existingQp.completed_at || nowIso) : null,
+        created_at: questCreatedAt,
+        updated_at: nowIso
       };
 
       try {
@@ -1220,7 +1298,7 @@ async function serverEvaluateQuestsForUser(userId: string, roundIncrements: Reco
             await supabaseAdmin.from('user_titles').upsert({
               user_id: userId,
               title: (q as any).titleReward,
-              created_at: new Date().toISOString()
+              created_at: nowIso
             }, { onConflict: 'user_id,title' });
             unlockedTitles.add((q as any).titleReward);
             resultPayload.unlockedTitles.push((q as any).titleReward);
@@ -1437,12 +1515,14 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
 
     // Speichern in game_results (mit Duplikatschutz innerhalb 2 Minuten)
     let savedGameId: string | null = null;
+    let savedGameCreatedAt: string | null = null;
+    let isDuplicateGame = false;
     if (userId) {
       try {
         const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
         const { data: recentGames } = await supabaseAdmin
           .from('game_results')
-          .select('id')
+          .select('id, created_at')
           .eq('user_id', userId)
           .eq('game_mode', insertPayload.game_mode)
           .eq('avg', avgVal)
@@ -1453,6 +1533,8 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         if (recentGames && recentGames.length > 0) {
           console.log(`[Duplikatschutz] Spiel für User ${userId} bereits erfasst (ID ${recentGames[0].id}), verwende bestehendes.`);
           savedGameId = recentGames[0].id;
+          savedGameCreatedAt = recentGames[0].created_at || null;
+          isDuplicateGame = true;
         }
       } catch (dupErr) {
         console.warn('Duplikatschutz-Prüfung fehlgeschlagen:', dupErr);
@@ -1471,6 +1553,7 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
 
       savedGameId = data?.[0]?.id || null;
+      savedGameCreatedAt = data?.[0]?.created_at || new Date().toISOString();
     }
 
     // 2. Teamwiegen: Verknüpfung in 'teamwiegen_players'
@@ -1544,31 +1627,40 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 4. Multi-Achievement Runden-Increments zusammenstellen
-    const roundIncrements: Record<string, number> = { ...(payload.questStats || payload.roundIncrements || {}) };
+    // 4. Multi-Achievement Runden-Increments zusammenstellen (ohne Doppelzählung)
+    const incomingIncrements: Record<string, number> = { ...(payload.roundIncrements || payload.questStats || {}) };
+    const derivedIncrements: Record<string, number> = {};
 
     if (Array.isArray(payload.achievements)) {
       for (const ach of payload.achievements) {
         const achId = (ach.id || ach.achievement_id || '').toLowerCase();
-        if (achId === 'strategist') roundIncrements.strategist_count = (roundIncrements.strategist_count || 0) + 1;
-        if (achId === 'calculator') roundIncrements.ach_kopfrechner_count = (roundIncrements.ach_kopfrechner_count || 0) + 1;
-        if (achId === 'sharpshooter') roundIncrements.ach_scharfschuetze_count = (roundIncrements.ach_scharfschuetze_count || 0) + 1;
-        if (achId === 'so_close') roundIncrements.ach_knapp_daneben_count = (roundIncrements.ach_knapp_daneben_count || 0) + 1;
-        if (achId === 'six_seven') roundIncrements.ach_67_count = (roundIncrements.ach_67_count || 0) + 1;
-        if (achId === 'twins' || achId === 'doppelganger') roundIncrements.same_weight_count = (roundIncrements.same_weight_count || 0) + 1;
-        if (achId === 'schnapps_hunter' || achId === 'triple_seven') roundIncrements.schnapszahl_count = (roundIncrements.schnapszahl_count || 0) + 1;
-        if (achId === 'round_number') roundIncrements.hundreds_count = (roundIncrements.hundreds_count || 0) + 1;
-        if (achId === 'bullseye_king' || achId === 'prophet' || achId === 'perfect_balance') roundIncrements.perfect_hits_count = (roundIncrements.perfect_hits_count || 0) + 1;
-        if (achId === 'poker_face' || achId === 'pokerface') roundIncrements.poker_face_count = (roundIncrements.poker_face_count || 0) + 1;
+        if (achId === 'strategist') derivedIncrements.strategist_count = (derivedIncrements.strategist_count || 0) + 1;
+        if (achId === 'calculator') derivedIncrements.ach_kopfrechner_count = (derivedIncrements.ach_kopfrechner_count || 0) + 1;
+        if (achId === 'sharpshooter') derivedIncrements.ach_scharfschuetze_count = (derivedIncrements.ach_scharfschuetze_count || 0) + 1;
+        if (achId === 'so_close') derivedIncrements.ach_knapp_daneben_count = (derivedIncrements.ach_knapp_daneben_count || 0) + 1;
+        if (achId === 'six_seven') derivedIncrements.ach_67_count = (derivedIncrements.ach_67_count || 0) + 1;
+        if (achId === 'twins' || achId === 'doppelganger') derivedIncrements.same_weight_count = (derivedIncrements.same_weight_count || 0) + 1;
+        if (achId === 'schnapps_hunter' || achId === 'triple_seven') derivedIncrements.schnapszahl_count = (derivedIncrements.schnapszahl_count || 0) + 1;
+        if (achId === 'round_number') derivedIncrements.hundreds_count = (derivedIncrements.hundreds_count || 0) + 1;
+        if (achId === 'bullseye_king' || achId === 'prophet' || achId === 'perfect_balance') derivedIncrements.perfect_hits_count = (derivedIncrements.perfect_hits_count || 0) + 1;
+        if (achId === 'poker_face' || achId === 'pokerface') derivedIncrements.poker_face_count = (derivedIncrements.poker_face_count || 0) + 1;
       }
     }
 
     if (isSpeedGame) {
       if (avgVal > 0 && avgVal < 5.0) {
-        roundIncrements.speed_avg_sub5_count = (roundIncrements.speed_avg_sub5_count || 0) + 1;
+        derivedIncrements.speed_avg_sub5_count = (derivedIncrements.speed_avg_sub5_count || 0) + 1;
       }
       if (timeVal !== null && timeVal > 0 && timeVal < 100) {
-        roundIncrements.speed_time_sub100_count = (roundIncrements.speed_time_sub100_count || 0) + 1;
+        derivedIncrements.speed_time_sub100_count = (derivedIncrements.speed_time_sub100_count || 0) + 1;
+      }
+    }
+
+    const roundIncrements: Record<string, number> = {};
+    if (!isDuplicateGame) {
+      const allKeys = new Set([...Object.keys(incomingIncrements), ...Object.keys(derivedIncrements)]);
+      for (const k of allKeys) {
+        roundIncrements[k] = Math.max(Number(incomingIncrements[k] || 0), Number(derivedIncrements[k] || 0));
       }
     }
 
@@ -1659,9 +1751,12 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
           finalProfileStats = profileUpdates;
         }
 
-        // 6. Quests synchron und lückenlos auswerten
+        // 6. Quests synchron und lückenlos auswerten (erst ab quest.created_at)
         try {
-          const qRes = await serverEvaluateQuestsForUser(userId, roundIncrements);
+          const qRes = await serverEvaluateQuestsForUser(userId, roundIncrements, {
+            eventTimestampIso: savedGameCreatedAt,
+            isDuplicateGame
+          });
           finalQuestProgress = qRes.updatedQuestProgress;
           if (qRes.bonusXpEarned > 0) {
             xpEarned += qRes.bonusXpEarned;
@@ -1687,7 +1782,10 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
     if (isTeamGame && payload.teamPlayerUserIds && Array.isArray(payload.teamPlayerUserIds)) {
       for (const tpId of payload.teamPlayerUserIds) {
         if (tpId && tpId !== userId) {
-          serverEvaluateQuestsForUser(tpId, roundIncrements).catch(e => console.warn('Quest evaluation error for team player:', e));
+          serverEvaluateQuestsForUser(tpId, roundIncrements, {
+            eventTimestampIso: savedGameCreatedAt,
+            isDuplicateGame
+          }).catch(e => console.warn('Quest evaluation error for team player:', e));
         }
       }
     }
@@ -1844,104 +1942,128 @@ async function handleEvaluateQuests(req: VercelRequest, res: VercelResponse) {
     // 1. Profil laden, um aktuelles XP / Level zu ermitteln
     const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('xp')
+      .select('xp, level')
       .eq('id', userId)
       .maybeSingle();
 
     const userXp = profile?.xp || 0;
-    const userLevel = calculateLevelFromXp(userXp).level;
+    const userLevel = Math.max(Number(profile?.level) || 1, calculateLevelFromXp(userXp).level);
 
-    // 2. Alle verfügbaren Quests aus der Datenbank laden
-    const { data: allQuests, error: qErr } = await supabaseAdmin
+    // 2. Zentrale SERVER_LEVEL_QUESTS mit strikter created_at-Logik auswerten
+    const serverEval = await serverEvaluateQuestsForUser(userId, {});
+    let totalXpGained = serverEval.bonusXpEarned || 0;
+    const updatedQuests: any[] = [...serverEval.updatedQuestProgress];
+
+    // 3. Optionale DB-Quests aus der 'quests'-Tabelle ebenfalls strikt ab created_at auswerten
+    const { data: allQuests } = await supabaseAdmin
       .from('quests')
       .select('*');
 
-    if (qErr || !allQuests) {
-      return res.status(200).json({ success: false, error: 'Quests konnten nicht geladen werden' });
-    }
-
-    // 3. Bisherigen Fortschritt des Nutzers laden
-    const { data: existingProgress } = await supabaseAdmin
-      .from('user_quest_progress')
-      .select('*')
-      .eq('user_id', userId);
-
-    const progressMap = new Map<string, any>();
-    if (existingProgress) {
-      existingProgress.forEach((p: any) => progressMap.set(p.quest_id, p));
-    }
-
-    // 4. Spiele / Statistiken des Nutzers für die Auswertung laden
-    const { data: userGames } = await supabaseAdmin
-      .from('game_results')
-      .select('*')
-      .eq('user_id', userId);
-
-    const gamesCount = userGames?.length || 0;
-    const totalSchnaepse = userGames?.reduce((sum: number, g: any) => sum + (Number(g.schnaepse) || 0), 0) || 0;
-
-    let totalXpGained = 0;
-    const updatedQuests = [];
-
-    // 5. Quests durchgehen und prüfen
-    for (const quest of allQuests) {
-      const questMinLevel = quest.min_level || quest.required_level || 1;
-      const prog = progressMap.get(quest.id);
-
-      // Regel A: Wenn die Quest bereits abgeschlossen wurde -> NICHTS MEHR ÄNDERN / KEINE XP AGAIN
-      if (prog?.is_completed) {
-        updatedQuests.push({ ...quest, user_progress: prog });
-        continue;
-      }
-
-      // Regel B: Quest ist neu und das Level des Nutzers ist noch ZU NIEDRIG -> Überspringen
-      if (!prog && userLevel < questMinLevel) {
-        continue; // Erscheint noch nicht für diesen Nutzer
-      }
-
-      // Aktuellen Zielwert berechnen (Beispiel-Metriken je nach Quest-Typ)
-      let calculatedProgress = prog?.current_progress || 0;
-      
-      if (quest.type === 'games_played' || quest.metric === 'games') {
-        calculatedProgress = Math.max(calculatedProgress, gamesCount);
-      } else if (quest.type === 'schnaepse' || quest.metric === 'schnaepse') {
-        calculatedProgress = Math.max(calculatedProgress, totalSchnaepse);
-      }
-
-      // Ziel erreicht?
-      const targetValue = quest.target_value || quest.condition_value || 1;
-      const isNowCompleted = calculatedProgress >= targetValue;
-
-      if (isNowCompleted) {
-        calculatedProgress = targetValue;
-        const rewardXp = quest.xp_reward || quest.reward_xp || 50;
-        totalXpGained += rewardXp;
-      }
-
-      // In Datenbank abspeichern / aktualisieren (upsert)
-      const newProgressData = {
-        user_id: userId,
-        quest_id: quest.id,
-        current_progress: calculatedProgress,
-        is_completed: isNowCompleted,
-        completed_at: isNowCompleted ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString()
-      };
-
-      await supabaseAdmin
+    if (Array.isArray(allQuests) && allQuests.length > 0) {
+      const { data: existingProgress } = await supabaseAdmin
         .from('user_quest_progress')
-        .upsert(newProgressData, { onConflict: 'user_id,quest_id' });
+        .select('*')
+        .eq('user_id', userId);
 
-      updatedQuests.push({ ...quest, user_progress: newProgressData });
-    }
+      const progressMap = new Map<string, any>();
+      if (existingProgress) {
+        existingProgress.forEach((p: any) => progressMap.set(p.quest_id, p));
+      }
 
-    // 6. Falls neue XP gewonnen wurden -> User Profile aktualisieren
-    if (totalXpGained > 0) {
-      const newXp = userXp + totalXpGained;
-      await supabaseAdmin
-        .from('profiles')
-        .update({ xp: newXp, level: calculateLevelFromXp(newXp).level })
-        .eq('id', userId);
+      const { data: userGames } = await supabaseAdmin
+        .from('game_results')
+        .select('*')
+        .eq('user_id', userId);
+
+      const nowIso = new Date().toISOString();
+
+      for (const quest of allQuests) {
+        const questMinLevel = quest.min_level || quest.required_level || 1;
+        const prog = progressMap.get(quest.id);
+
+        if (prog?.is_completed) {
+          updatedQuests.push({ ...quest, user_progress: prog });
+          continue;
+        }
+
+        if (!prog && userLevel < questMinLevel) {
+          continue;
+        }
+
+        // Neu freigeschaltete Quest initialisieren -> strikt 0 (kein Vorausarbeiten)
+        if (!prog) {
+          const initData = {
+            user_id: userId,
+            quest_id: quest.id,
+            current_progress: 0,
+            is_completed: false,
+            completed_at: null,
+            created_at: nowIso,
+            updated_at: nowIso
+          };
+          await supabaseAdmin
+            .from('user_quest_progress')
+            .upsert(initData, { onConflict: 'user_id,quest_id' });
+          updatedQuests.push({ ...quest, user_progress: initData });
+          continue;
+        }
+
+        const progCreatedAt: string = prog.created_at || prog.updated_at || nowIso;
+        const progCreatedAtMs = new Date(progCreatedAt).getTime();
+        const eligibleGames = (userGames || []).filter((g: any) => {
+          const ms = getServerEventTimestampMs(g);
+          return ms !== null && ms >= progCreatedAtMs;
+        });
+
+        const gamesCount = eligibleGames.length;
+        const totalSchnaepse = eligibleGames.reduce((sum: number, g: any) => sum + (Number(g.schnaepse) || 0), 0);
+
+        let calculatedProgress = Number(prog.current_progress || 0);
+        if (quest.type === 'games_played' || quest.metric === 'games') {
+          calculatedProgress = Math.max(calculatedProgress, gamesCount);
+        } else if (quest.type === 'schnaepse' || quest.metric === 'schnaepse') {
+          calculatedProgress = Math.max(calculatedProgress, totalSchnaepse);
+        }
+
+        const targetValue = quest.target_value || quest.condition_value || 1;
+        const isNowCompleted = calculatedProgress >= targetValue;
+
+        if (isNowCompleted) {
+          calculatedProgress = targetValue;
+          const rewardXp = quest.xp_reward || quest.reward_xp || 50;
+          totalXpGained += rewardXp;
+        }
+
+        const newProgressData = {
+          user_id: userId,
+          quest_id: quest.id,
+          current_progress: Math.min(calculatedProgress, targetValue),
+          is_completed: isNowCompleted,
+          completed_at: isNowCompleted ? (prog.completed_at || nowIso) : null,
+          created_at: progCreatedAt,
+          updated_at: nowIso
+        };
+
+        await supabaseAdmin
+          .from('user_quest_progress')
+          .upsert(newProgressData, { onConflict: 'user_id,quest_id' });
+
+        updatedQuests.push({ ...quest, user_progress: newProgressData });
+      }
+
+      if (totalXpGained > (serverEval.bonusXpEarned || 0)) {
+        const extraXp = totalXpGained - (serverEval.bonusXpEarned || 0);
+        const { data: latestProf } = await supabaseAdmin
+          .from('profiles')
+          .select('xp')
+          .eq('id', userId)
+          .maybeSingle();
+        const newXp = (Number(latestProf?.xp ?? userXp) || 0) + extraXp;
+        await supabaseAdmin
+          .from('profiles')
+          .update({ xp: newXp, level: calculateLevelFromXp(newXp).level })
+          .eq('id', userId);
+      }
     }
 
     return res.status(200).json({
@@ -2157,8 +2279,20 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
 
       // Entferne bestehende Ergebnisse für diesen Tisch und füge neue hinzu
       const filteredResults = currentResults.filter((r: any) => r.tableId !== tableId);
-      // Sicherstellen, dass Standard-Wettbewerbsranking (Gleichstand erhalten) gewahrt bleibt
+      // Strikt nach Total aufsteigend sortieren (kleinstes Total = Rang 1), Standard-Wettbewerbsranking bei Gleichstand
+      const getResultTotal = (item: any) =>
+        item?.total !== undefined && item?.total !== null && !isNaN(Number(item.total))
+          ? Number(item.total)
+          : (Number(item?.avg || 0) + Number(item?.schnaepse || 0));
+
       const sortedInputResults = [...results].sort((a: any, b: any) => {
+        if (a.isDisqualified && !b.isDisqualified) return 1;
+        if (!a.isDisqualified && b.isDisqualified) return -1;
+        if (a.isDisqualified && b.isDisqualified) return 0;
+
+        const diffTotal = getResultTotal(a) - getResultTotal(b);
+        if (Math.abs(diffTotal) > 0.0001) return diffTotal;
+
         const diffAvg = Number(a.avg || 0) - Number(b.avg || 0);
         if (Math.abs(diffAvg) > 0.0001) return diffAvg;
         return Number(a.schnaepse || 0) - Number(b.schnaepse || 0);
@@ -2166,22 +2300,31 @@ async function handleTournamentSave(req: VercelRequest, res: VercelResponse) {
 
       let currentCompRank = 1;
       const newTableResults = sortedInputResults.map((r: any, idx: number, arr: any[]) => {
-        if (idx === 0) {
+        if (r.isDisqualified) {
+          currentCompRank = idx + 1;
+        } else if (idx === 0) {
           currentCompRank = 1;
         } else {
           const prev = arr[idx - 1];
-          const isTie = Math.abs(Number(r.avg || 0) - Number(prev.avg || 0)) < 0.001 && Number(r.schnaepse || 0) === Number(prev.schnaepse || 0);
-          if (!isTie) {
+          if (prev.isDisqualified) {
             currentCompRank = idx + 1;
+          } else {
+            const isTie =
+              Math.abs(getResultTotal(r) - getResultTotal(prev)) < 0.001 &&
+              Math.abs(Number(r.avg || 0) - Number(prev.avg || 0)) < 0.001 &&
+              Number(r.schnaepse || 0) === Number(prev.schnaepse || 0);
+            if (!isTie) {
+              currentCompRank = idx + 1;
+            }
           }
         }
         return {
           tableId,
           name: r.name,
-          rank: r.rank !== undefined && typeof r.rank === 'number' ? r.rank : currentCompRank,
+          rank: currentCompRank,
           avg: r.avg,
           schnaepse: r.schnaepse,
-          total: r.total,
+          total: getResultTotal(r),
           date
         };
       });

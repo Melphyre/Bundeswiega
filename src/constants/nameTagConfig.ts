@@ -666,7 +666,6 @@ export const parseNameBg = (raw?: string | null): ParsedNameBg => {
         backgroundColor: '#000000',
         color: '#ffffff',
         borderColor: colorMatch.bgHex,
-        boxShadow: `0 0 16px ${colorMatch.bgHex}, inset 0 0 10px ${colorMatch.bgHex}`,
         textShadow: '0 0 4px #000000, 0 0 8px #000000, 0 2px 6px rgba(0, 0, 0, 0.95), 0 0 12px var(--selected-color, #38bdf8)',
         ['--selected-color' as any]: colorMatch.bgHex,
         ['--name-accent-color' as any]: colorMatch.bgHex
@@ -764,34 +763,20 @@ export const isColorUnlocked = (
       return { unlocked: true, progress: 5, target: 5, requiredLevel: 4 };
     }
 
-    // 3. Ermittle Poker Face Zähler (0 bis 5)
-    let pokerCount = unlockedContext?.pokerFaceCount ?? 0;
-    if (unlockedContext?.questProgresses && Array.isArray(unlockedContext.questProgresses)) {
-      const qp = unlockedContext.questProgresses.find(
-        (q: any) => q.quest_id === 'l4_orange_poker_face' || q.quest_id === 'l4_quest_poker_face'
-      );
-      if (qp) {
-        pokerCount = Math.max(pokerCount, qp.is_completed ? 5 : Number(qp.current_progress || 0));
-      }
-    }
-    if (unlockedContext?.myAchievementsData && Array.isArray(unlockedContext.myAchievementsData)) {
-      const pokerAch = unlockedContext.myAchievementsData.filter(
-        (a: any) =>
-          (a.achievement_id === 'poker_face' || a.id === 'poker_face' || a.title === 'Poker Face') &&
-          (a.unlocked || a.is_unlocked)
-      );
-      if (pokerAch.length > 0) {
-        pokerCount = Math.max(pokerCount, pokerAch.length);
-      }
-    }
-    if (unlockedContext?.userId) {
-      try {
-        const rawStats = localStorage.getItem(`bundeswiega_quest_stats_${unlockedContext.userId}`);
-        if (rawStats) {
-          const parsedStats = JSON.parse(rawStats);
-          pokerCount = Math.max(pokerCount, Number(parsedStats.poker_face_count || parsedStats.poker_face || 0));
-        }
-      } catch {}
+    // 3. Ermittle Poker Face Zähler (0 bis 5) — strikt erst ab Quest-Freischaltung (created_at)
+    let pokerCount = 0;
+    const hasQpList = Array.isArray(unlockedContext?.questProgresses);
+    const qp = hasQpList
+      ? unlockedContext!.questProgresses!.find(
+          (q: any) => q.quest_id === 'l4_orange_poker_face' || q.quest_id === 'l4_quest_poker_face'
+        )
+      : undefined;
+    if (qp) {
+      pokerCount = qp.is_completed
+        ? 5
+        : Math.max(Number(qp.current_progress || 0), unlockedContext?.pokerFaceCount ?? 0);
+    } else if (!hasQpList) {
+      pokerCount = unlockedContext?.pokerFaceCount ?? 0;
     }
 
     pokerCount = Math.min(5, Math.max(0, pokerCount));

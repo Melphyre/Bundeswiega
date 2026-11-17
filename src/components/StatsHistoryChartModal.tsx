@@ -316,7 +316,7 @@ export const StatsHistoryChartModal: React.FC<StatsHistoryChartModalProps> = ({
         formatValue: (v: number) => `${v.toFixed(2)}`
       }
     ];
-  }, [activeMode, showAvg, showSchnaepse, showTotal, showTime]);
+  }, [activeMode, showAvg, showSchnaepse, showTotal, showTime, showScore]);
 
   const visibleSeries = seriesConfig.filter(s => s.visible);
 

@@ -34,6 +34,7 @@ export const MASTER_ACHIEVEMENTS_DEFINITIONS: Array<{
   { id: 'mirror_number', title: 'Spiegelzahl', description: 'Zwei Spieler mit gespiegelten Gewichten in einer Runde', icon: '🪞', rarity: 'epic', earnedTogether: true },
   { id: 'round_number', title: 'Runde Sache', description: 'Exakt 100g, 200g oder 300g getroffen', icon: '🔵', rarity: 'common' },
   { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common' },
+  { id: 'near_death', title: 'Nahtoderfahrung', description: 'In einer Runde exakt 49g neben dem Zielgewicht gelandet', icon: '😱', rarity: 'rare' },
   { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare' },
   { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedTogether: true },
   { id: 'six_seven', title: 'Six Seven', description: 'In einer Runde exakt 67g getroffen', icon: '6️⃣7️⃣', rarity: 'rare' },
@@ -179,6 +180,7 @@ export const checkAchievements = (
     mirror_number: { id: 'mirror_number', title: 'Spiegelzahl', description: 'Zwei Spieler mit gespiegelten Gewichten in einer Runde', icon: '🪞', rarity: 'epic', earnedBy: new Set() },
     round_number: { id: 'round_number', title: 'Runde Sache', description: 'Exakt 100g, 200g oder 300g getroffen', icon: '🔵', rarity: 'common', earnedBy: new Set() },
     so_close: { id: 'so_close', title: 'Knapp daneben', description: 'In 2+ Runden exakt 1g vom Volltreffer entfernt', icon: '😬', rarity: 'common', earnedBy: new Set() },
+    near_death: { id: 'near_death', title: 'Nahtoderfahrung', description: 'In einer Runde exakt 49g neben dem Zielgewicht gelandet', icon: '😱', rarity: 'rare', earnedBy: new Set() },
     outsider: { id: 'outsider', title: 'Außenseiter', description: 'In jeder Runde mindestens 10g von allen anderen entfernt', icon: '🏝️', rarity: 'rare', earnedBy: new Set() },
     shadow: { id: 'shadow', title: 'Schatten', description: 'Zwei Spieler in jeder Runde maximal 2g voneinander entfernt', icon: '👥', rarity: 'epic', earnedBy: new Set() },
     six_seven: { id: 'six_seven', title: 'Six Seven', description: 'In einer Runde exakt 67g getroffen', icon: '6️⃣7️⃣', rarity: 'rare', earnedBy: new Set() },
@@ -316,6 +318,10 @@ export const checkAchievements = (
 
     const closeCount = pData.filter(d => d.dist === 1).length;
     if (closeCount >= 2) achievementMap.so_close.earnedBy.add(p.name);
+
+    if (pData.some(d => d.dist === 49)) {
+      achievementMap.near_death.earnedBy.add(p.name);
+    }
 
     if (pData.some(d => d.weight < d.target - 20)) {
       achievementMap.thirsty.earnedBy.add(p.name);

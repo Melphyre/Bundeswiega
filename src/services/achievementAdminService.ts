@@ -259,6 +259,16 @@ export const DEFAULT_ACHIEVEMENTS_CATALOG: AdminAchievement[] = [
     categoryLabel: CATEGORY_LABELS.special
   },
   {
+    id: 'near_death',
+    title: 'Nahtoderfahrung',
+    description: 'In einer Runde exakt 49g neben dem Zielgewicht gelandet',
+    icon: '😱',
+    rarity: 'rare',
+    condition: 'any_round(dist == 49g)',
+    category: 'special',
+    categoryLabel: CATEGORY_LABELS.special
+  },
+  {
     id: 'outsider',
     title: 'Außenseiter',
     description: 'In jeder Runde mindestens 10g von allen anderen entfernt',

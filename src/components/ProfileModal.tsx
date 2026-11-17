@@ -49,6 +49,7 @@ import {
   removeFriend as apiRemoveFriend
 } from '../services/friendService';
 import WiegschaftenTab from './WiegschaftenTab';
+import { StatsHistoryChartModal } from './StatsHistoryChartModal';
 
 interface ProfileModalProps {
   showProfileModal: boolean;
@@ -178,6 +179,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [questProgresses, setQuestProgresses] = useState<QuestProgress[]>([]);
   const [userTitles, setUserTitles] = useState<string[]>([]);
   const [loadingQuests, setLoadingQuests] = useState(false);
+  const [showStatsChartModal, setShowStatsChartModal] = useState(false);
 
   const loadQuestProgress = useCallback(async () => {
     if (!effectiveUserId) return;
@@ -261,6 +263,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [isFriendSearching, setIsFriendSearching] = useState(false);
   const [friendsLoading, setFriendsLoading] = useState(false);
+  const [myGuildInfo, setMyGuildInfo] = useState<{ name: string; tag?: string } | null>(null);
 
   useEffect(() => {
     if (propFriends && propFriends.length > 0) setLocalFriends(propFriends);
@@ -300,12 +303,32 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     }
   }, []);
 
+  const reloadGuildInfo = useCallback(async () => {
+    if (!effectiveUserId) {
+      setMyGuildInfo(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/guilds/my-guild?userId=${encodeURIComponent(effectiveUserId)}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.inGuild && json.guild?.name) {
+        setMyGuildInfo({ name: json.guild.name, tag: json.guild.tag });
+      } else {
+        setMyGuildInfo(null);
+      }
+    } catch {
+      // ignore
+    }
+  }, [effectiveUserId]);
+
   // 2. useEffect sauber steuern (verhindert Request-Spam & Infinite Loop)
   useEffect(() => {
-    if (showProfileModal && profileTab === 'freunde') {
+    if (showProfileModal && effectiveUserId) {
       reloadFriends();
+      reloadGuildInfo();
     }
-  }, [showProfileModal, profileTab, reloadFriends]);
+  }, [showProfileModal, effectiveUserId, profileTab, reloadFriends, reloadGuildInfo]);
 
   // 3. Freundschaftsanfrage senden
   const onSendFriendRequest = async () => {
@@ -1121,12 +1144,116 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     effectiveGameMode
   );
 
+  const formatGameDate = (g: any): string => {
+    if (!g) return 'Unbekannt';
+    if (g.date && String(g.date).trim()) return String(g.date).trim();
+    const rawTs = g.created_at || g.unlocked_at || g.timestamp;
+    if (rawTs) {
+      const d = new Date(rawTs);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('de-DE');
+    }
+    return 'Unbekannt';
+  };
+
+  const isSpeedModeView = effectiveGameMode.toLowerCase().includes('speed');
+
+  const nonSpeedGamesForSchnaepse = filteredGames.filter(g => !isSpeedGame(g) && !g.disqualified);
+  const schnaepseEntries = nonSpeedGamesForSchnaepse.map(g => ({
+    val: Number(g.schnaepse ?? g.schnapse ?? g.schnaps ?? 0) || 0,
+    date: formatGameDate(g)
+  }));
+  const avgSchnaepseVal = schnaepseEntries.length > 0
+    ? (schnaepseEntries.reduce((s, e) => s + e.val, 0) / schnaepseEntries.length)
+    : null;
+  const maxSchnaepseEntry = schnaepseEntries.length > 0
+    ? schnaepseEntries.reduce((best, cur) => (cur.val > best.val ? cur : best), schnaepseEntries[0])
+    : null;
+  const minSchnaepseEntry = schnaepseEntries.length > 0
+    ? schnaepseEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), schnaepseEntries[0])
+    : null;
+
+  const speedTimeEntries = filteredGames
+    .filter(g => isSpeedGame(g) && !g.disqualified)
+    .map(g => ({ val: getTimeSec(g), date: formatGameDate(g) }))
+    .filter(e => e.val > 0);
+  const bestTimeEntry = speedTimeEntries.length > 0
+    ? speedTimeEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), speedTimeEntries[0])
+    : null;
+  const slowestTimeEntry = speedTimeEntries.length > 0
+    ? speedTimeEntries.reduce((best, cur) => (cur.val > best.val ? cur : best), speedTimeEntries[0])
+    : null;
+
+  const avgEntries = filteredGames
+    .filter(g => !g.disqualified && g.avg !== undefined && g.avg !== null && !isNaN(Number(g.avg)) && Number(g.avg) !== 999)
+    .map(g => ({ val: Number(g.avg), date: formatGameDate(g) }));
+  const bestAvgEntry = avgEntries.length > 0
+    ? avgEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), avgEntries[0])
+    : null;
+  const overallAvgVal = avgEntries.length > 0
+    ? avgEntries.reduce((s, e) => s + e.val, 0) / avgEntries.length
+    : null;
+
+  const totalEntries = filteredGames
+    .filter(g => !g.disqualified && Number(g.avg) !== 999)
+    .map(g => ({ val: getGameScore(g), date: formatGameDate(g) }))
+    .filter(e => !isNaN(e.val) && e.val >= 0);
+  const avgTotalVal = totalEntries.length > 0
+    ? totalEntries.reduce((s, e) => s + e.val, 0) / totalEntries.length
+    : null;
+  const bestTotalEntry = totalEntries.length > 0
+    ? totalEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), totalEntries[0])
+    : null;
+
+  const groupedBadges = (() => {
+    const map = new Map<string, {
+      key: string;
+      icon: string;
+      title: string;
+      description: string;
+      count: number;
+      dateCounts: Map<string, number>;
+    }>();
+
+    (myAchievementsData || []).forEach((ach: any) => {
+      if (!ach) return;
+      const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(
+        d => d.id === ach.achievement_id || d.id === ach.id || d.title === ach.title
+      );
+      const groupKey = def?.id || ach.achievement_id || ach.title || 'unknown_badge';
+      const dateStr = formatGameDate(ach);
+
+      let entry = map.get(groupKey);
+      if (!entry) {
+        entry = {
+          key: groupKey,
+          icon: def?.icon || ach.icon || '🏆',
+          title: def?.title || ach.title || 'Badge',
+          description: def?.description || ach.description || '',
+          count: 0,
+          dateCounts: new Map<string, number>()
+        };
+        map.set(groupKey, entry);
+      }
+      entry.count += 1;
+      entry.dateCounts.set(dateStr, (entry.dateCounts.get(dateStr) || 0) + 1);
+    });
+
+    return Array.from(map.values()).map(item => ({
+      key: item.key,
+      icon: item.icon,
+      title: item.title,
+      description: item.description,
+      count: item.count,
+      dates: Array.from(item.dateCounts.entries()).map(([date, count]) => ({ date, count }))
+    }));
+  })();
+
   // Zusammengefasste Subtab-Liste
   const modeSubTabs = [
-    { key: 'alle', label: 'Alle Modis' },
-    { key: 'standard', label: 'Standardspiel' },
-    { key: 'speed', label: 'Speedwiegen' },
-    { key: 'Teamwiegen', label: 'Teamwiegen' }
+    { key: 'alle', icon: '📊', label: 'Alle Modis' },
+    { key: 'standard', icon: '⚖️', label: 'Standardspiel' },
+    { key: 'speed', icon: '⚡', label: 'Speedwiegen' },
+    { key: 'Teamwiegen', icon: '👥', label: 'Teamwiegen' }
   ];
 
   return (
@@ -1870,7 +1997,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
 
                 {/* Subtabs Modus-Filter & Schieberegler */}
                 <div id="records-subtabs-container" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
-                  <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
                     {modeSubTabs.map(sub => {
                       const isSelected = activeCategory === sub.key;
                       return (
@@ -1878,15 +2005,18 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                           key={sub.key}
                           id={`records-subtab-${sub.key}`}
                           type="button"
+                          title={!isSelected ? sub.label : undefined}
+                          aria-label={sub.label}
                           onClick={() => {
                             playButtonSound();
                             setRecordsSubTab(sub.key);
                           }}
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs uppercase cursor-pointer transition-all flex-shrink-0 ${
+                          className={`px-3 sm:px-3.5 py-1.5 rounded-xl font-bold text-xs uppercase cursor-pointer transition-all flex-shrink-0 flex items-center gap-1.5 ${
                             isSelected ? 'bg-[#238183] text-white shadow' : 'bg-black/10 dark:bg-white/10 hover:opacity-100 opacity-70'
                           }`}
                         >
-                          {sub.label}
+                          <span className="text-sm leading-none">{sub.icon}</span>
+                          <span className={isSelected ? 'inline' : 'hidden sm:inline'}>{sub.label}</span>
                         </button>
                       );
                     })}
@@ -1955,7 +2085,8 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                 </div>
 
                 {/* Statistik-Karten (Case-Insensitive Check für Speedwiegen) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+                  {/* Kachel 1: Spiele absolviert */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
@@ -1969,51 +2100,173 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     </span>
                   </div>
 
+                  {/* Kachel 2: Ø Schnäpse pro Spiel (+ größte & kleinste Schnapszahl mit Datum) / Beste Zeit */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
                     <span className="text-2xl sm:text-3xl font-black text-amber-500 tracking-tight">
-                      {effectiveGameMode.toLowerCase().includes('speed')
-                        ? `${dynamicStats.bestTime ? dynamicStats.bestTime.toFixed(1) + 's' : '-'}`
-                        : (dynamicStats.gamesPlayed && dynamicStats.gamesPlayed > 0
-                            ? (dynamicStats.totalSchnaepse / dynamicStats.gamesPlayed).toFixed(1)
-                            : '0.0')}
+                      {isSpeedModeView
+                        ? `${bestTimeEntry ? bestTimeEntry.val.toFixed(1) + 's' : '-'}`
+                        : (avgSchnaepseVal !== null ? avgSchnaepseVal.toFixed(1) : '0.0')}
                     </span>
-                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
                       darkMode ? 'text-slate-400' : 'text-gray-500'
                     }`}>
-                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Beste Zeit' : 'Ø Schnäpse pro Spiel'}
+                      {isSpeedModeView ? 'Beste Zeit' : 'Ø Schnäpse / Spiel'}
                     </span>
+                    {isSpeedModeView ? (
+                      bestTimeEntry && (
+                        <div className={`mt-1.5 text-[10px] font-semibold space-y-0.5 leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                          <div>Beste: {bestTimeEntry.val.toFixed(1)}s ({bestTimeEntry.date})</div>
+                          {slowestTimeEntry && (
+                            <div>Max: {slowestTimeEntry.val.toFixed(1)}s ({slowestTimeEntry.date})</div>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      (maxSchnaepseEntry || minSchnaepseEntry) && (
+                        <div className={`mt-1.5 text-[10px] font-semibold space-y-0.5 leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                          {maxSchnaepseEntry && (
+                            <div>Max: <span className="font-bold text-amber-400">{maxSchnaepseEntry.val}</span> ({maxSchnaepseEntry.date})</div>
+                          )}
+                          {minSchnaepseEntry && (
+                            <div>Min: <span className="font-bold text-emerald-400">{minSchnaepseEntry.val}</span> ({minSchnaepseEntry.date})</div>
+                          )}
+                        </div>
+                      )
+                    )}
                   </div>
 
+                  {/* Kachel 3: Bester Abstand (mit Datum) & Ø Abstand aller Spiele */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
                     <span className="text-2xl sm:text-3xl font-black text-emerald-500 tracking-tight">
-                      {dynamicStats.bestAvg !== null ? dynamicStats.bestAvg.toFixed(2) : '-'}
+                      {bestAvgEntry !== null ? `${bestAvgEntry.val.toFixed(2)}g` : '-'}
                     </span>
-                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
                       darkMode ? 'text-slate-400' : 'text-gray-500'
                     }`}>
-                      Bester Ø (Abweichung)
+                      Bester Ø (Abstand)
                     </span>
+                    <div className={`mt-1.5 text-[10px] font-semibold space-y-0.5 leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                      {bestAvgEntry && (
+                        <div>am {bestAvgEntry.date}</div>
+                      )}
+                      <div>
+                        Ø Alle Spiele: <span className="font-bold text-emerald-400">{overallAvgVal !== null ? `${overallAvgVal.toFixed(2)}g` : '-'}</span>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* Kachel 4: Errungenschaften / Bester Score */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
                     <span className="text-2xl sm:text-3xl font-black text-purple-500 tracking-tight">
-                      {effectiveGameMode.toLowerCase().includes('speed')
+                      {isSpeedModeView
                         ? (dynamicStats.bestScore !== null ? dynamicStats.bestScore.toFixed(2) : '-')
                         : myAchievementsData.length}
                     </span>
                     <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
                       darkMode ? 'text-slate-400' : 'text-gray-500'
                     }`}>
-                      {effectiveGameMode.toLowerCase().includes('speed') ? 'Bester Score' : 'Errungenschaften'}
+                      {isSpeedModeView ? 'Bester Score' : 'Errungenschaften'}
                     </span>
                   </div>
+
+                  {/* Kachel 5: Total (durchschnittlich & kleinstes inkl. Datum) */}
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-cyan-500 tracking-tight">
+                      {avgTotalVal !== null ? avgTotalVal.toFixed(2) : '-'}
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
+                      {isSpeedModeView ? 'Ø Score (Total)' : 'Ø Total'}
+                    </span>
+                    <div className={`mt-1.5 text-[10px] font-semibold space-y-0.5 leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                      <div>
+                        Kleinstes: <span className="font-bold text-cyan-400">{bestTotalEntry ? bestTotalEntry.val.toFixed(2) : '-'}</span>
+                      </div>
+                      {bestTotalEntry && (
+                        <div>am {bestTotalEntry.date}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Kachel 6: Freunde & Wiegschaft */}
+                  <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                    darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <span className="text-2xl sm:text-3xl font-black text-indigo-500 tracking-tight">
+                      {friends.length}
+                    </span>
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
+                      darkMode ? 'text-slate-400' : 'text-gray-500'
+                    }`}>
+                      Freunde
+                    </span>
+                    <div className={`mt-1.5 text-[10px] font-semibold leading-tight max-w-full px-1 truncate ${darkMode ? 'text-slate-300' : 'text-gray-700'}`} title={myGuildInfo ? `${myGuildInfo.tag ? `[${myGuildInfo.tag}] ` : ''}${myGuildInfo.name}` : 'Keine Wiegschaft'}>
+                      🏰 {myGuildInfo ? `${myGuildInfo.tag ? `[${myGuildInfo.tag}] ` : ''}${myGuildInfo.name}` : 'Keine Wiegschaft'}
+                    </div>
+                  </div>
                 </div>
+
+                {/* Grafischer Button unter den Statistik-Karten zum Öffnen des Verlaufs-Diagramms */}
+                <button
+                  id="records-history-chart-btn"
+                  type="button"
+                  onClick={() => {
+                    playButtonSound();
+                    setShowStatsChartModal(true);
+                  }}
+                  className={`w-full p-3.5 sm:p-4 rounded-2xl border-2 flex items-center justify-between gap-3 text-left transition-all cursor-pointer group active:scale-[0.99] shadow-sm ${
+                    darkMode
+                      ? 'bg-gradient-to-r from-slate-900 via-slate-900 to-[#238183]/20 border-[#238183]/40 hover:border-[#2dd4bf]/70 text-white'
+                      : 'bg-gradient-to-r from-white via-teal-50/40 to-teal-100/60 border-teal-500/30 hover:border-[#238183] text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-11 h-11 rounded-xl bg-[#238183]/20 border border-[#238183]/40 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <svg viewBox="0 0 28 24" className="w-6 h-6" fill="none">
+                        <path
+                          d="M2 19 L9 12 L15 15 L25 5"
+                          stroke="#3b82f6"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M2 21 L9 17 L15 19 L25 12"
+                          stroke="#f59e0b"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <circle cx="9" cy="12" r="2" fill="#3b82f6" />
+                        <circle cx="15" cy="15" r="2" fill="#3b82f6" />
+                        <circle cx="25" cy="5" r="2.2" fill="#2dd4bf" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-black text-xs sm:text-sm uppercase tracking-wide flex items-center gap-2">
+                        <span>Ergebnis-Verlauf als Diagramm</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#238183]/20 text-[#2dd4bf] border border-[#238183]/30 font-black">
+                          Graph
+                        </span>
+                      </div>
+                      <p className="text-[11px] opacity-65 font-semibold truncate">
+                        Entwicklung von Ø Abstand, Schnäpsen, Total & Speed-Zeit vergleichen
+                      </p>
+                    </div>
+                  </div>
+                  <span className="w-8 h-8 rounded-xl bg-[#238183] text-white flex items-center justify-center shrink-0 shadow group-hover:translate-x-0.5 transition-transform">
+                    <i className="fas fa-chevron-right text-xs"></i>
+                  </span>
+                </button>
 
                 {/* Rekorde-Tabelle */}
                 <div className="space-y-3">
@@ -2146,31 +2399,49 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                   </div>
                 </div>
 
-                {/* NEU: Anzeige freigeschalteter Errungenschaften (Badges) */}
+                {/* NEU: Anzeige freigeschalteter Errungenschaften (Badges) mit Häufigkeit & Daten */}
                 <div className="space-y-3 pt-2">
                   <h4 className="font-black text-sm uppercase flex items-center gap-2 text-purple-400">
                     <i className="fas fa-trophy"></i>
-                    <span>Freigeschaltete Badges ({myAchievementsData.length})</span>
+                    <span>
+                      Freigeschaltete Badges ({groupedBadges.length > 0 ? `${groupedBadges.length} Arten · ${myAchievementsData.length}×` : 0})
+                    </span>
                   </h4>
-                  {myAchievementsData.length === 0 ? (
+                  {groupedBadges.length === 0 ? (
                     <p className="text-xs opacity-50 text-center py-2">Noch keine Errungenschaften freigeschaltet.</p>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto pr-1">
-                      {myAchievementsData.map((ach: any) => {
-                        const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(d => d.id === ach.achievement_id || d.title === ach.title);
-                        return (
-                          <div
-                            key={ach.id || ach.achievement_id}
-                            className={`p-3 rounded-xl border flex items-center space-x-3 ${darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}
-                          >
-                            <div className="text-2xl">{def?.icon || '🏆'}</div>
-                            <div className="overflow-hidden">
-                              <div className="font-black text-xs truncate">{def?.title || ach.title || 'Badge'}</div>
-                              <div className="text-[10px] opacity-60 line-clamp-1">{def?.description || ach.description || ''}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                      {groupedBadges.map((badge) => (
+                        <div
+                          key={badge.key}
+                          className={`p-3 rounded-xl border flex items-start space-x-3 ${darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-gray-50 border-gray-200'}`}
+                        >
+                          <div className="text-2xl shrink-0 mt-0.5">{badge.icon}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-black text-xs truncate">{badge.title}</div>
+                              <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-400 border border-purple-500/30 font-black text-[10px] shrink-0">
+                                {badge.count}×
+                              </span>
                             </div>
+                            <div className="text-[10px] opacity-60 line-clamp-2 mt-0.5">{badge.description}</div>
+                            {badge.dates.length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {badge.dates.map((d, i) => (
+                                  <span
+                                    key={`${badge.key}-date-${i}`}
+                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                      darkMode ? 'bg-slate-900/80 text-teal-400 border border-slate-700' : 'bg-white text-teal-700 border border-gray-200'
+                                    }`}
+                                  >
+                                    📅 {d.date}{d.count > 1 ? ` (${d.count}×)` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2645,6 +2916,14 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
           </div>
         </div>
       )}
+
+      <StatsHistoryChartModal
+        isOpen={showStatsChartModal}
+        onClose={() => setShowStatsChartModal(false)}
+        games={myGameData}
+        initialCategory={activeCategory}
+        darkMode={darkMode}
+      />
     </>
   );
 };

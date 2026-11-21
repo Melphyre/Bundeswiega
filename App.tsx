@@ -57,13 +57,13 @@ import { LevelUpModal } from './src/components/LevelUpModal';
 import { ShareModal } from './src/components/ShareModal';
 import { StartPlayerDrawModal } from './src/components/StartPlayerDrawModal';
 import { AdminTitlesModal } from './src/components/AdminTitlesModal';
-import { calculateLevelFromXp, calculateGameXp, getTitleForLevel } from './src/utils/levelSystem';
+import { calculateLevelFromXp, calculateGameXp, getTitleForLevel, xpForLevel } from './src/utils/levelSystem';
 import TitleUnlockToast from './src/components/TitleUnlockToast';
 import { getUnlockedTitles, PlayerTitle } from './src/constants/titlesConfig';
 import { PlayerNameTag } from './src/components/PlayerNameTag';
 import { PlayerAvatar } from './src/components/PlayerAvatar';
 import { LeaderboardCard } from './src/components/LeaderboardCard';
-import { recordQuestStat, processQuestsForUser, consumePendingQuestIncrements, clearAllPendingQuestIncrements } from './src/utils/questEvaluator';
+import { recordQuestStat, consumePendingQuestIncrements, clearAllPendingQuestIncrements } from './src/utils/questEvaluator';
 import { getColumnThemeClass, getRowThemeClass, getAvatarFrameClass } from './src/constants/cosmeticsConfig';
 import { GuildsLeaderboardView } from './src/components/GuildsLeaderboardView';
 import {
@@ -787,6 +787,13 @@ const App: React.FC = () => {
     if (playerObj?.isGuest === true) return true;
     if (playerObj?.isGuest === false) return false;
     if (playerObj?.userId || playerObj?.user_id) return false;
+    if (playerObj?.id && (playerAccountLinks[playerObj.id]?.userId || teamMemberAccountLinks[playerObj.id]?.userId)) return false;
+
+    // Bei aktiven Spielern außerhalb von Turnieren zählt ausschließlich die echte Account-Verknüpfung
+    // (ein unlinked Gast mit zufällig gleichem Namen wie ein bestehender Account bleibt trotzdem Gast)
+    if (playerObj && typeof playerObj === 'object' && playerObj.id && activeTournamentTable === null) {
+      return true;
+    }
 
     if (!playerNameOrId) return true;
     const target = playerNameOrId.trim().toLowerCase();
@@ -803,11 +810,15 @@ const App: React.FC = () => {
     }
 
     // 2. Verknüpfte Spieler-Accounts per ID
-    const directLink = playerAccountLinks[playerNameOrId];
+    const directLink = playerAccountLinks[playerNameOrId] || teamMemberAccountLinks[playerNameOrId];
     if (directLink?.userId) return false;
 
     // Verknüpfte Spieler-Accounts per Name oder User-ID
-    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
+    const allLinks = [
+      ...(Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>),
+      ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string; userName: string }>)
+    ];
+    const linked = allLinks.find(
       l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
     );
     if (linked?.userId) return false;
@@ -830,30 +841,33 @@ const App: React.FC = () => {
 
     // 1. Eingeloggter Benutzer
     const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
-    if (currentName && currentName === target) {
+    if ((currentName && currentName === target) || (supabaseUser?.id && supabaseUser.id === playerNameOrId)) {
       return userLevel || 1;
     }
 
     // 2. Verknüpfte Spieler-Accounts
-    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
-      l => l.userName?.trim().toLowerCase() === target
+    const linked = [
+      ...(Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>),
+      ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string; userName: string }>)
+    ].find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
     );
     if (linked) {
       const match = clerkUsers.find(u => u.id === linked.userId);
       if ((match as any)?.xp !== undefined && (match as any)?.xp !== null) {
         return calculateLevelFromXp(Number((match as any).xp) || 0).level;
       }
-      if ((match as any)?.level) return Number((match as any).level) || 1;
+      if ((match as any)?.level) return Math.min(20, Number((match as any).level) || 1);
     }
 
     // 3. Benutzer-Liste aus Supabase/Backend
     const matchUser = clerkUsers.find(
-      u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
     if ((matchUser as any)?.xp !== undefined && (matchUser as any)?.xp !== null) {
       return calculateLevelFromXp(Number((matchUser as any).xp) || 0).level;
     }
-    if ((matchUser as any)?.level) return Number((matchUser as any).level) || 1;
+    if ((matchUser as any)?.level) return Math.min(20, Number((matchUser as any).level) || 1);
 
     return 1;
   };
@@ -864,12 +878,15 @@ const App: React.FC = () => {
     const target = playerNameOrId.trim().toLowerCase();
 
     const currentName = (supabaseUser?.user_metadata?.username || '').trim().toLowerCase();
-    if (currentName && currentName === target) {
+    if ((currentName && currentName === target) || (supabaseUser?.id && supabaseUser.id === playerNameOrId)) {
       return userXp || 0;
     }
 
-    const linked = (Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>).find(
-      l => l.userName?.trim().toLowerCase() === target
+    const linked = [
+      ...(Object.values(playerAccountLinks) as Array<{ userId: string; userName: string }>),
+      ...(Object.values(teamMemberAccountLinks) as Array<{ userId: string; userName: string }>)
+    ].find(
+      l => l.userName?.trim().toLowerCase() === target || l.userId === playerNameOrId
     );
     if (linked) {
       const match = clerkUsers.find(u => u.id === linked.userId);
@@ -877,7 +894,7 @@ const App: React.FC = () => {
     }
 
     const matchUser = clerkUsers.find(
-      u => u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
+      u => u.id === playerNameOrId || u.name?.trim().toLowerCase() === target || (u as any).username?.trim().toLowerCase() === target
     );
     if ((matchUser as any)?.xp !== undefined) return Number((matchUser as any).xp) || 0;
 
@@ -887,7 +904,7 @@ const App: React.FC = () => {
     );
     if (matchFriend) {
       if (typeof matchFriend.xp === 'number' && matchFriend.xp > 0) return matchFriend.xp;
-      if (matchFriend.level && matchFriend.level > 1) return (matchFriend.level - 1) * 100;
+      if (matchFriend.level && matchFriend.level > 1) return xpForLevel(matchFriend.level);
     }
 
     return 0;
@@ -2160,6 +2177,7 @@ const App: React.FC = () => {
   // Speedwiegen States
   const [speedPlayerName, setSpeedPlayerName] = useState('');
   const [speedUserId, setSpeedUserId] = useState<string | null>(null);
+  const [speedAccountTouched, setSpeedAccountTouched] = useState<boolean>(false);
   const [speedLevels, setSpeedLevels] = useState<string>('3');
   const [speedIsShortMode, setSpeedIsShortMode] = useState<boolean>(false);
   const [showSpeedKlassischModal, setShowSpeedKlassischModal] = useState<boolean>(false);
@@ -2174,6 +2192,7 @@ const App: React.FC = () => {
   // Save Results Modal States
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [resultsSaved, setResultsSaved] = useState(false);
+  const [savedGuestItemIds, setSavedGuestItemIds] = useState<string[]>([]);
   const [showExitWithoutSaveConfirm, setShowExitWithoutSaveConfirm] = useState(false);
   const [csvNames, setCsvNames] = useState<string[]>([]);
   const [csvNamesError, setCsvNamesError] = useState<string | null>(null);
@@ -2244,14 +2263,32 @@ const App: React.FC = () => {
       team_name?: string;
       tournament_name?: string;
       tournament_table?: string;
+      rank?: number;
+      isWinner?: boolean;
+      isTeamMode?: boolean;
+      isTeamGame?: boolean;
+      isTeamWinner?: boolean;
+      tournamentRank?: number;
+      disqualified?: boolean;
+      isSpeedMode?: boolean;
+      teamPlayerUserIds?: string[];
+      memberUserIds?: string[];
+      player_name?: string;
+      is_guest?: boolean;
     },
     achievements: any[]
   ) => {
     try {
       const canonicalMode = normalizeGameMode(gameResult.game_mode);
+      const isSpeed = String(canonicalMode || '').toLowerCase().includes('speed') || Boolean(gameResult.isSpeedMode);
+      const isTeam = String(canonicalMode || '').toLowerCase().includes('team') || Boolean(gameResult.isTeamMode || gameResult.isTeamGame);
       const avg = Number(gameResult.avg) || 0;
-      const schnaepse = Number(gameResult.schnaepse) || 0;
-      const total = Math.round((avg + schnaepse) * 100) / 100;
+      const schnaepse = isSpeed ? 0 : (Number(gameResult.schnaepse) || 0);
+      const total = gameResult.total !== undefined && !isNaN(Number(gameResult.total))
+        ? Number(gameResult.total)
+        : (isSpeed
+            ? Math.round(avg * (Number(gameResult.levels) || 1) * 100) / 100
+            : Math.round((avg + schnaepse) * 100) / 100);
 
       const pendingIncrements = consumePendingQuestIncrements(userId);
       const res = await fetch('/api/users/save-game-result', {
@@ -2264,7 +2301,12 @@ const App: React.FC = () => {
             game_mode: canonicalMode,
             avg,
             schnaepse,
-            total
+            total,
+            isSpeedMode: isSpeed,
+            isTeamMode: isTeam,
+            isTeamGame: isTeam,
+            isTeamWinner: Boolean(gameResult.isTeamWinner),
+            disqualified: Boolean(gameResult.disqualified)
           },
           achievements: (achievements || []).map(a => ({
             ...a,
@@ -2284,20 +2326,37 @@ const App: React.FC = () => {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Unbekannter Fehler');
 
-      // Sofortige UI- & State-Synchronisation
-      if (json.newLevel) setUserLevel(json.newLevel);
-      if (json.newXp !== undefined) setUserXp(json.newXp);
-      if (json.levelUp) {
-        setLevelUpData({
-          newLevel: json.newLevel,
-          unlockedTitle: json.unlockedTitle || getTitleForLevel(json.newLevel)
-        });
-        setShowLevelUpModal(true);
+      setAccountResultsSaved(prev => (prev.includes(userId) ? prev : [...prev, userId]));
+
+      if (json.xpEarned !== undefined && gameResult.player_name) {
+        setRoundPlayerXp(prev => ({
+          ...prev,
+          [gameResult.player_name as string]: {
+            xpEarned: json.xpEarned,
+            newLevel: json.newLevel || 1,
+            newXp: json.newXp || 0,
+            levelUp: json.levelUp,
+            xpBreakdown: json.xpBreakdown
+          }
+        }));
       }
-      loadProfileStats(userId);
-      loadMyProfileData(userId);
+
+      // Sofortige UI- & State-Synchronisation (nur für den aktuell eingeloggten Account)
+      if (supabaseUser && userId === supabaseUser.id) {
+        if (json.newLevel) setUserLevel(json.newLevel);
+        if (json.newXp !== undefined) setUserXp(json.newXp);
+        if (json.levelUp) {
+          setLevelUpData({
+            newLevel: json.newLevel,
+            unlockedTitle: json.unlockedTitle || getTitleForLevel(json.newLevel)
+          });
+          setShowLevelUpModal(true);
+        }
+        loadProfileStats(userId);
+        loadMyProfileData(userId);
+        window.dispatchEvent(new Event('questProgressUpdated'));
+      }
       fetchAllProfiles();
-      window.dispatchEvent(new Event('questProgressUpdated'));
 
       return true;
     } catch (err: any) {
@@ -2358,7 +2417,12 @@ const App: React.FC = () => {
 
   // Sync profile data when entering setup states
   useEffect(() => {
-    if (gameState === GameState.PLAYER_NAMES || gameState === GameState.TEAM_SETUP) {
+    if (
+      gameState === GameState.PLAYER_NAMES ||
+      gameState === GameState.TEAM_SETUP ||
+      gameState === GameState.TEAM_NAMES ||
+      gameState === GameState.SPEED_SETUP
+    ) {
       fetchAllProfiles();
       if (supabaseUser?.id) {
         loadFriendships(supabaseUser.id);
@@ -2378,16 +2442,16 @@ const App: React.FC = () => {
     }
   };
 
-  // Speedwiegen auto fill logged in username
+  // Speedwiegen auto fill logged in username (nur als initialer Standardvorschlag, solange nicht manuell geändert/abgewählt)
   useEffect(() => {
-    if (gameState === GameState.SPEED_SETUP && isSignedIn && supabaseUser) {
+    if (gameState === GameState.SPEED_SETUP && isSignedIn && supabaseUser && !speedAccountTouched && !speedUserId) {
       const username = supabaseUser.user_metadata?.username || supabaseUser.email || '';
       if (username) {
-        setSpeedPlayerName(username);
+        setSpeedPlayerName(prev => prev || username);
         setSpeedUserId(supabaseUser.id);
       }
     }
-  }, [gameState, isSignedIn, supabaseUser]);
+  }, [gameState, isSignedIn, supabaseUser, speedAccountTouched, speedUserId]);
 
   // QR Scanner Functions (html5-qrcode)
   const startQrScanner = (playerId: string) => {
@@ -2544,6 +2608,39 @@ const App: React.FC = () => {
 
       // 6. Zu besetzenden Spieler ermitteln
       let effectivePlayerId = targetPlayerId || scanningForPlayerId;
+
+      const pName = matchedProfile.username || 'Spieler';
+      const pUid = matchedProfile.id;
+      const pAvatar = matchedProfile.avatar_url || undefined;
+
+      if (effectivePlayerId === 'speed_player') {
+        setSpeedAccountTouched(true);
+        setSpeedUserId(pUid);
+        setSpeedPlayerName(pName);
+
+        setClerkUsers(prev => {
+          if (prev.some(u => u.id === pUid)) return prev;
+          return [...prev, {
+            id: pUid,
+            name: pName,
+            email: matchedProfile.email || '',
+            imageUrl: pAvatar || '',
+            title: matchedProfile.title || ''
+          }];
+        });
+
+        stopQrScanner();
+        try {
+          playGlobalClickSound();
+        } catch {}
+
+        setQrSuccessToast(`✨ ${pName} für Speedwiegen via QR-Code ausgewählt!`);
+        setTimeout(() => {
+          setQrSuccessToast(null);
+        }, 4000);
+        return;
+      }
+
       if (!effectivePlayerId) {
         const emptySlot = players.find(p => !p.name.trim() && !playerAccountLinks[p.id]);
         if (emptySlot) effectivePlayerId = emptySlot.id;
@@ -2566,10 +2663,6 @@ const App: React.FC = () => {
         setQrError(`Account "${matchedProfile.username}" ist diesem Spiel bereits zugewiesen.`);
         return;
       }
-
-      const pName = matchedProfile.username || 'Spieler';
-      const pUid = matchedProfile.id;
-      const pAvatar = matchedProfile.avatar_url || undefined;
 
       // 8. Automatisch als Spieler für dieses Spiel eintragen
       const isStandardPlayer = players.some(p => p.id === effectivePlayerId);
@@ -2766,6 +2859,22 @@ const App: React.FC = () => {
     });
   };
 
+  const assignAccountToSpeedPlayer = (accountId: string) => {
+    if (!accountId) return;
+    const match = clerkUsers.find(u => u.id === accountId);
+    if (match) {
+      setSpeedAccountTouched(true);
+      setSpeedUserId(match.id);
+      setSpeedPlayerName(match.name);
+    }
+  };
+
+  const unlinkSpeedAccount = () => {
+    setSpeedAccountTouched(true);
+    setSpeedUserId(null);
+    setSpeedPlayerName('');
+  };
+
   // Friends Functions & Effects
   const loadFriends = async () => {
     await loadFriendships();
@@ -2941,6 +3050,7 @@ const App: React.FC = () => {
 
   // Auto-save results when RESULT_SCREEN or SPEED_RESULT is loaded
   const resultSavedRef = useRef<boolean>(false);
+  const tournamentSaveInFlightRef = useRef<boolean>(false);
 
   const calculatePlayerAvg = (playerId: string, roundsData: Round[]) => calculateAverageDistance(playerId, roundsData);
 
@@ -3076,16 +3186,9 @@ const App: React.FC = () => {
               }
               loadProfileStats(userId);
               loadMyProfileData(userId);
-              fetchAllProfiles();
-              window.dispatchEvent(new Event('questProgressUpdated'));
             }
-            // Quest-Fortschritt & Belohnungen nach Spielende auswerten
-            try {
-              await processQuestsForUser(userId);
-              window.dispatchEvent(new Event('questProgressUpdated'));
-            } catch (procQuestErr) {
-              console.warn('processQuestsForUser error after saving game:', procQuestErr);
-            }
+            fetchAllProfiles();
+            window.dispatchEvent(new Event('questProgressUpdated'));
           }
         } catch (err) {
           console.error(`Netzwerkfehler beim Speichern für ${playerName}:`, err);
@@ -3158,7 +3261,9 @@ const App: React.FC = () => {
                   'Teamwiegen',
                   {
                     team_name: team.name,
+                    isTeamMode: true,
                     isTeamGame: true,
+                    isTeamWinner: teamRank === 1,
                     teamPlayerUserIds: allTeamUserIds,
                     memberUserIds: allTeamUserIds,
                     rank: teamRank,
@@ -3172,17 +3277,23 @@ const App: React.FC = () => {
       } 
       // Für Speedwiegen
       else if (gameState === GameState.SPEED_RESULT) {
-        const targetSpeedUserId = speedUserId || (isSignedIn && supabaseUser ? supabaseUser.id : null);
+        const targetSpeedUserId = speedUserId || null;
         if (targetSpeedUserId && !accountResultsSaved.includes(targetSpeedUserId)) {
           const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
 
           await saveForPlayer(
             targetSpeedUserId,
-            speedPlayerName || 'Gast',
+            speedPlayerName || 'Spieler',
             avgDistance,
             0,
             speedIsShortMode ? 'Speedwiegen (0,33L)' : 'Speedwiegen (500ml)',
-            { levels: totalLevels, time_seconds: timeSec, isSpeedMode: true, total: totalDiff }
+            {
+              levels: totalLevels,
+              time_seconds: timeSec,
+              isSpeedMode: true,
+              total: totalDiff,
+              player_name: speedPlayerName || 'Spieler'
+            }
           );
         }
       }
@@ -3284,7 +3395,8 @@ const App: React.FC = () => {
   };
 
   const saveTournamentTableResults = async () => {
-    if (!activeTournamentTable || tournamentTableSaved) return;
+    if (!activeTournamentTable || tournamentTableSaved || tournamentSaveInFlightRef.current) return;
+    tournamentSaveInFlightRef.current = true;
 
     setTournamentTableSaveState('loading');
     setTournamentTableSaveMessage('Tischergebnisse werden gespeichert...');
@@ -3323,11 +3435,13 @@ const App: React.FC = () => {
       const rankedTournamentResults = calculateCompetitionRanks(rawTournamentResults);
 
       const playerResults = rankedTournamentResults.map(p => ({
+        id: p.id,
         name: p.name,
         rank: p.rank,
         avg: p.avg,
         schnaepse: p.schnaepse,
-        total: p.total
+        total: p.total,
+        isDisqualified: p.isDisqualified
       }));
 
       const targetTableId = activeTournamentTableId || activeTournamentTable.tableId;
@@ -3342,7 +3456,7 @@ const App: React.FC = () => {
           action: 'saveTableResult',
           name: activeTournamentTable.tournamentName,
           tableId: targetTableId,
-          results: playerResults,
+          results: playerResults.map(({ id: _id, isDisqualified: _dq, ...rest }) => rest),
           outPlayers: outPlayers,
           date: new Date().toLocaleDateString('de-DE')
         })
@@ -3361,13 +3475,22 @@ const App: React.FC = () => {
       setTournamentTableSaveState('success');
       setTournamentTableSaveMessage('Tischergebnisse erfolgreich im Turnier gespeichert!');
 
+      const newlySavedUserIds = new Set<string>(accountResultsSaved);
+
       // Speichere Spieler-Einzelergebnisse in der Datenbank
       for (const p of playerResults) {
         try {
-          const matchedUser = clerkUsers.find(u => u.username === p.name || u.name === p.name);
-          const origPlayer = players.find(pl => pl.name === p.name || pl.id === (p as any).id);
+          const normName = p.name.trim().toLowerCase();
+          const matchedUser = clerkUsers.find(
+            u => (u.username || '').trim().toLowerCase() === normName || (u.name || '').trim().toLowerCase() === normName
+          );
+          const origPlayer = players.find(pl => pl.id === p.id || pl.name === p.name);
           const resolvedUserId = origPlayer?.userId || (origPlayer ? playerAccountLinks[origPlayer.id]?.userId : null) || (playerAccountLinks && playerAccountLinks[p.name]?.userId) || (matchedUser ? matchedUser.id : null);
+          if (resolvedUserId && newlySavedUserIds.has(resolvedUserId)) {
+            continue;
+          }
           const isFinalTable = targetTableId === 'table_final' || targetTableId === 'Final';
+          const isPlayerDisqualified = Boolean(p.isDisqualified || origPlayer?.isDisqualified);
 
           const playerAchievements = earnedAchievements
             .filter(a => a.earnedBy?.includes(p.name))
@@ -3398,9 +3521,9 @@ const App: React.FC = () => {
                 tournament_name: activeTournamentTable.tournamentName,
                 tournament_table: targetTableId,
                 rank: p.rank,
-                isWinner: p.rank === 1,
-                tournamentRank: isFinalTable ? p.rank : undefined,
-                disqualified: (p as any).isDisqualified
+                isWinner: p.rank === 1 && !isPlayerDisqualified,
+                tournamentRank: isFinalTable && !isPlayerDisqualified ? p.rank : undefined,
+                disqualified: isPlayerDisqualified
               },
               achievements: playerAchievements,
               questStats: pendingIncrements,
@@ -3409,6 +3532,10 @@ const App: React.FC = () => {
           });
 
           if (res.ok) {
+            if (resolvedUserId) {
+              newlySavedUserIds.add(resolvedUserId);
+              setAccountResultsSaved(prev => (prev.includes(resolvedUserId) ? prev : [...prev, resolvedUserId]));
+            }
             const json = await res.json();
             if (json.xpEarned !== undefined) {
               setRoundPlayerXp(prev => ({
@@ -3451,6 +3578,8 @@ const App: React.FC = () => {
       setTournamentTableSaveMessage(
         `Fehler: ${err.message}. Bitte prüfe die Vercel Environment Variables (BLOB_READ_WRITE_TOKEN).`
       );
+    } finally {
+      tournamentSaveInFlightRef.current = false;
     }
   };
 
@@ -3496,6 +3625,8 @@ const App: React.FC = () => {
     setRounds([]);
     setPlayers([]);
     setTeams([]);
+    setEarnedAchievements([]);
+    setNewlyEarnedAchievements([]);
     setFinalTriggered(false);
     setIsShortMode(false);
     setTournamentMode(true);
@@ -3528,6 +3659,8 @@ const App: React.FC = () => {
     setRounds([]);
     setPlayers([]);
     setTeams([]);
+    setEarnedAchievements([]);
+    setNewlyEarnedAchievements([]);
     setIsShortMode(false);
     setUploadState('idle');
     setUploadMessage('');
@@ -3541,7 +3674,9 @@ const App: React.FC = () => {
     clearAllPendingQuestIncrements();
     setGameState(GameState.SPEED_SETUP);
     setResultsSaved(false);
+    setSavedGuestItemIds([]);
     setAccountResultsSaved([]);
+    setSpeedAccountTouched(false);
     setSpeedPlayerName(isSignedIn && supabaseUser ? (supabaseUser.user_metadata?.username || supabaseUser.email || '') : '');
     setSpeedUserId(isSignedIn && supabaseUser ? supabaseUser.id : null);
     setSpeedLevels('3');
@@ -3551,6 +3686,8 @@ const App: React.FC = () => {
     setSpeedStartTime(null);
     setSpeedEndTime(null);
     setSpeedCurrentTime(0);
+    setEarnedAchievements([]);
+    setNewlyEarnedAchievements([]);
     setUploadState('idle');
     setUploadMessage('');
     setTournamentTableSaved(false);
@@ -3562,10 +3699,14 @@ const App: React.FC = () => {
     clearAllPendingQuestIncrements();
     setGameState(GameState.START);
     setResultsSaved(false);
+    setSavedGuestItemIds([]);
+    setSpeedAccountTouched(false);
     setShowExitWithoutSaveConfirm(false);
     setRounds([]);
     setPlayers([]);
     setTeams([]);
+    setEarnedAchievements([]);
+    setNewlyEarnedAchievements([]);
     setTeamStepIndex(0);
     setActiveQuests([]);
     setQuestHistory([]);
@@ -3593,12 +3734,37 @@ const App: React.FC = () => {
     }
   };
 
+  const hasGuestsInCurrentGame = (): boolean => {
+    if (gameState === GameState.SPEED_RESULT) {
+      return !speedUserId;
+    }
+    if (gameState === GameState.RESULT_SCREEN) {
+      // Turniertische speichern alle Teilnehmer (inkl. Gäste) automatisch über saveTournamentTableResults
+      if (activeTournamentTable !== null) {
+        return false;
+      }
+      if (teams.length > 0) {
+        return players.some(p => !(p.userId || teamMemberAccountLinks[p.id]?.userId || playerAccountLinks[p.id]?.userId));
+      }
+      return players.some(p => !(p.userId || playerAccountLinks[p.id]?.userId));
+    }
+    return false;
+  };
+
   const handleExitToMainMenu = () => {
     if (activeGameIdRef.current) {
       abortActiveGame(activeGameIdRef.current);
       setActiveGameId(null);
     }
-    if (resultsSaved) {
+    if (activeTournamentTable !== null) {
+      if (tournamentTableSaved) {
+        window.location.reload();
+      } else {
+        setShowExitWithoutSaveConfirm(true);
+      }
+      return;
+    }
+    if (resultsSaved || !hasGuestsInCurrentGame()) {
       window.location.reload();
     } else {
       setShowExitWithoutSaveConfirm(true);
@@ -3890,6 +4056,8 @@ const App: React.FC = () => {
 
       setPlayerCount(prefilledPlayers.length);
       setPlayers(prefilledPlayers);
+      setEarnedAchievements([]);
+      setNewlyEarnedAchievements([]);
       setTempWeights(new Array(prefilledPlayers.length).fill(''));
       setGameState(GameState.START_WEIGHTS);
       setTournamentMode(true);
@@ -3926,6 +4094,8 @@ const App: React.FC = () => {
     setTournamentTableSaved(false);
     setTournamentTableSaveState('idle');
     setTournamentTableSaveMessage('');
+    setEarnedAchievements([]);
+    setNewlyEarnedAchievements([]);
 
     setShowTournamentDetailModal(false);
     setShowTournamentOverview(false);
@@ -4516,8 +4686,8 @@ const App: React.FC = () => {
       if (activeGameIdRef.current) {
         finishActiveGame(activeGameIdRef.current);
       }
-      // Speedwiegen-Quests auswerten (Wandernde Flamme & Elektrischer Blitz)
-      const speedUid = supabaseUser?.id;
+      // Speedwiegen-Quests dem ausgewählten Account zuordnen (nicht pauschal dem eingeloggten Gerät)
+      const speedUid = speedUserId || null;
       if (speedUid) {
         try {
           const { avgDistance, timeSec } = getSpeedGameMetrics();
@@ -5229,7 +5399,7 @@ const App: React.FC = () => {
   };
 
   const getParticipatingItems = () => {
-    let items: Array<{ id: string; name: string; avg: number; schnaepse: number; levels?: number; total?: number }> = [];
+    let items: Array<{ id: string; name: string; avg: number; schnaepse: number; levels?: number; total?: number; teamName?: string; teamRank?: number; isTeamWinner?: boolean }> = [];
     if (gameState === GameState.SPEED_RESULT) {
       const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
       items = [{
@@ -5242,33 +5412,21 @@ const App: React.FC = () => {
       }];
     } else if (gameState === GameState.RESULT_SCREEN) {
       if (teams.length > 0) {
-        items = teams.map(t => {
-          let totalOffset = 0;
-          let roundsCount = 0;
-          rounds.forEach(r => {
-            let roundOffset = 0;
-            let playersCount = 0;
-            t.playerIds.forEach(pid => {
-              const val = r.results[pid];
-              if (val !== undefined && val !== null) {
-                roundOffset += Math.abs(val - r.targetWeight);
-                playersCount++;
-              }
-            });
-            if (playersCount > 0) {
-              totalOffset += (roundOffset / playersCount);
-              roundsCount++;
-            }
-          });
-          const avg = roundsCount > 0 ? (totalOffset / roundsCount) : 0;
-          const avgRounded = Number(avg.toFixed(2));
-          const schnaepseVal = Number(t.points) || 0;
+        const rankedTeams = calculateTeamCompetitionRanks(teams);
+        items = players.map(p => {
+          const team = teams.find(t => t.playerIds?.includes(p.id));
+          const teamRank = team ? (rankedTeams.find(rt => rt.id === team.id)?.rank || 1) : 1;
+          const avgRounded = Number(calculateAverageDistance(p.id, rounds).toFixed(2));
+          const schnaepseVal = Number(team?.points) || 0;
           return {
-            id: t.id,
-            name: t.name,
+            id: p.id,
+            name: p.name,
             avg: avgRounded,
             schnaepse: schnaepseVal,
-            total: Number((avgRounded + schnaepseVal).toFixed(2))
+            total: Number((avgRounded + schnaepseVal).toFixed(2)),
+            teamName: team?.name,
+            teamRank,
+            isTeamWinner: teamRank === 1
           };
         });
       } else {
@@ -5289,7 +5447,17 @@ const App: React.FC = () => {
   };
 
   const isLinkedToAccount = (item: { id: string; name: string }) => {
-    return Object.entries(playerAccountLinks).some(([playerId, link]: [string, { userId: string; userName: string; imageUrl?: string }]) => {
+    if (gameState === GameState.SPEED_RESULT || item.id === 'speed_player') {
+      return Boolean(speedUserId);
+    }
+    const directPlayer = players.find(p => p.id === item.id || p.name === item.name);
+    if (directPlayer && (directPlayer.userId || playerAccountLinks[directPlayer.id]?.userId || teamMemberAccountLinks[directPlayer.id]?.userId)) {
+      return true;
+    }
+    if (playerAccountLinks[item.id]?.userId || teamMemberAccountLinks[item.id]?.userId) {
+      return true;
+    }
+    return [...Object.entries(playerAccountLinks), ...Object.entries(teamMemberAccountLinks)].some(([playerId, link]: [string, { userId: string; userName: string; imageUrl?: string }]) => {
       const player = players.find(p => p.id === playerId);
       return (player?.name === item.name || player?.id === item.id) && !!link.userId;
     });
@@ -5300,7 +5468,6 @@ const App: React.FC = () => {
     const guestItems = allItems.filter(item => !isLinkedToAccount(item));
 
     if (guestItems.length === 0 && allItems.length > 0) {
-      alert('Alle Spieler haben Accounts. Ergebnisse wurden automatisch gespeichert.');
       return;
     }
 
@@ -5312,7 +5479,7 @@ const App: React.FC = () => {
     setSaveAchievementsChecked(true);
 
     const initialChecked: Record<string, boolean> = {};
-    guestItems.forEach(it => { initialChecked[it.id] = true; });
+    guestItems.forEach(it => { initialChecked[it.id] = !savedGuestItemIds.includes(it.id); });
     setSaveModalChecked(initialChecked);
 
     try {
@@ -5325,13 +5492,9 @@ const App: React.FC = () => {
           if (row && row[2] && row[2].trim()) {
             const rowMode = row[1] ? row[1].trim() : '';
             if (isTeamMode) {
-              if (rowMode === 'Teamwiegen') {
-                namesSet.add(row[2].trim());
-              }
-            } else {
-              if (rowMode !== 'Teamwiegen') {
-                namesSet.add(row[2].trim());
-              }
+              namesSet.add(row[2].trim());
+            } else if (rowMode !== 'Teamwiegen') {
+              namesSet.add(row[2].trim());
             }
           }
         });
@@ -5343,22 +5506,6 @@ const App: React.FC = () => {
           const match = sorted.find(c => c.trim().toLowerCase() === it.name.trim().toLowerCase());
           initialMappings[it.id] = match || '__NEW__';
         });
-
-        // Teil 5: Wenn eingeloggt: versuche den eigenen Namen zuzuordnen
-        if (isSignedIn && supabaseUser) {
-          const userName = supabaseUser.user_metadata?.username || supabaseUser.email || '';
-          if (userName) {
-            const matchingItem = guestItems.find(it =>
-              it.name.toLowerCase() === userName.toLowerCase() ||
-              userName.toLowerCase().includes(it.name.toLowerCase()) ||
-              it.name.toLowerCase().includes(userName.toLowerCase())
-            );
-            if (matchingItem) {
-              const matchedCsv = sorted.find(c => c.trim().toLowerCase() === userName.toLowerCase());
-              initialMappings[matchingItem.id] = matchedCsv || userName;
-            }
-          }
-        }
 
         setSaveModalMappings(initialMappings);
       } else {
@@ -5399,91 +5546,82 @@ const App: React.FC = () => {
       }
 
       const items = getParticipatingItems();
-      const selectedItems = items.filter(it => saveModalChecked[it.id]);
+      const guestItemsOnly = items.filter(it => !isLinkedToAccount(it));
+      const selectedItems = guestItemsOnly.filter(it => saveModalChecked[it.id]);
 
       if (selectedItems.length === 0) {
-        setSaveModalError('Bitte mindestens einen Spieler auswählen.');
+        setSaveModalError('Bitte mindestens einen Gast-Spieler auswählen.');
         setSaveModalSubmitting(false);
         return;
       }
 
       const resultsToUpload = selectedItems.map(it => {
-        const mapping = saveModalMappings[it.id];
-        const finalName = (mapping && mapping !== '__NEW__') ? mapping : it.name;
+        const mapping = saveModalMappings[it.id] || '__NEW__';
+        const isAccountTarget = mapping.startsWith('__ACCOUNT__:');
+        const targetAccountId = isAccountTarget ? mapping.slice('__ACCOUNT__:'.length) : null;
+        const targetAccount = targetAccountId ? clerkUsers.find(u => u.id === targetAccountId) : null;
+        const finalName = targetAccount
+          ? targetAccount.name
+          : ((mapping && mapping !== '__NEW__') ? mapping : it.name);
         const computedTotal = it.total !== undefined
           ? it.total
           : Number(((Number(it.avg) || 0) + (Number(it.schnaepse) || 0)).toFixed(2));
         return {
+          id: it.id,
+          originalName: it.name,
           name: finalName,
           avg: it.avg,
           schnaepse: it.schnaepse,
           total: computedTotal,
-          ...(it.levels !== undefined ? { levels: it.levels } : {})
+          targetAccountId,
+          ...(it.levels !== undefined ? { levels: it.levels } : {}),
+          ...(it.teamName ? { team_name: it.teamName, teamRank: it.teamRank, isTeamWinner: it.isTeamWinner } : {})
         };
       });
 
-      const achievementsToUpload: Achievement[] = [];
-      earnedAchievements.forEach(ach => {
-        const isTogether = ach.earnedBy.length > 1 || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id);
-        const checkedNames: string[] = [];
-        let uncheckedCount = 0;
+      const accountAssignedResults = resultsToUpload.filter(r => Boolean(r.targetAccountId));
+      const guestCsvResults = resultsToUpload.filter(r => !r.targetAccountId);
 
-        ach.earnedBy.forEach(originalName => {
-          const matchItem = items.find(i => i.name.trim().toLowerCase() === originalName.trim().toLowerCase());
-          if (matchItem) {
-            const isChecked = saveModalChecked[matchItem.id] !== false;
-            if (isChecked) {
-              const mapping = saveModalMappings[matchItem.id];
-              const finalName = (mapping && mapping !== '__NEW__') ? mapping : matchItem.name;
-              checkedNames.push(finalName);
-            } else {
-              uncheckedCount++;
+      const buildAchievementsForItems = (itemList: typeof selectedItems, mappedList: typeof resultsToUpload) => {
+        const out: Achievement[] = [];
+        earnedAchievements.forEach(ach => {
+          const isTogether = ach.earnedBy.length > 1 || TOGETHER_ACHIEVEMENT_IDS.includes(ach.id);
+          const checkedNames: string[] = [];
+          let uncheckedCount = 0;
+
+          ach.earnedBy.forEach(originalName => {
+            const matchItem = itemList.find(i => i.name.trim().toLowerCase() === originalName.trim().toLowerCase());
+            if (matchItem) {
+              const mapped = mappedList.find(m => m.id === matchItem.id);
+              if (mapped) {
+                checkedNames.push(mapped.name);
+              } else {
+                uncheckedCount++;
+              }
             }
-          } else {
-            checkedNames.push(originalName);
-          }
-        });
+          });
 
-        if (!isTogether) {
-          if (checkedNames.length > 0 && uncheckedCount === 0) {
-            achievementsToUpload.push({
+          if (!isTogether) {
+            if (checkedNames.length > 0 && uncheckedCount === 0) {
+              out.push({ ...ach, earnedBy: checkedNames });
+            }
+          } else if (checkedNames.length > 0) {
+            out.push({
               ...ach,
-              earnedBy: checkedNames
+              earnedBy: uncheckedCount > 0 ? [...checkedNames, 'und andere'] : checkedNames
             });
           }
-        } else {
-          if (checkedNames.length > 0) {
-            if (uncheckedCount > 0) {
-              achievementsToUpload.push({
-                ...ach,
-                earnedBy: [...checkedNames, 'und andere']
-              });
-            } else {
-              achievementsToUpload.push({
-                ...ach,
-                earnedBy: checkedNames
-              });
-            }
-          }
-        }
-      });
+        });
+        return out;
+      };
 
-      if (resultsSaved) {
-        setSaveModalSuccess(true);
-        setTimeout(() => {
-          setShowSaveModal(false);
-          setSaveModalSuccess(false);
-        }, 1000);
-        setSaveModalSubmitting(false);
-        return;
-      }
-
-      const userMetaName = supabaseUser ? (supabaseUser.user_metadata?.username || supabaseUser.email || '').toLowerCase() : '';
-      
-      // Gast-Spieler vs. eingeloggter Nutzer trennen, um doppelte Zeilen zu verhindern
-      const guestResultsToUpload = supabaseUser
-        ? resultsToUpload.filter(r => r.name.toLowerCase() !== userMetaName && !userMetaName.includes(r.name.toLowerCase()))
-        : resultsToUpload;
+      const guestResultsToUpload = guestCsvResults.map(
+        ({ id: _id, originalName: _orig, targetAccountId: _accId, teamRank: _tr, isTeamWinner: _tw, ...rest }) => rest
+      );
+      const guestAchievementsToUpload = buildAchievementsForItems(
+        selectedItems.filter(it => !resultsToUpload.find(r => r.id === it.id)?.targetAccountId),
+        guestCsvResults
+      );
 
       let uploadSuccess = true;
       if (guestResultsToUpload.length > 0) {
@@ -5494,7 +5632,7 @@ const App: React.FC = () => {
             gameMode,
             results: guestResultsToUpload,
             date: today,
-            achievements: achievementsToUpload
+            achievements: guestAchievementsToUpload
           })
         });
 
@@ -5506,7 +5644,7 @@ const App: React.FC = () => {
       }
 
       if (uploadSuccess) {
-        if (selectedTournamentName && activeTournamentTableId) {
+        if (selectedTournamentName && activeTournamentTableId && !tournamentTableSaved && activeTournamentTable === null) {
           try {
             const tRes = await fetch('/api/tournament/save', {
               method: 'POST',
@@ -5554,34 +5692,134 @@ const App: React.FC = () => {
           }
         }
 
-        // Save authenticated user's result to Supabase if logged in (nur falls noch nicht durch autoSave gespeichert)
-        if (supabaseUser && !accountResultsSaved.includes(supabaseUser.id)) {
-          try {
-            const userResult = resultsToUpload.find(r => r.name.toLowerCase() === userMetaName || userMetaName.includes(r.name.toLowerCase()));
+        // Nachträgliche direkte Account-Zuordnung für Gäste (Standardspiel, Teamwiegen & Speedwiegen)
+        if (accountAssignedResults.length > 0) {
+          const isSpeedMode = gameState === GameState.SPEED_RESULT;
+          const isTeamMode = gameState === GameState.RESULT_SCREEN && teams.length > 0;
+          const rankedSingle = (!isSpeedMode && !isTeamMode)
+            ? calculateCompetitionRanks(
+                players.map(pl => {
+                  const avg = calculateAverageDistance(pl.id, rounds);
+                  const schnaepse = Number(pl.schnaepse) || 0;
+                  return { id: pl.id, name: pl.name, avg, schnaepse, total: avg + schnaepse, isDisqualified: pl.isDisqualified };
+                })
+              )
+            : [];
 
-            if (userResult) {
-              const userAchievements = achievementsToUpload.filter(ach =>
-                ach.earnedBy?.some((eb: string) => eb.toLowerCase() === userMetaName || userMetaName.includes(eb.toLowerCase()))
-              );
+          const allTeamUserIds = isTeamMode
+            ? Array.from(new Set([
+                ...(Object.values(teamMemberAccountLinks || {}) as Array<{ userId: string }>).map(l => l.userId),
+                ...accountAssignedResults.map(r => r.targetAccountId as string)
+              ])).filter(Boolean)
+            : [];
 
-              await saveResultToSupabase(
-                supabaseUser.id,
+          for (const accRes of accountAssignedResults) {
+            const targetUid = accRes.targetAccountId as string;
+            if (!targetUid || accountResultsSaved.includes(targetUid)) continue;
+
+            const origNameLower = accRes.originalName.trim().toLowerCase();
+            const itemAchievements = earnedAchievements
+              .filter(ach => ach.earnedBy?.some(eb => eb.trim().toLowerCase() === origNameLower))
+              .map(ach => ({
+                id: ach.id,
+                title: ach.title,
+                description: ach.description || '',
+                icon: ach.icon || '',
+                rarity: ach.rarity,
+                earnedBy: ach.earnedBy,
+                earnedTogether: ach.earnedTogether || false
+              }));
+
+            if (isSpeedMode) {
+              const { totalLevels, totalDiff, timeSec, avgDistance } = getSpeedGameMetrics();
+              const ok = await saveResultToSupabase(
+                targetUid,
                 {
                   game_mode: gameMode,
                   date: today,
-                  avg: Number(userResult.avg.toFixed(2)),
-                  schnaepse: userResult.schnaepse,
-                  total: Number((userResult.avg + userResult.schnaepse).toFixed(2)),
-                  levels: userResult.levels !== undefined ? userResult.levels : undefined
+                  avg: avgDistance,
+                  schnaepse: 0,
+                  total: totalDiff,
+                  levels: totalLevels,
+                  time_seconds: timeSec,
+                  isSpeedMode: true,
+                  player_name: accRes.name
                 },
-                userAchievements
+                itemAchievements
               );
-              setAccountResultsSaved(prev => (prev.includes(supabaseUser.id) ? prev : [...prev, supabaseUser.id]));
+              if (ok) {
+                setSpeedAccountTouched(true);
+                setSpeedUserId(targetUid);
+                setSpeedPlayerName(accRes.name);
+              }
+            } else if (isTeamMode) {
+              const rank = accRes.teamRank || 1;
+              const isWinner = rank === 1;
+              const ok = await saveResultToSupabase(
+                targetUid,
+                {
+                  game_mode: 'Teamwiegen',
+                  date: today,
+                  avg: Number(accRes.avg.toFixed(2)),
+                  schnaepse: accRes.schnaepse,
+                  total: Number((accRes.avg + accRes.schnaepse).toFixed(2)),
+                  team_name: accRes.team_name,
+                  isTeamMode: true,
+                  isTeamGame: true,
+                  isTeamWinner: isWinner,
+                  teamPlayerUserIds: allTeamUserIds,
+                  memberUserIds: allTeamUserIds,
+                  rank,
+                  isWinner,
+                  player_name: accRes.name
+                },
+                itemAchievements
+              );
+              if (ok) {
+                setPlayers(prev => prev.map(pl => pl.id === accRes.id ? { ...pl, userId: targetUid, name: accRes.name } : pl));
+                setTeamMemberAccountLinks(prev => ({
+                  ...prev,
+                  [accRes.id]: { userId: targetUid, userName: accRes.name }
+                }));
+              }
+            } else {
+              const origPlayer = players.find(pl => pl.id === accRes.id || pl.name === accRes.originalName);
+              const ranked = rankedSingle.find(rp => rp.id === origPlayer?.id || rp.name === accRes.originalName);
+              const rank = ranked?.rank;
+              const isDisqualified = Boolean(origPlayer?.isDisqualified);
+              const isWinner = rank === 1 && !isDisqualified;
+              const ok = await saveResultToSupabase(
+                targetUid,
+                {
+                  game_mode: gameMode,
+                  date: today,
+                  avg: Number(accRes.avg.toFixed(2)),
+                  schnaepse: accRes.schnaepse,
+                  total: Number((accRes.avg + accRes.schnaepse).toFixed(2)),
+                  rank,
+                  isWinner,
+                  disqualified: isDisqualified,
+                  player_name: accRes.name
+                },
+                itemAchievements
+              );
+              if (ok) {
+                setPlayers(prev => prev.map(pl => pl.id === accRes.id ? { ...pl, userId: targetUid, name: accRes.name } : pl));
+                setPlayerAccountLinks(prev => ({
+                  ...prev,
+                  [accRes.id]: { userId: targetUid, userName: accRes.name }
+                }));
+              }
             }
-          } catch (sbSaveErr) {
-            console.error('Error saving to Supabase:', sbSaveErr);
           }
         }
+
+        const nextSavedGuestIds = Array.from(new Set([...savedGuestItemIds, ...guestCsvResults.map(r => r.id)]));
+        setSavedGuestItemIds(nextSavedGuestIds);
+        const remainingGuests = guestItemsOnly.filter(
+          it => !accountAssignedResults.some(acc => acc.id === it.id) && !nextSavedGuestIds.includes(it.id)
+        );
+        setResultsSaved(remainingGuests.length === 0);
 
         if (supabaseUser) {
           loadProfileStats(supabaseUser.id);
@@ -5591,7 +5829,6 @@ const App: React.FC = () => {
         }
 
         setSaveModalSuccess(true);
-        setResultsSaved(true);
         setTimeout(() => {
           setShowSaveModal(false);
           setSaveModalSuccess(false);
@@ -6795,14 +7032,174 @@ const App: React.FC = () => {
         {gameState === GameState.SPEED_SETUP && (
           <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-md text-center">
             <h2 className="text-2xl font-black mb-6">Speedwiegen Setup</h2>
-            
-            <input 
-              type="text" 
-              value={speedPlayerName} 
-              onChange={e => setSpeedPlayerName(e.target.value)} 
-              className="w-full p-4 rounded-xl border-2 mb-6 bg-transparent font-bold text-center" 
-              placeholder="Dein Name" 
-            />
+
+            {/* Freie Account- oder Gastauswahl */}
+            <div className="mb-6 text-left space-y-2.5">
+              <label className="block text-xs font-bold uppercase opacity-50">Spieler / Account</label>
+
+              {speedUserId ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                    <PlayerAvatar
+                      url={getPlayerAvatarUrl(speedUserId)}
+                      name={speedPlayerName || 'Spieler'}
+                      className="w-8 h-8 flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-sm text-emerald-500 truncate">{speedPlayerName}</span>
+                        <PlayerLevelBadge level={getPlayerLevel(speedUserId)} isGuest={false} size="sm" />
+                      </div>
+                      <p className="text-[10px] opacity-70 font-semibold truncate">
+                        XP, Quests &amp; Statistiken werden diesem Account gutgeschrieben
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={unlinkSpeedAccount}
+                      title="Account abwählen und als Gast spielen"
+                      className="px-2 py-1 rounded-lg text-xs font-black text-red-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer flex-shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startQrScanner('speed_player')}
+                      className="py-2 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-80 transition-all"
+                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                    >
+                      <i className="fas fa-qrcode"></i>
+                      <span>QR-Scan</span>
+                    </button>
+                    <select
+                      value={speedUserId}
+                      onChange={e => {
+                        if (e.target.value === '__GUEST__') {
+                          unlinkSpeedAccount();
+                        } else if (e.target.value) {
+                          assignAccountToSpeedPlayer(e.target.value);
+                        }
+                      }}
+                      className={`flex-1 py-2 px-3 rounded-xl border-2 font-bold text-xs cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
+                    >
+                      <option value="__GUEST__">👤 Als Gast spielen (Account abwählen)</option>
+                      {(() => {
+                        const friendUserIds = new Set(friends.map(f => f.id));
+                        const sortedAccounts = [...clerkUsers].sort((a, b) => {
+                          const aIsMe = supabaseUser?.id === a.id;
+                          const bIsMe = supabaseUser?.id === b.id;
+                          if (aIsMe && !bIsMe) return -1;
+                          if (!aIsMe && bIsMe) return 1;
+                          const aIsFriend = friendUserIds.has(a.id);
+                          const bIsFriend = friendUserIds.has(b.id);
+                          if (aIsFriend && !bIsFriend) return -1;
+                          if (!aIsFriend && bIsFriend) return 1;
+                          return (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' });
+                        });
+                        const friendsList = sortedAccounts.filter(u => friendUserIds.has(u.id));
+                        const othersList = sortedAccounts.filter(u => !friendUserIds.has(u.id));
+
+                        return (
+                          <>
+                            {friendsList.length > 0 && (
+                              <optgroup label="⭐ Freunde">
+                                {friendsList.map(u => (
+                                  <option key={u.id} value={u.id}>
+                                    ⭐ {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label={friendsList.length > 0 ? 'Weitere Accounts' : 'Accounts'}>
+                              {othersList.map(u => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          </>
+                        );
+                      })()}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={speedPlayerName}
+                    onChange={e => {
+                      setSpeedAccountTouched(true);
+                      setSpeedPlayerName(e.target.value);
+                    }}
+                    className="w-full p-3.5 rounded-xl border-2 bg-transparent font-bold text-center"
+                    placeholder="Gastname eingeben"
+                    style={{ borderColor: speedPlayerName.trim() ? BRAND_COLOR : '' }}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startQrScanner('speed_player')}
+                      className="flex-1 py-2 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-80 transition-all"
+                      style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}
+                    >
+                      <i className="fas fa-qrcode"></i>
+                      <span>QR-Scan</span>
+                    </button>
+                    <select
+                      value=""
+                      onChange={e => assignAccountToSpeedPlayer(e.target.value)}
+                      className={`flex-1 py-2 px-3 rounded-xl border-2 font-bold text-xs cursor-pointer ${darkMode ? 'text-white border-white/20 bg-slate-900' : 'text-black border-black/20 bg-white'}`}
+                    >
+                      <option value="">Account wählen...</option>
+                      {(() => {
+                        const friendUserIds = new Set(friends.map(f => f.id));
+                        const sortedAccounts = [...clerkUsers].sort((a, b) => {
+                          const aIsMe = supabaseUser?.id === a.id;
+                          const bIsMe = supabaseUser?.id === b.id;
+                          if (aIsMe && !bIsMe) return -1;
+                          if (!aIsMe && bIsMe) return 1;
+                          const aIsFriend = friendUserIds.has(a.id);
+                          const bIsFriend = friendUserIds.has(b.id);
+                          if (aIsFriend && !bIsFriend) return -1;
+                          if (!aIsFriend && bIsFriend) return 1;
+                          return (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' });
+                        });
+                        const friendsList = sortedAccounts.filter(u => friendUserIds.has(u.id));
+                        const othersList = sortedAccounts.filter(u => !friendUserIds.has(u.id));
+
+                        return (
+                          <>
+                            {friendsList.length > 0 && (
+                              <optgroup label="⭐ Freunde">
+                                {friendsList.map(u => (
+                                  <option key={u.id} value={u.id}>
+                                    ⭐ {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label={friendsList.length > 0 ? 'Weitere Accounts' : 'Accounts'}>
+                              {othersList.map(u => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          </>
+                        );
+                      })()}
+                    </select>
+                  </div>
+                  <p className="text-[11px] opacity-60 font-medium text-center">
+                    Gastspiel — optional oben einen Account für automatische XP &amp; Statistiken wählen.
+                  </p>
+                </div>
+              )}
+            </div>
 
             {/* Becher-Format Toggle */}
             <div className="mb-6 text-left">
@@ -7026,13 +7423,40 @@ const App: React.FC = () => {
 
         {gameState === GameState.SPEED_RESULT && (() => {
           const { totalLevels, totalDiff, timeSec, avgDistance, normalizedScore, stepDiffs } = getSpeedGameMetrics();
+          const hasSpeedGuest = !speedUserId;
+          const speedAccountSaved = Boolean(speedUserId && accountResultsSaved.includes(speedUserId));
+          const speedXpRecord = speedUserId ? (roundPlayerXp[speedPlayerName] || roundPlayerXp[speedUserId]) : undefined;
+          const speedEarnedXp = speedXpRecord?.xpEarned ?? calculateGameXp({
+            isSpeedMode: true,
+            avg: avgDistance
+          }).totalXp;
+          const speedDisplayLevel = speedXpRecord?.newLevel ?? getPlayerLevel(speedUserId || speedPlayerName);
+          const speedTotalXp = speedXpRecord?.newXp ?? getPlayerXp(speedUserId || speedPlayerName);
+          const speedLevelInfo = calculateLevelFromXp(speedTotalXp);
 
           return (
             <div className="p-8 rounded-3xl bg-black/5 border border-gray-700/20 shadow-xl w-full max-w-2xl text-center">
               <h2 className="text-3xl font-black mb-2 uppercase" style={{ color: BRAND_COLOR }}>Ergebnis</h2>
-              <p className="text-xs font-bold opacity-60 mb-6 uppercase tracking-wider">
+              <p className="text-xs font-bold opacity-60 mb-3 uppercase tracking-wider">
                 Speedwiegen ({totalLevels} Stufen)
               </p>
+
+              {/* Gewerteter Spieler / Account */}
+              <div className="flex items-center justify-center gap-2 mb-6 flex-wrap">
+                {speedUserId ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs font-bold">
+                    <PlayerAvatar url={getPlayerAvatarUrl(speedUserId)} name={speedPlayerName || 'Spieler'} className="w-5 h-5" />
+                    <span className="opacity-70">Gewerteter Account:</span>
+                    <PlayerNameTag name={speedPlayerName || 'Spieler'} colorKey={getPlayerNameBgColor(speedUserId)} className="font-black" />
+                    <PlayerLevelBadge level={speedDisplayLevel} isGuest={false} size="sm" />
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-bold">
+                    <span>👤 Gastspiel:</span>
+                    <span className="font-black">{speedPlayerName || 'Gast'}</span>
+                  </div>
+                )}
+              </div>
               
               {showScreenshotNotice && (
                 <div className="p-3 mb-4 rounded-xl bg-[#238183]/20 border border-[#238183]/40 text-[#238183] text-xs font-bold text-center animate-in fade-in">
@@ -7067,6 +7491,50 @@ const App: React.FC = () => {
                   = {normalizedScore.toFixed(2)}
                 </div>
               </div>
+
+              {/* ERFAHRUNG & LEVEL-FORTSCHRITT (Nur wenn ein Account für das Speedwiegen gewählt wurde) */}
+              {speedUserId && (
+                <div className={`mb-6 p-5 rounded-3xl text-left ${darkMode ? 'bg-white/5' : 'bg-black/5'} border ${darkMode ? 'border-white/10' : 'border-gray-700/20'} shadow-xl space-y-4`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-black uppercase flex items-center space-x-2">
+                      <span className="text-amber-400 text-xl">⭐</span>
+                      <span>Erfahrung &amp; Level-Fortschritt</span>
+                    </h3>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-500">
+                      +XP Runde
+                    </span>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/60 border-slate-700' : 'bg-white border-gray-200'} space-y-3 shadow-sm`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center space-x-2">
+                        <PlayerNameTag name={speedPlayerName || 'Spieler'} colorKey={getPlayerNameBgColor(speedUserId)} className="font-black text-sm" />
+                        <PlayerLevelBadge level={speedDisplayLevel} isGuest={false} size="sm" />
+                        {getPlayerTitle(speedUserId) && (
+                          <PlayerTitleBadge title={getPlayerTitle(speedUserId)} size="sm" />
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-1 font-black text-emerald-500 text-sm bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                        <span>+{speedEarnedXp}</span>
+                        <span className="text-[10px]">XP</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px] font-bold opacity-70">
+                        <span>Level {speedLevelInfo.level} ({speedLevelInfo.title})</span>
+                        <span>{speedLevelInfo.currentLevelXp} / {speedLevelInfo.neededForNextLevel} XP ({speedLevelInfo.progressPercent}%)</span>
+                      </div>
+                      <div className="w-full h-2.5 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-1000"
+                          style={{ width: `${speedLevelInfo.progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div ref={rankingAreaRef} className="overflow-x-auto mb-8 p-4 rounded-2xl bg-black/10">
                 <table className={`w-full text-sm text-left border-collapse ${darkMode ? 'text-white' : 'text-gray-900'}`}>
@@ -7114,32 +7582,44 @@ const App: React.FC = () => {
             </div>
             <button onClick={handleExitToMainMenu} className="w-full py-4 rounded-2xl border-2 font-bold uppercase mb-4">Hauptmenü</button>
 
-            <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
-              <button 
-                onClick={openSaveModal} 
-                className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                <i className="fas fa-save mr-2"></i>
-                <span>Ergebnisse speichern</span>
-              </button>
-              <div className="text-xs font-bold text-center">
-                {resultsSaved ? (
-                  <span className="text-emerald-500 flex items-center justify-center gap-1">
-                    <span>✅</span> Ergebnisse gespeichert
-                  </span>
-                ) : (
-                  <span className="text-amber-500 flex items-center justify-center gap-1">
-                    <span>⚠️</span> Ergebnisse noch nicht gespeichert
-                  </span>
+            {(hasSpeedGuest || speedAccountSaved) && (
+              <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
+                {speedAccountSaved && (
+                  <div className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold text-center flex items-center justify-center space-x-1.5">
+                    <span>✅</span>
+                    <span>Ergebnis automatisch im Account "{speedPlayerName}" gespeichert</span>
+                  </div>
+                )}
+                {hasSpeedGuest && (
+                  <>
+                    <button 
+                      onClick={openSaveModal} 
+                      className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
+                      style={{ backgroundColor: BRAND_COLOR }}
+                    >
+                      <i className="fas fa-save mr-2"></i>
+                      <span>Ergebnisse speichern</span>
+                    </button>
+                    <div className="text-xs font-bold text-center">
+                      {resultsSaved ? (
+                        <span className="text-emerald-500 flex items-center justify-center gap-1">
+                          <span>✅</span> Ergebnisse gespeichert
+                        </span>
+                      ) : (
+                        <span className="text-amber-500 flex items-center justify-center gap-1">
+                          <span>⚠️</span> Ergebnisse noch nicht gespeichert
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+                {uploadMessage && (
+                  <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {uploadMessage}
+                  </p>
                 )}
               </div>
-              {uploadMessage && (
-                <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {uploadMessage}
-                </p>
-              )}
-            </div>
+            )}
           </div>
         );
       })()}
@@ -7330,7 +7810,13 @@ const App: React.FC = () => {
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      {registeredPlayers.map((p) => {
-                       const rankedAll = calculateCompetitionRanks(
+                       const isTeamMode = teams.length > 0;
+                       const rankedTeams = isTeamMode ? calculateTeamCompetitionRanks(teams) : [];
+                       const playerTeam = isTeamMode ? teams.find(t => t.playerIds?.includes(p.id)) : undefined;
+                       const teamRank = playerTeam ? rankedTeams.find(rt => rt.id === playerTeam.id)?.rank : undefined;
+                       const isTeamWinner = isTeamMode && teamRank === 1;
+
+                       const rankedAll = !isTeamMode ? calculateCompetitionRanks(
                          players.map(pl => {
                            const avg = calculateAverageDistance(pl.id, rounds);
                            const schnaepse = Number(pl.schnaepse) || 0;
@@ -7341,16 +7827,25 @@ const App: React.FC = () => {
                              total: avg + schnaepse
                            };
                          })
-                       );
+                       ) : [];
                        const ranked = rankedAll.find(rp => rp.id === p.id);
                        const pAvg = ranked ? ranked.avg : calculateAverageDistance(p.id, rounds);
-                       const isWinner = ranked ? (ranked.rank === 1 && !p.isDisqualified) : false;
-                       const pRank = ranked ? ranked.rank : undefined;
+                       const isWinner = !isTeamMode && ranked ? (ranked.rank === 1 && !p.isDisqualified) : false;
+                       const pRank = !isTeamMode && ranked ? ranked.rank : undefined;
+                       const isFinalTournamentTable = activeTournamentTable !== null && (
+                         activeTournamentTableId === 'table_final' ||
+                         activeTournamentTable.tableId === 'table_final' ||
+                         activeTournamentTable.tableId === 'Final'
+                       );
+                       const tournamentRank = isFinalTournamentTable && !p.isDisqualified ? pRank : undefined;
                        const gameXp = roundPlayerXp[p.name]?.xpEarned ?? calculateGameXp({
                          avg: pAvg,
                          schnaepse: p.schnaepse,
                          isWinner,
                          rank: pRank,
+                         isTeamMode,
+                         isTeamWinner,
+                         tournamentRank,
                          disqualified: p.isDisqualified
                        }).totalXp;
 
@@ -7484,42 +7979,54 @@ const App: React.FC = () => {
                 <button onClick={downloadCSV} className="py-4 rounded-2xl bg-emerald-600 text-white font-black shadow-lg cursor-pointer"><i className="fas fa-file-csv mr-2"></i>CSV erstellen</button>
               </div>
               <button onClick={() => setShowAchievements(true)} className="w-full py-4 rounded-2xl bg-amber-500 text-white font-black shadow-lg flex items-center justify-center space-x-2"><i className="fas fa-trophy mr-2"></i><span>Achievements anzeigen ({earnedAchievements.length})</span></button>
-              <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
-                {accountResultsSaved.length > 0 && (
-                  <div className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold text-center flex items-center justify-center space-x-1.5">
-                    <span>✅</span>
-                    <span>Ergebnisse automatisch in {accountResultsSaved.length} Account(s) gespeichert</span>
+              {(() => {
+                const hasGuests = hasGuestsInCurrentGame();
+                const hasAccountsSaved = accountResultsSaved.length > 0;
+                if (!hasGuests && !hasAccountsSaved && !uploadMessage) return null;
+
+                return (
+                  <div className="mt-4 p-4 rounded-2xl border border-dashed border-gray-500/30 flex flex-col items-center justify-center space-y-2">
+                    {hasAccountsSaved && (
+                      <div className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-bold text-center flex items-center justify-center space-x-1.5">
+                        <span>✅</span>
+                        <span>Ergebnisse automatisch in {accountResultsSaved.length} Account(s) gespeichert</span>
+                      </div>
+                    )}
+                    {hasGuests && (
+                      <>
+                        <button 
+                          onClick={openSaveModal} 
+                          className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
+                          style={{ backgroundColor: BRAND_COLOR }}
+                        >
+                          <i className="fas fa-save mr-2"></i>
+                          <span>
+                            {(Object.keys(playerAccountLinks).length > 0 || Object.keys(teamMemberAccountLinks).length > 0 || hasAccountsSaved)
+                              ? 'Gäste-Ergebnisse speichern'
+                              : 'Ergebnisse speichern'}
+                          </span>
+                        </button>
+                        <div className="text-xs font-bold text-center">
+                          {resultsSaved ? (
+                            <span className="text-emerald-500 flex items-center justify-center gap-1">
+                              <span>✅</span> Gäste-Ergebnisse gespeichert
+                            </span>
+                          ) : (
+                            <span className="text-amber-500 flex items-center justify-center gap-1">
+                              <span>⚠️</span> Gäste-Ergebnisse noch nicht gespeichert
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {uploadMessage && (
+                      <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {uploadMessage}
+                      </p>
+                    )}
                   </div>
-                )}
-                <button 
-                  onClick={openSaveModal} 
-                  className="w-full py-4 rounded-2xl text-white font-black shadow-lg flex items-center justify-center space-x-2 active:scale-95 text-sm"
-                  style={{ backgroundColor: BRAND_COLOR }}
-                >
-                  <i className="fas fa-save mr-2"></i>
-                  <span>
-                    {Object.keys(playerAccountLinks).length > 0
-                      ? 'Gäste-Ergebnisse speichern'
-                      : 'Ergebnisse speichern'}
-                  </span>
-                </button>
-                <div className="text-xs font-bold text-center">
-                  {resultsSaved ? (
-                    <span className="text-emerald-500 flex items-center justify-center gap-1">
-                      <span>✅</span> Ergebnisse gespeichert
-                    </span>
-                  ) : (
-                    <span className="text-amber-500 flex items-center justify-center gap-1">
-                      <span>⚠️</span> Ergebnisse noch nicht gespeichert
-                    </span>
-                  )}
-                </div>
-                {uploadMessage && (
-                  <p className={`text-xs font-bold text-center ${uploadState === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {uploadMessage}
-                  </p>
-                )}
-              </div>
+                );
+              })()}
 
               <button onClick={handleExitToMainMenu} className={`w-full py-5 rounded-2xl border-2 font-black opacity-60 uppercase tracking-widest mt-4 ${darkMode ? 'border-white/20' : 'border-black/20'}`}>zurück zum Hauptmenü</button>
           </div>
@@ -7576,18 +8083,20 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowExitWithoutSaveConfirm(false);
-                  openSaveModal();
-                }}
-                className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
-                style={{ backgroundColor: BRAND_COLOR }}
-              >
-                <i className="fas fa-save"></i>
-                <span>Ergebnisse speichern</span>
-              </button>
+              {hasGuestsInCurrentGame() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExitWithoutSaveConfirm(false);
+                    openSaveModal();
+                  }}
+                  className="w-full py-3.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                >
+                  <i className="fas fa-save"></i>
+                  <span>Ergebnisse speichern</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -7628,12 +8137,12 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-black uppercase flex items-center tracking-tight" style={{ color: BRAND_COLOR }}>
                   <i className="fas fa-save mr-3 text-2xl"></i>
                   <span>
-                    {Object.keys(playerAccountLinks).length > 0
+                    {(Object.keys(playerAccountLinks).length > 0 || Object.keys(teamMemberAccountLinks).length > 0 || accountResultsSaved.length > 0)
                       ? 'Gäste-Ergebnisse speichern'
                       : 'Ergebnisse speichern'}
                   </span>
                 </h3>
-                {Object.keys(playerAccountLinks).length > 0 && (
+                {(Object.keys(playerAccountLinks).length > 0 || Object.keys(teamMemberAccountLinks).length > 0 || accountResultsSaved.length > 0) && (
                   <p className="text-xs opacity-60 font-semibold mt-1">
                     Account-Spieler wurden bereits automatisch gespeichert.
                   </p>
@@ -7672,13 +8181,27 @@ const App: React.FC = () => {
                         <th className="py-3 px-3 text-center w-12">
                           <i className="fas fa-check-double text-xs opacity-60"></i>
                         </th>
-                        <th className="py-3 px-3">{(gameState === GameState.RESULT_SCREEN && teams.length > 0) ? 'Team' : 'Spieler'}</th>
+                        <th className="py-3 px-3">{(gameState === GameState.RESULT_SCREEN && teams.length > 0) ? 'Gast (Team)' : 'Gast-Spieler'}</th>
                         <th className="py-3 px-3">Zuordnung</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getParticipatingItems().filter(item => !isLinkedToAccount(item)).map(item => {
                         const isChecked = saveModalChecked[item.id] !== false;
+                        const friendUserIds = new Set(friends.map(f => f.id));
+                        const assignableAccounts = clerkUsers
+                          .filter(u => !accountResultsSaved.includes(u.id))
+                          .sort((a, b) => {
+                            const aIsMe = supabaseUser?.id === a.id;
+                            const bIsMe = supabaseUser?.id === b.id;
+                            if (aIsMe && !bIsMe) return -1;
+                            if (!aIsMe && bIsMe) return 1;
+                            const aIsFriend = friendUserIds.has(a.id);
+                            const bIsFriend = friendUserIds.has(b.id);
+                            if (aIsFriend && !bIsFriend) return -1;
+                            if (!aIsFriend && bIsFriend) return 1;
+                            return (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' });
+                          });
                         return (
                           <tr key={item.id} className={`border-t ${darkMode ? 'border-white/5' : 'border-gray-200/50'}`}>
                             <td className="py-3 px-3 text-center">
@@ -7697,7 +8220,10 @@ const App: React.FC = () => {
                               </button>
                             </td>
                             <td className="py-3 px-3 font-bold text-xs md:text-sm">
-                              {item.name}
+                              <div>{item.name}</div>
+                              {item.teamName && (
+                                <span className="text-[10px] font-semibold opacity-60 block">{item.teamName}</span>
+                              )}
                             </td>
                             <td className="py-3 px-3">
                               <select
@@ -7712,12 +8238,25 @@ const App: React.FC = () => {
                                       : 'bg-white border-gray-300 text-gray-900 focus:border-[#238183]'
                                 }`}
                               >
-                                <option value="__NEW__">➕ {(gameState === GameState.RESULT_SCREEN && teams.length > 0) ? 'Neues Team' : 'Neuer Name'} ({item.name})</option>
-                                {csvNames.map(cName => (
-                                  <option key={cName} value={cName}>
-                                    {cName}
-                                  </option>
-                                ))}
+                                <option value="__NEW__">➕ Neuer Gast-Name ({item.name})</option>
+                                {assignableAccounts.length > 0 && (
+                                  <optgroup label="👤 Account zuordnen (inkl. XP & Profil)">
+                                    {assignableAccounts.map(acc => (
+                                      <option key={`acc_${acc.id}`} value={`__ACCOUNT__:${acc.id}`}>
+                                        👤 {acc.name}{supabaseUser?.id === acc.id ? ' (Du)' : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {csvNames.length > 0 && (
+                                  <optgroup label="📋 Bestehender Gast / Historie">
+                                    {csvNames.map(cName => (
+                                      <option key={cName} value={cName}>
+                                        {cName}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                               </select>
                             </td>
                           </tr>
@@ -10832,17 +11371,76 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase opacity-60 mb-1">Spieler Name:</label>
-                    <input
-                      type="text"
-                      value={speedPlayerName}
-                      onChange={e => setSpeedPlayerName(e.target.value)}
-                      placeholder="Dein Name"
-                      className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${
-                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
-                      }`}
-                    />
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold uppercase opacity-60">Spieler / Account:</label>
+                    {speedUserId ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                          <PlayerAvatar url={getPlayerAvatarUrl(speedUserId)} name={speedPlayerName || 'Spieler'} className="w-7 h-7 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <span className="font-black text-xs text-emerald-500 block truncate">{speedPlayerName}</span>
+                            <span className="text-[10px] opacity-70 block truncate">Account ausgewählt</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={unlinkSpeedAccount}
+                            title="Account abwählen (als Gast spielen)"
+                            className="px-2 py-1 rounded-lg text-xs font-black text-red-400 hover:text-red-500 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <select
+                          value={speedUserId}
+                          onChange={e => {
+                            if (e.target.value === '__GUEST__') {
+                              unlinkSpeedAccount();
+                            } else if (e.target.value) {
+                              assignAccountToSpeedPlayer(e.target.value);
+                            }
+                          }}
+                          className={`w-full p-2.5 rounded-xl border-2 text-xs font-bold cursor-pointer ${
+                            darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        >
+                          <option value="__GUEST__">👤 Als Gast spielen</option>
+                          {clerkUsers.map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={speedPlayerName}
+                          onChange={e => {
+                            setSpeedAccountTouched(true);
+                            setSpeedPlayerName(e.target.value);
+                          }}
+                          placeholder="Gastname eingeben"
+                          className={`w-full p-3 rounded-xl border-2 text-xs font-bold ${
+                            darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        />
+                        <select
+                          value=""
+                          onChange={e => assignAccountToSpeedPlayer(e.target.value)}
+                          className={`w-full p-2.5 rounded-xl border-2 text-xs font-bold cursor-pointer ${
+                            darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        >
+                          <option value="">Account auswählen...</option>
+                          {clerkUsers.map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}{supabaseUser?.id === u.id ? ' (Du)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -10860,7 +11458,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   if (!speedPlayerName.trim()) {
-                    alert("Bitte zuerst deinen Namen eingeben.");
+                    alert("Bitte zuerst einen Spielernamen eingeben oder einen Account wählen.");
                     return;
                   }
                   const parsedStartW = parseInt(speedKlassischStartWeight, 10);

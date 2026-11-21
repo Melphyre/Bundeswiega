@@ -38,7 +38,7 @@ import {
 import { PlayerNameTag } from './PlayerNameTag';
 import { PlayerAvatar } from './PlayerAvatar';
 import { QuestList, QuestProgress } from './QuestList';
-import { processQuestsForUser, getQuestEventTimestampMs } from '../utils/questEvaluator';
+import { getQuestEventTimestampMs } from '../utils/questEvaluator';
 import { Friend, PendingFriendRequest } from '../../types';
 import { playButtonSound } from './FriendsModal';
 import {
@@ -185,12 +185,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     if (!effectiveUserId) return;
     try {
       setLoadingQuests(true);
-      // Quests neu auswerten (Frontend & Backend), damit Teamwiegenspiele & alle Spiele einfließen
-      try {
-        await processQuestsForUser(effectiveUserId);
-      } catch (procErr) {
-        console.warn('Frontend processQuestsForUser warning:', procErr);
-      }
+      // Quests ausschließlich über den zentralen Backend-Endpoint auswerten (verhindert parallele Race Conditions)
       try {
         await fetch('/api/users/evaluate-quests', {
           method: 'POST',
@@ -200,7 +195,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       } catch {
         // ignore
       }
-const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
+      const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(effectiveUserId)}`);
       if (res.ok) {
         const data = await res.json();
         const incomingQuests = Array.isArray(data.questProgress) ? data.questProgress : (Array.isArray(data.quests) ? data.quests : []);
@@ -907,23 +902,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
         });
       }
 
-      // Quests direkt im Frontend sowie über den Backend-Endpoint auswerten
-      try {
-        await processQuestsForUser(userId);
-      } catch (localQuestErr) {
-        console.warn('Frontend quest evaluation warning:', localQuestErr);
-      }
-
-      try {
-        await fetch('/api/users/evaluate-quests', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId })
-        });
-      } catch (qErr) {
-        console.warn('Quest evaluation after avatar update warning:', qErr);
-      }
-
+      // Quests einmalig über den zentralen Backend-Endpoint (loadQuestProgress) auswerten
       await loadQuestProgress();
 
       setAvatarMessage('✅ Profilbild erfolgreich aktualisiert!');
@@ -1156,6 +1135,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
   };
 
   const isSpeedModeView = effectiveGameMode.toLowerCase().includes('speed');
+  const isStandardModeView = activeCategory === 'standard';
 
   const nonSpeedGamesForSchnaepse = filteredGames.filter(g => !isSpeedGame(g) && !g.disqualified);
   const schnaepseEntries = nonSpeedGamesForSchnaepse.map(g => ({
@@ -1176,22 +1156,75 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
     .filter(g => isSpeedGame(g) && !g.disqualified)
     .map(g => ({ val: getTimeSec(g), date: formatGameDate(g) }))
     .filter(e => e.val > 0);
+  const avgTimeVal = speedTimeEntries.length > 0
+    ? speedTimeEntries.reduce((s, e) => s + e.val, 0) / speedTimeEntries.length
+    : null;
   const bestTimeEntry = speedTimeEntries.length > 0
     ? speedTimeEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), speedTimeEntries[0])
     : null;
-  const slowestTimeEntry = speedTimeEntries.length > 0
-    ? speedTimeEntries.reduce((best, cur) => (cur.val > best.val ? cur : best), speedTimeEntries[0])
-    : null;
+
+  const getSpeedAvgDist = (g: any): number => {
+    const avgVal = Number(g.avg) || 0;
+    const levels = (g.levels !== undefined && g.levels !== null && !isNaN(Number(g.levels)) && Number(g.levels) > 0)
+      ? Number(g.levels)
+      : 1;
+    const totalRaw = g.total !== undefined && g.total !== null && !isNaN(Number(g.total))
+      ? Number(g.total)
+      : undefined;
+    if (totalRaw !== undefined && totalRaw > 0) {
+      return getSpeedGesamtabstand(g) / levels;
+    }
+    return avgVal;
+  };
 
   const avgEntries = filteredGames
     .filter(g => !g.disqualified && g.avg !== undefined && g.avg !== null && !isNaN(Number(g.avg)) && Number(g.avg) !== 999)
-    .map(g => ({ val: Number(g.avg), date: formatGameDate(g) }));
+    .map(g => ({ val: isSpeedGame(g) ? getSpeedAvgDist(g) : Number(g.avg), date: formatGameDate(g) }));
   const bestAvgEntry = avgEntries.length > 0
     ? avgEntries.reduce((best, cur) => (cur.val < best.val ? cur : best), avgEntries[0])
     : null;
   const overallAvgVal = avgEntries.length > 0
     ? avgEntries.reduce((s, e) => s + e.val, 0) / avgEntries.length
     : null;
+
+  const speedAchievementsCount = (myAchievementsData || []).filter((a: any) => {
+    if (!a) return false;
+    const rawId = String(a.achievement_id || a.id || '').toLowerCase();
+    if (rawId.startsWith('speed_')) return true;
+    const modeStr = String(a.game_mode || '').toLowerCase();
+    if (modeStr.includes('speed')) return true;
+    const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(
+      d => d.id === a.achievement_id || d.id === a.id || d.title === a.title
+    );
+    return Boolean(def && def.id.startsWith('speed_'));
+  }).length;
+
+  const standardAchievementsCount = (myAchievementsData || []).filter((a: any) => {
+    if (!a) return false;
+    const rawId = String(a.achievement_id || a.id || '').toLowerCase();
+    const def = MASTER_ACHIEVEMENTS_DEFINITIONS.find(
+      d => d.id === a.achievement_id || d.id === a.id || d.title === a.title
+    );
+    const resolvedId = (def?.id || rawId).toLowerCase();
+    if (
+      resolvedId.startsWith('speed_') ||
+      resolvedId.startsWith('team_') ||
+      resolvedId.startsWith('tournament_')
+    ) {
+      return false;
+    }
+    const modeStr = String(a.game_mode || '').trim().toLowerCase();
+    if (
+      modeStr &&
+      (modeStr.includes('speed') ||
+        modeStr.includes('team') ||
+        modeStr.includes('turnier') ||
+        modeStr.includes('tournament'))
+    ) {
+      return false;
+    }
+    return true;
+  }).length;
 
   const totalEntries = filteredGames
     .filter(g => !g.disqualified && Number(g.avg) !== 999)
@@ -1934,7 +1967,7 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                             {levelInfo.currentLevelXp} / {levelInfo.neededForNextLevel} XP
                           </span>
                           <span className="block text-[10px] opacity-60">
-                            bis Stufe {levelInfo.level + 1}
+                            {levelInfo.level >= 20 ? 'Max-Level erreicht' : `bis Stufe ${levelInfo.level + 1}`}
                           </span>
                         </div>
                       </div>
@@ -2100,27 +2133,25 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     </span>
                   </div>
 
-                  {/* Kachel 2: Ø Schnäpse pro Spiel (+ größte & kleinste Schnapszahl mit Datum) / Beste Zeit */}
+                  {/* Kachel 2: Ø Schnäpse pro Spiel (+ größte & kleinste Schnapszahl mit Datum) / Ø Zeit + Beste Zeit mit Datum */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
                     <span className="text-2xl sm:text-3xl font-black text-amber-500 tracking-tight">
                       {isSpeedModeView
-                        ? `${bestTimeEntry ? bestTimeEntry.val.toFixed(1) + 's' : '-'}`
+                        ? `${avgTimeVal !== null ? avgTimeVal.toFixed(1) + 's' : '-'}`
                         : (avgSchnaepseVal !== null ? avgSchnaepseVal.toFixed(1) : '0.0')}
                     </span>
                     <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
                       darkMode ? 'text-slate-400' : 'text-gray-500'
                     }`}>
-                      {isSpeedModeView ? 'Beste Zeit' : 'Ø Schnäpse / Spiel'}
+                      {isSpeedModeView ? 'Ø Zeit / Spiel' : 'Ø Schnäpse / Spiel'}
                     </span>
                     {isSpeedModeView ? (
                       bestTimeEntry && (
                         <div className={`mt-1.5 text-[10px] font-semibold space-y-0.5 leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
-                          <div>Beste: {bestTimeEntry.val.toFixed(1)}s ({bestTimeEntry.date})</div>
-                          {slowestTimeEntry && (
-                            <div>Max: {slowestTimeEntry.val.toFixed(1)}s ({slowestTimeEntry.date})</div>
-                          )}
+                          <div>Beste: <span className="font-bold text-emerald-400">{bestTimeEntry.val.toFixed(1)}s</span></div>
+                          <div>am {bestTimeEntry.date}</div>
                         </div>
                       )
                     ) : (
@@ -2159,20 +2190,36 @@ const res = await fetch(`/api/users/profile-data?userId=${encodeURIComponent(eff
                     </div>
                   </div>
 
-                  {/* Kachel 4: Errungenschaften / Bester Score */}
+                  {/* Kachel 4: Errungenschaften (modusspezifisch für Speedwiegen & Standardspiel) */}
                   <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                     darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-gray-50 border-gray-200'
                   }`}>
                     <span className="text-2xl sm:text-3xl font-black text-purple-500 tracking-tight">
                       {isSpeedModeView
-                        ? (dynamicStats.bestScore !== null ? dynamicStats.bestScore.toFixed(2) : '-')
-                        : myAchievementsData.length}
+                        ? speedAchievementsCount
+                        : isStandardModeView
+                          ? standardAchievementsCount
+                          : myAchievementsData.length}
                     </span>
-                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[130px] break-words ${
+                    <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mt-1 leading-tight text-center max-w-[140px] break-words ${
                       darkMode ? 'text-slate-400' : 'text-gray-500'
                     }`}>
-                      {isSpeedModeView ? 'Bester Score' : 'Errungenschaften'}
+                      {isSpeedModeView
+                        ? 'Speed-Achievements'
+                        : isStandardModeView
+                          ? 'Standard-Achievements'
+                          : 'Errungenschaften'}
                     </span>
+                    {isSpeedModeView && (
+                      <div className={`mt-1.5 text-[10px] font-semibold leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                        im Speedwiegen-Modus
+                      </div>
+                    )}
+                    {isStandardModeView && (
+                      <div className={`mt-1.5 text-[10px] font-semibold leading-tight ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
+                        im Standardspiel-Modus
+                      </div>
+                    )}
                   </div>
 
                   {/* Kachel 5: Total (durchschnittlich & kleinstes inkl. Datum) */}

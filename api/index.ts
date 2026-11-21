@@ -399,6 +399,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse) {
           time_seconds: timeVal,
           total,
           levels: r.levels || null,
+          ...(r.team_name ? { team_name: String(r.team_name) } : {}),
           is_guest: true
         };
       });
@@ -1573,27 +1574,18 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 3. Errungenschaften in 'achievements' speichern
-    if (payload.achievements && Array.isArray(payload.achievements) && payload.achievements.length > 0) {
+    // 3. Errungenschaften in 'achievements' speichern (mehrfaches Erhalten über verschiedene Spiele erlaubt)
+    if (!isDuplicateGame && payload.achievements && Array.isArray(payload.achievements) && payload.achievements.length > 0) {
       try {
-        let existingAchIds = new Set<string>();
-        if (userId) {
-          const { data: existingRows } = await supabaseAdmin
-            .from('achievements')
-            .select('achievement_id')
-            .eq('user_id', userId);
-          if (existingRows) {
-            existingRows.forEach((r: any) => existingAchIds.add(r.achievement_id));
-          }
-        }
-
         const safeDate = insertPayload.date || new Date().toLocaleDateString('de-DE');
-        
+        const seenInPayload = new Set<string>();
+
         const achInserts = payload.achievements
           .filter((ach: any) => {
             const achId = ach.id || ach.achievement_id;
             if (!achId) return false;
-            if (userId && existingAchIds.has(achId)) return false;
+            if (seenInPayload.has(achId)) return false;
+            seenInPayload.add(achId);
             return true;
           })
           .map((ach: any) => {
@@ -1694,99 +1686,115 @@ async function handleSaveGameResult(req: VercelRequest, res: VercelResponse) {
         const tournamentRank = gameResultData.tournamentRank !== undefined ? Number(gameResultData.tournamentRank) : (payload.tournamentRank !== undefined ? Number(payload.tournamentRank) : undefined);
         const isDisqualified = Boolean(gameResultData.disqualified || gameResultData.isDisqualified || payload.disqualified);
 
-        const xpParams: GameXpParams = {
-          avg: insertPayload.avg !== undefined && insertPayload.avg !== null ? Number(insertPayload.avg) : (payload.avg !== undefined ? Number(payload.avg) : undefined),
-          schnaepse: insertPayload.schnaepse !== undefined && insertPayload.schnaepse !== null ? Number(insertPayload.schnaepse) : (payload.schnaepse !== undefined ? Number(payload.schnaepse) : undefined),
-          rank,
-          isWinner,
-          tournamentRank,
-          isSpeedMode: isSpeed,
-          isTeamMode: isTeam,
-          isTeamWinner,
-          disqualified: isDisqualified
-        };
-
-        xpEarned = calculateGameXp(xpParams);
-        xpBreakdown = generateXpBreakdown(xpParams);
-
         const { data: profile, error: profErr } = await supabaseAdmin
           .from('profiles')
           .select('id, xp, level, games_played, games_won, total_points, title, selected_title')
           .eq('id', userId)
           .maybeSingle();
 
-        if (!profErr && profile) {
-          const currentXp = Number(profile.xp || 0);
-          const currentLevel = Number(profile.level || 1);
-          const currentGamesPlayed = Number(profile.games_played || 0);
-          const currentGamesWon = Number(profile.games_won || 0);
-          const currentTotalPoints = Number(profile.total_points || 0);
-
-          newXp = currentXp + xpEarned;
-          const levelData = calculateLevelFromXp(newXp);
-          newLevel = levelData.level;
-          levelUp = newLevel > currentLevel;
-
-          const profileUpdates: Record<string, any> = {
-            xp: newXp,
-            level: newLevel,
-            games_played: currentGamesPlayed + 1,
-            games_won: isWinner ? currentGamesWon + 1 : currentGamesWon,
-            total_points: currentTotalPoints + (insertPayload.schnaepse || 0),
-            updated_at: new Date().toISOString()
+        if (isDuplicateGame) {
+          // 2-Minuten-Duplikatschutz: Keine erneuten Spiel-XP, Spielestatistiken oder Quest-Belohnungen gutschreiben
+          if (!profErr && profile) {
+            const existingXp = Number(profile.xp || 0);
+            newXp = existingXp;
+            newLevel = calculateLevelFromXp(existingXp).level;
+            finalProfileStats = {
+              xp: existingXp,
+              level: newLevel,
+              games_played: Number(profile.games_played || 0),
+              games_won: Number(profile.games_won || 0),
+              total_points: Number(profile.total_points || 0)
+            };
+          }
+          try {
+            const { data: existingQp } = await supabaseAdmin
+              .from('user_quest_progress')
+              .select('*')
+              .eq('user_id', userId);
+            if (Array.isArray(existingQp)) {
+              finalQuestProgress = existingQp;
+            }
+          } catch {
+            // ignore
+          }
+        } else {
+          const xpParams: GameXpParams = {
+            avg: insertPayload.avg !== undefined && insertPayload.avg !== null ? Number(insertPayload.avg) : (payload.avg !== undefined ? Number(payload.avg) : undefined),
+            schnaepse: insertPayload.schnaepse !== undefined && insertPayload.schnaepse !== null ? Number(insertPayload.schnaepse) : (payload.schnaepse !== undefined ? Number(payload.schnaepse) : undefined),
+            rank,
+            isWinner,
+            tournamentRank,
+            isSpeedMode: isSpeed,
+            isTeamMode: isTeam,
+            isTeamWinner,
+            disqualified: isDisqualified
           };
 
-          if (levelUp) {
-            unlockedTitle = levelData.title || getTitleForLevel(newLevel);
-            if (!profile.selected_title || profile.selected_title === profile.title) {
-              profileUpdates.title = unlockedTitle;
+          xpEarned = calculateGameXp(xpParams);
+          xpBreakdown = generateXpBreakdown(xpParams);
+
+          if (!profErr && profile) {
+            const currentXp = Number(profile.xp || 0);
+            const currentLevel = Math.min(20, Number(profile.level || 1));
+            const currentGamesPlayed = Number(profile.games_played || 0);
+            const currentGamesWon = Number(profile.games_won || 0);
+            const currentTotalPoints = Number(profile.total_points || 0);
+
+            newXp = currentXp + xpEarned;
+            const levelData = calculateLevelFromXp(newXp);
+            newLevel = levelData.level;
+            levelUp = newLevel > currentLevel;
+
+            const profileUpdates: Record<string, any> = {
+              xp: newXp,
+              level: newLevel,
+              games_played: currentGamesPlayed + 1,
+              games_won: isWinner ? currentGamesWon + 1 : currentGamesWon,
+              total_points: currentTotalPoints + (insertPayload.schnaepse || 0),
+              updated_at: new Date().toISOString()
+            };
+
+            if (levelUp) {
+              unlockedTitle = levelData.title || getTitleForLevel(newLevel);
+              if (!profile.selected_title || profile.selected_title === profile.title) {
+                profileUpdates.title = unlockedTitle;
+              }
             }
+
+            await supabaseAdmin
+              .from('profiles')
+              .update(profileUpdates)
+              .eq('id', userId);
+
+            finalProfileStats = profileUpdates;
           }
 
-          await supabaseAdmin
-            .from('profiles')
-            .update(profileUpdates)
-            .eq('id', userId);
-
-          finalProfileStats = profileUpdates;
-        }
-
-        // 6. Quests synchron und lückenlos auswerten (erst ab quest.created_at)
-        try {
-          const qRes = await serverEvaluateQuestsForUser(userId, roundIncrements, {
-            eventTimestampIso: savedGameCreatedAt,
-            isDuplicateGame
-          });
-          finalQuestProgress = qRes.updatedQuestProgress;
-          if (qRes.bonusXpEarned > 0) {
-            xpEarned += qRes.bonusXpEarned;
-            newXp += qRes.bonusXpEarned;
-            const finalLvl = calculateLevelFromXp(newXp);
-            newLevel = finalLvl.level;
-            if (newLevel > (profile?.level || 1)) levelUp = true;
-            finalProfileStats.xp = newXp;
-            finalProfileStats.level = newLevel;
+          // 6. Quests synchron und lückenlos auswerten (erst ab quest.created_at)
+          try {
+            const qRes = await serverEvaluateQuestsForUser(userId, roundIncrements, {
+              eventTimestampIso: savedGameCreatedAt,
+              isDuplicateGame: false
+            });
+            finalQuestProgress = qRes.updatedQuestProgress;
+            if (qRes.bonusXpEarned > 0) {
+              xpEarned += qRes.bonusXpEarned;
+              newXp += qRes.bonusXpEarned;
+              const finalLvl = calculateLevelFromXp(newXp);
+              newLevel = finalLvl.level;
+              if (newLevel > Math.min(20, Number(profile?.level || 1))) levelUp = true;
+              finalProfileStats.xp = newXp;
+              finalProfileStats.level = newLevel;
+            }
+            if (qRes.unlockedTitles.length > 0 && !unlockedTitle) {
+              unlockedTitle = qRes.unlockedTitles[0];
+            }
+          } catch (questEvalErr) {
+            console.warn('Fehler bei synchroner Quest-Auswertung:', questEvalErr);
           }
-          if (qRes.unlockedTitles.length > 0 && !unlockedTitle) {
-            unlockedTitle = qRes.unlockedTitles[0];
-          }
-        } catch (questEvalErr) {
-          console.warn('Fehler bei synchroner Quest-Auswertung:', questEvalErr);
         }
 
       } catch (xpErr) {
         console.error('Fehler bei XP-Berechnung oder Profil-Update:', xpErr);
-      }
-    }
-
-    if (isTeamGame && payload.teamPlayerUserIds && Array.isArray(payload.teamPlayerUserIds)) {
-      for (const tpId of payload.teamPlayerUserIds) {
-        if (tpId && tpId !== userId) {
-          serverEvaluateQuestsForUser(tpId, roundIncrements, {
-            eventTimestampIso: savedGameCreatedAt,
-            isDuplicateGame
-          }).catch(e => console.warn('Quest evaluation error for team player:', e));
-        }
       }
     }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { getNameTagOption, getNameGlowOption, hasActiveNameGlow } from '../constants/nameTagConfig';
+import { getNameTagOption, getNameGlowOption, hasActiveNameGlow, hexToRgbString } from '../constants/nameTagConfig';
 
 interface PlayerNameTagProps {
   name: string;
@@ -1091,6 +1091,9 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
     );
   }
 
+  const isNeonGlow = hasGlow && glowOption.patternId === 'neon-glow';
+  const glowRgb = hasGlow ? hexToRgbString(glowOption.colorHex) : '';
+
   // Standard-Fall: Nur Glow ohne farbigen Hintergrund
   if (!hasBg && hasGlow) {
     return (
@@ -1099,10 +1102,11 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
           vertical
             ? 'inline-flex flex-col items-center justify-center px-1.5 py-1.5 min-w-[24px]'
             : 'inline-flex items-center px-2.5 py-0.5'
-        } my-0.5 mx-0.5 rounded-lg font-black tracking-wide transition-all border-2 bg-slate-900/40 dark:bg-slate-900/60 backdrop-blur-xs ${glowClass} ${className}`}
+        } my-0.5 mx-0.5 rounded-lg font-black tracking-wide transition-all ${isNeonGlow ? '' : 'border-2'} bg-slate-900/40 dark:bg-slate-900/60 backdrop-blur-xs ${glowClass} ${className}`}
         style={{
-          borderColor: glowOption.colorHex,
+          ...(isNeonGlow ? {} : { borderColor: glowOption.colorHex }),
           ['--glow-color' as any]: glowOption.colorHex,
+          ['--glow-color-rgb' as any]: glowRgb,
           ...style
         }}
         title={tooltipText}
@@ -1134,7 +1138,13 @@ export const PlayerNameTag: React.FC<PlayerNameTagProps> = ({
         backgroundColor: isSpecialBg ? undefined : bgOption.bgHex,
         color: bgOption.textHex,
         ...cleanBgStyle,
-        ...(hasGlow ? { borderColor: glowOption.colorHex, ['--glow-color' as any]: glowOption.colorHex } : {}),
+        ...(hasGlow
+          ? {
+              ...(isNeonGlow ? {} : { borderColor: glowOption.colorHex }),
+              ['--glow-color' as any]: glowOption.colorHex,
+              ['--glow-color-rgb' as any]: glowRgb
+            }
+          : {}),
         ...style
       }}
       title={tooltipText}

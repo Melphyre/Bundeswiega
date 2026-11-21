@@ -1181,6 +1181,27 @@ const PATTERN_ALIAS_MAP: Record<string, NameBorderPatternId> = {
   'matrix-frame': 'matrix-frame'
 };
 
+export const hexToRgbString = (hex?: string | null, fallback = '59, 130, 246'): string => {
+  if (!hex || typeof hex !== 'string') return fallback;
+  const cleaned = hex.trim().replace(/^#/, '');
+  if (cleaned.length === 3) {
+    const r = parseInt(cleaned[0] + cleaned[0], 16);
+    const g = parseInt(cleaned[1] + cleaned[1], 16);
+    const b = parseInt(cleaned[2] + cleaned[2], 16);
+    if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+      return `${r}, ${g}, ${b}`;
+    }
+  } else if (cleaned.length === 6) {
+    const r = parseInt(cleaned.slice(0, 2), 16);
+    const g = parseInt(cleaned.slice(2, 4), 16);
+    const b = parseInt(cleaned.slice(4, 6), 16);
+    if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+      return `${r}, ${g}, ${b}`;
+    }
+  }
+  return fallback;
+};
+
 export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
   if (!raw || raw === 'none' || raw === 'transparent' || raw === 'none:none') {
     return {
@@ -1256,6 +1277,7 @@ export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
 
   const isColorNone = patternOption.id === 'none' || resolvedColorId === 'none' || explicitHex === 'transparent';
   const colorHex = isColorNone ? 'transparent' : (explicitHex || colorOption.bgHex);
+  const colorRgb = isColorNone ? '' : hexToRgbString(colorHex);
   const glowClass = isColorNone ? '' : patternOption.cssClass;
   const colorLabel = isColorNone ? 'Keine Farbe' : (explicitLabel || colorOption.label);
   const label = isColorNone
@@ -1273,7 +1295,8 @@ export const parseNameBorder = (raw?: string | null): ParsedNameBorder => {
     compositeKey: `${patternOption.id}:${colorOption.id}`,
     style: isColorNone ? {} : {
       ['--glow-color' as any]: colorHex,
-      borderColor: colorHex
+      ['--glow-color-rgb' as any]: colorRgb,
+      ...(patternOption.id === 'neon-glow' ? {} : { borderColor: colorHex })
     }
   };
 };

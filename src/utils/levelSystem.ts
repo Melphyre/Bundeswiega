@@ -472,17 +472,26 @@ export const calculateLevelFromXp = (totalXp: number = 0): LevelInfo => {
     }
   }
 
-  if (safeXp >= LEVEL_PROGRESSION_TABLE[LEVEL_PROGRESSION_TABLE.length - 1].cumulativeXp) {
-    const rawLevel = Math.floor((1 + Math.sqrt(1 + 4 * (safeXp / 50))) / 2);
-    level = Math.max(level, rawLevel);
+  level = Math.max(1, Math.min(20, level));
+
+  let currentLevelXp: number;
+  let neededForNextLevel: number;
+  let progressPercent: number;
+
+  if (level >= 20) {
+    const maxLevelSpan = Math.max(1, xpForLevel(20) - xpForLevel(19));
+    currentLevelXp = maxLevelSpan;
+    neededForNextLevel = maxLevelSpan;
+    progressPercent = 100;
+  } else {
+    const currentLevelStartXp = xpForLevel(level);
+    const nextLevelStartXp = xpForLevel(level + 1);
+    neededForNextLevel = Math.max(1, nextLevelStartXp - currentLevelStartXp);
+    currentLevelXp = safeXp - currentLevelStartXp;
+    progressPercent = Math.min(100, Math.max(0, Math.round((currentLevelXp / neededForNextLevel) * 100)));
   }
 
-  const currentLevelStartXp = xpForLevel(level);
-  const nextLevelStartXp = xpForLevel(level + 1);
-  const neededForNextLevel = Math.max(1, nextLevelStartXp - currentLevelStartXp);
-  const currentLevelXp = safeXp - currentLevelStartXp;
-  const progressPercent = Math.min(100, Math.max(0, Math.round((currentLevelXp / neededForNextLevel) * 100)));
-  const nextReward = LEVEL_REWARDS.find(r => r.level > level);
+  const nextReward = level >= 20 ? undefined : LEVEL_REWARDS.find(r => r.level > level);
 
   return {
     level,
@@ -606,19 +615,9 @@ export const calculateGameXp = (params: GameXpParams): GameXpResult => {
 };
 
 /**
- * Ermittelt faire kumulierte Basis-XP aus historischen Profilstatistiken
- * (ohne Berücksichtigung von Achievements).
+ * Liefert die gespeicherten XP aus Profilstatistiken ohne veraltete Schätz-Fallbacks.
  */
 export const calculateTotalXpFromStats = (stats: any): number => {
-  if (!stats) return 0;
-  if (stats.xp !== undefined && stats.xp !== null && Number(stats.xp) > 0) {
-    return Number(stats.xp);
-  }
-
-  const gamesPlayed = Number(stats.games_played ?? stats.gamesPlayed ?? 0);
-  const totalSchnaepse = Number(stats.total_points ?? stats.totalPoints ?? stats.totalSchnaepse ?? 0);
-  const gamesWon = Number(stats.games_won ?? stats.gamesWon ?? 0);
-
-  const estimated = (gamesPlayed * 60) + (totalSchnaepse * 8) + (gamesWon * 50);
-  return Math.max(0, estimated);
+  if (!stats || stats.xp === undefined || stats.xp === null) return 0;
+  return Math.max(0, Number(stats.xp) || 0);
 };
